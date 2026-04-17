@@ -124,6 +124,45 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
         }
     }
 
+    public bool DeleteImportedGame(string gameFingerprint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(gameFingerprint);
+
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            bool exists = database.Exists(
+                """
+                SELECT 1
+                FROM imported_games
+                WHERE game_fingerprint = ?1
+                LIMIT 1;
+                """,
+                statement => statement.BindText(1, gameFingerprint));
+
+            database.ExecuteNonQuery(
+                """
+                DELETE FROM analysis_results
+                WHERE game_fingerprint = ?1;
+                """,
+                statement => statement.BindText(1, gameFingerprint));
+            database.ExecuteNonQuery(
+                """
+                DELETE FROM analysis_window_states
+                WHERE game_fingerprint = ?1;
+                """,
+                statement => statement.BindText(1, gameFingerprint));
+            database.ExecuteNonQuery(
+                """
+                DELETE FROM imported_games
+                WHERE game_fingerprint = ?1;
+                """,
+                statement => statement.BindText(1, gameFingerprint));
+
+            return exists;
+        }
+    }
+
     public IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText = null, int limit = 200)
     {
         string normalizedFilter = filterText?.Trim().ToLowerInvariant() ?? string.Empty;
@@ -463,6 +502,20 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
             statement.StepUntilDone();
         }
 
+        public void ExecuteNonQuery(string sql, Action<SqliteStatement> bind)
+        {
+            using SqliteStatement statement = Prepare(sql);
+            bind(statement);
+            statement.StepUntilDone();
+        }
+
+        public bool Exists(string sql, Action<SqliteStatement> bind)
+        {
+            using SqliteStatement statement = Prepare(sql);
+            bind(statement);
+            return statement.Step() == SqliteRow;
+        }
+
         public SqliteStatement Prepare(string sql)
         {
             int result = sqlite3_prepare16_v2(Handle, sql, -1, out IntPtr statement, IntPtr.Zero);
@@ -580,7 +633,7 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
         string players = $"{whitePlayer ?? "White"} vs {blackPlayer ?? "Black"}";
         string datePart = string.IsNullOrWhiteSpace(dateText) ? string.Empty : $" | {dateText}";
         string resultPart = string.IsNullOrWhiteSpace(result) ? string.Empty : $" | {result}";
-        string ecoPart = string.IsNullOrWhiteSpace(eco) ? string.Empty : $" | {eco}";
+        string ecoPart = string.IsNullOrWhiteSpace(eco) ? string.Empty : $" | {OpeningCatalog.Describe(eco)}";
         return players + datePart + resultPart + ecoPart;
     }
 

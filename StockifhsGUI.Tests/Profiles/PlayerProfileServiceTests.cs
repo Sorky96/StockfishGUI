@@ -33,6 +33,14 @@ public sealed class PlayerProfileServiceTests
                 "B01",
                 "2026.05.21",
                 [CreateSelectedMistake("hanging_piece", MoveQualityBucket.Mistake)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 180, "hanging_piece")]),
+            CreateResult(
+                "Omega",
+                "Alpha",
+                PlayerSide.Black,
+                "B01",
+                "2026.06.04",
+                [CreateSelectedMistake("hanging_piece", MoveQualityBucket.Mistake)],
                 [CreateMoveAnalysis(GamePhase.Endgame, 180, "hanging_piece")])
         ]);
 
@@ -45,11 +53,27 @@ public sealed class PlayerProfileServiceTests
 
         Assert.True(found);
         Assert.NotNull(report);
-        Assert.Equal(3, report!.GamesAnalyzed);
+        Assert.Equal(4, report!.GamesAnalyzed);
         Assert.Equal("hanging_piece", report.TopMistakeLabels[0].Label);
-        Assert.Equal(2, report.TopMistakeLabels[0].Count);
-        Assert.Contains(report.Recommendations, item => item.Title.Contains("Protect Loose Pieces", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(3, report.TopMistakeLabels[0].Count);
+        TrainingRecommendation topRecommendation = Assert.Single(
+            report.Recommendations,
+            item => item.Title.Contains("Protect Loose Pieces", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(1, topRecommendation.Priority);
+        Assert.Equal("Board safety", topRecommendation.FocusArea);
+        Assert.Equal(GamePhase.Middlegame, topRecommendation.EmphasisPhase);
+        Assert.Equal(PlayerSide.Black, topRecommendation.EmphasisSide);
+        Assert.Contains("B01", topRecommendation.RelatedOpenings);
+        Assert.NotEmpty(topRecommendation.Checklist);
+        Assert.NotEmpty(topRecommendation.SuggestedDrills);
         Assert.Contains(report.MonthlyTrend, item => item.MonthKey == "2026-05" && item.GamesAnalyzed == 2);
+        Assert.Contains("middlegame", topRecommendation.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Alpha Weekly Training Plan", report.WeeklyPlan.Title);
+        Assert.Equal(7, report.WeeklyPlan.Days.Count);
+        Assert.Equal("Board safety", report.WeeklyPlan.Days[0].PrimaryFocus);
+        Assert.Contains("Protect Loose Pieces", report.WeeklyPlan.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(report.WeeklyPlan.Days, day => day.Theme.Contains("Applied game", StringComparison.OrdinalIgnoreCase));
+        Assert.All(report.WeeklyPlan.Days, day => Assert.NotEmpty(day.Activities));
     }
 
     [Fact]
@@ -161,6 +185,7 @@ public sealed class PlayerProfileServiceTests
             return filtered.Take(limit).ToList();
         }
 
+        public bool DeleteImportedGame(string gameFingerprint) => throw new NotSupportedException();
         public IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText = null, int limit = 200) => [];
         public void SaveImportedGame(ImportedGame game) => throw new NotSupportedException();
         public bool TryLoadImportedGame(string gameFingerprint, out ImportedGame? game) => throw new NotSupportedException();

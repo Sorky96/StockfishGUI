@@ -16,17 +16,15 @@ public partial class Form1
         pieceMoveOptionsLabel = new Label
         {
             AutoSize = false,
-            Location = new Point(TileSize * GridSize + 20, 560),
-            Size = new Size(260, 36),
             Text = "Selected piece: none"
         };
         Controls.Add(pieceMoveOptionsLabel);
 
         pieceMoveOptionsList = new ListBox
         {
-            Location = new Point(TileSize * GridSize + 20, 600),
-            Size = new Size(260, 148),
-            Font = new Font("Consolas", 9)
+            Font = new Font("Consolas", 9),
+            HorizontalScrollbar = true,
+            IntegralHeight = false
         };
         pieceMoveOptionsList.SelectedIndexChanged += (_, _) => UpdatePieceMoveOptionPreview();
         Controls.Add(pieceMoveOptionsList);
@@ -52,7 +50,7 @@ public partial class Form1
         if (movesForPiece.Count == 0)
         {
             pieceMoveOptionsList.Items.Add("No legal moves for this piece.");
-            Invalidate();
+            InvalidateBoardSurface();
             return;
         }
 
@@ -236,7 +234,7 @@ public partial class Form1
             pieceMoveOptionsList.Items.Add("Select a piece to inspect all legal moves.");
         }
 
-        Invalidate();
+        InvalidateBoardSurface();
     }
 
     private void UpdatePieceMoveOptionPreview()
@@ -251,7 +249,7 @@ public partial class Form1
             pieceMoveOptionTargetSquare = null;
         }
 
-        Invalidate();
+        InvalidateBoardSurface();
     }
 
     private static string BuildPieceMoveOptionsCacheKey(string fen, string fromSquare)

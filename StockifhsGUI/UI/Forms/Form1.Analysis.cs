@@ -24,6 +24,43 @@ public partial class Form1
         return Task.CompletedTask;
     }
 
+    private void OpenSavedAnalyses()
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        if (store is null)
+        {
+            MessageBox.Show("Local analysis storage is unavailable on this machine.", "Saved Analyses", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using SavedAnalysesForm dialog = new(store, canOpenAnalysis: engine is not null);
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.SelectedResult is null)
+        {
+            return;
+        }
+
+        try
+        {
+            LoadImportedGame(dialog.SelectedResult.Game);
+
+            if (dialog.RequestedAction == SavedAnalysisAction.OpenAnalysis)
+            {
+                if (engine is null)
+                {
+                    MessageBox.Show(MissingEngineMessage, "Saved Analyses", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                using GameAnalysisForm analysisForm = new(dialog.SelectedResult.Game, engine, NavigateToAnalysisMistake, dialog.SelectedResult.AnalyzedSide);
+                analysisForm.ShowDialog(this);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not open the selected saved analysis.{Environment.NewLine}{ex.Message}", "Saved Analyses", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
     private void OpenPlayerProfiles()
     {
         IAnalysisStore? store = AnalysisStoreProvider.GetStore();
@@ -62,7 +99,7 @@ public partial class Form1
         SetAnalysisTargetSquare(moveAnalysis.Replay.Uci);
 
         suggestionLabel.Text = $"Analysis focus: {FormatSanAndUci(moveAnalysis.Replay.San, moveAnalysis.Replay.Uci)} | best {FormatBestMoveLabel(moveAnalysis)}";
-        Invalidate();
+        InvalidateBoardSurface();
     }
 
     private void AddAnalysisArrow(string uciMove, Color color)

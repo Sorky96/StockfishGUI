@@ -145,6 +145,25 @@ public static class GameAnalysisCache
         }
     }
 
+    public static void RemoveGame(string gameFingerprint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(gameFingerprint);
+
+        lock (Sync)
+        {
+            List<GameAnalysisCacheKey> keysToRemove = ResultCache.Keys
+                .Where(key => string.Equals(key.GameFingerprint, gameFingerprint, StringComparison.Ordinal))
+                .ToList();
+
+            foreach (GameAnalysisCacheKey key in keysToRemove)
+            {
+                ResultCache.Remove(key);
+            }
+
+            WindowStateCache.Remove(gameFingerprint);
+        }
+    }
+
     private static bool TryLoadResultFromStore(IAnalysisStore store, GameAnalysisCacheKey key, out GameAnalysisResult? result)
     {
         try

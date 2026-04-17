@@ -69,13 +69,14 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] Biblioteka zapisanych partii z filtrowaniem i ponownym wczytaniem do głównej planszy.
 - [x] Podstawowy `PlayerProfileService` agregujący zapisane analizy wielu partii.
 - [x] Prosty widok profilu gracza z top kategoriami błędów, fazami, otwarciami i trendem miesięcznym.
+- [x] Podstawowe rekomendacje treningowe z priorytetami, checklistą i sugerowanymi ćwiczeniami.
 - [x] Testy jednostkowe, integracyjne i end-to-end dla MVP jednej partii.
 
 ### Co jest świadomie jeszcze poza MVP
 - [ ] zapis wyników analizy do SQLite,
-- [ ] historia analiz i odczyt wcześniejszych partii,
+- [x] historia analiz i odczyt wcześniejszych partii,
 - [ ] bardziej zaawansowany profil gracza z wielu partii,
-- [ ] bogatsze rekomendacje treningowe oparte o dane historyczne,
+- [x] bardziej adaptacyjne rekomendacje treningowe oparte o dane historyczne,
 - [ ] warstwa LLM,
 - [ ] dalsze porządkowanie `Form1`, ale bez lokalnej logiki legal moves / SAN jako źródła prawdy.
 
@@ -415,9 +416,16 @@ Odpowiedzialność:
 - jeśli dominują problemy z bezpieczeństwem króla -> motywy ataku na króla i struktury osłonowe.
 
 ### Zadania
-- [ ] Zmapować kategorie błędów na typy treningu.
-- [ ] Dodać gotowe ćwiczenia lub checklisty.
-- [ ] Pokazywać 1-3 priorytety zamiast długiej listy.
+- [x] Zmapować kategorie błędów na typy treningu.
+- [x] Dodać gotowe ćwiczenia lub checklisty.
+- [x] Pokazywać 1-3 priorytety zamiast długiej listy.
+
+Stan po bieżącej iteracji:
+- rekomendacje uwzględniają dominującą fazę partii dla danego wzorca błędu,
+- rekomendacje uwzględniają kolor, którym najczęściej pojawia się problem,
+- rekomendacje podpowiadają też najczęstsze otwarcia / kody ECO powiązane z danym motywem,
+- widok profilu pokazuje już kontekst rekomendacji obok checklisty i sugerowanych ćwiczeń,
+- profil generuje też tygodniowy plan treningowy oparty o 1-3 najwyższe priorytety.
 
 ---
 
@@ -867,7 +875,11 @@ Stan po bieżącej iteracji:
 - po ponownym imporcie tej samej partii analiza i stan okna mogą wrócić bez ponownego liczenia,
 - stan okna obejmuje już także wybrany poziom wyjaśnień,
 - aplikacja zapisuje też same zaimportowane PGN i pozwala filtrować je po graczu, dacie, ECO, wyniku lub serwisie,
-- historia wielu zapisanych analiz i osobny widok przeglądania wyników nadal pozostają kolejnym krokiem.
+- z poziomu biblioteki zapisanych partii można też usunąć PGN razem z powiązaną analizą i stanem okna,
+- w UI statystyk i zapisanych partii kody ECO są tłumaczone na bardziej czytelne nazwy debiutów dla gracza,
+- główne okno oraz dialogi profili i zapisanych partii mają już bardziej responsywny układ przy zmianie rozmiaru,
+- pojawił się też osobny widok zapisanych analiz z filtrowaniem oraz przejściem do `Load Game` lub `Open Analysis`,
+- dalsze rozwinięcie historii, np. bogatsze grupowanie, sortowanie i bardziej szczegółowe statystyki zapisanych analiz, nadal pozostaje kolejnym krokiem.
 
 ### Krok 5 - profil gracza i analiza wielu partii
 - [x] agregować wyniki wielu zapisanych analiz,
@@ -877,9 +889,10 @@ Stan po bieżącej iteracji:
 Stan po bieżącej iteracji:
 - `PlayerProfileService` agreguje zapisane analizy po analizowanym graczu,
 - profil pokazuje liczbę przeanalizowanych partii, średni CPL, top etykiety błędów, fazy gry i otwarcia,
-- pojawił się prosty trend miesięczny oraz 1-3 podstawowe priorytety treningowe,
+- pojawił się prosty trend miesięczny oraz 1-3 priorytety treningowe z checklistą i sugerowanymi ćwiczeniami,
+- profil układa też deterministyczny tygodniowy plan treningowy z dniami, aktywnościami i kryterium ukończenia,
 - w UI głównego okna można otworzyć widok profili i filtrować graczy po nazwie,
-- kolejnym krokiem pozostaje bardziej zaawansowane grupowanie historyczne, lepsze trendy i bogatsze rekomendacje.
+- kolejnym krokiem pozostaje bardziej zaawansowane grupowanie historyczne, lepsze trendy i później np. automatyczne śledzenie realizacji takiego planu.
 
 ## Sprint 1
 - [x] Import PGN

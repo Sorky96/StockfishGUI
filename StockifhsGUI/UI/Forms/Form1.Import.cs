@@ -21,6 +21,7 @@ public partial class Form1
     private Button? applySelectedImportedButton;
     private Button? analyzeImportedButton;
     private Button? playerProfilesButton;
+    private Button? savedAnalysesButton;
     private Label? importedMovesLabel;
     private ListBox? importedMovesList;
     private int importedMoveCursor;
@@ -32,7 +33,6 @@ public partial class Form1
         undoButton = new Button
         {
             Text = "Undo",
-            Location = new Point(430, TileSize * GridSize + 5),
             Size = new Size(80, 30)
         };
         undoButton.Click += (_, _) => UndoLastMove();
@@ -41,7 +41,6 @@ public partial class Form1
         importPgnButton = new Button
         {
             Text = "Paste PGN",
-            Location = new Point(TileSize * GridSize + 20, 16),
             Size = new Size(120, 32)
         };
         importPgnButton.Click += (_, _) => ImportMovesFromPgn();
@@ -50,7 +49,6 @@ public partial class Form1
         loadSavedGamesButton = new Button
         {
             Text = "Load Saved",
-            Location = new Point(TileSize * GridSize + 150, 16),
             Size = new Size(120, 32)
         };
         loadSavedGamesButton.Click += (_, _) => LoadSavedImportedGame();
@@ -59,7 +57,6 @@ public partial class Form1
         applyNextImportedButton = new Button
         {
             Text = "Apply Next",
-            Location = new Point(TileSize * GridSize + 20, 56),
             Size = new Size(120, 32)
         };
         applyNextImportedButton.Click += (_, _) => ApplyNextImportedMove();
@@ -68,7 +65,6 @@ public partial class Form1
         applySelectedImportedButton = new Button
         {
             Text = "Apply Selected",
-            Location = new Point(TileSize * GridSize + 150, 56),
             Size = new Size(120, 32)
         };
         applySelectedImportedButton.Click += (_, _) => ApplyImportedMovesThroughSelection();
@@ -77,7 +73,6 @@ public partial class Form1
         analyzeImportedButton = new Button
         {
             Text = "Analyze Imported",
-            Location = new Point(TileSize * GridSize + 20, 96),
             Size = new Size(120, 32)
         };
         analyzeImportedButton.Click += async (_, _) => await OpenImportedGameAnalysisAsync();
@@ -86,16 +81,22 @@ public partial class Form1
         playerProfilesButton = new Button
         {
             Text = "Profiles",
-            Location = new Point(TileSize * GridSize + 150, 96),
             Size = new Size(120, 32)
         };
         playerProfilesButton.Click += (_, _) => OpenPlayerProfiles();
         Controls.Add(playerProfilesButton);
 
+        savedAnalysesButton = new Button
+        {
+            Text = "Saved Analyses",
+            Size = new Size(120, 32)
+        };
+        savedAnalysesButton.Click += (_, _) => OpenSavedAnalyses();
+        Controls.Add(savedAnalysesButton);
+
         importedMovesLabel = new Label
         {
             AutoSize = false,
-            Location = new Point(TileSize * GridSize + 20, 140),
             Size = new Size(260, 52),
             Text = "Imported moves: none"
         };
@@ -103,9 +104,9 @@ public partial class Form1
 
         importedMovesList = new ListBox
         {
-            Location = new Point(TileSize * GridSize + 20, 196),
-            Size = new Size(260, 194),
-            Font = new Font("Consolas", 10)
+            Font = new Font("Consolas", 10),
+            HorizontalScrollbar = true,
+            IntegralHeight = false
         };
         importedMovesList.SelectedIndexChanged += (_, _) => ApplyImportedMovesThroughSelection(resetToStart: true);
         importedMovesList.DoubleClick += (_, _) => ApplyImportedMovesThroughSelection();
@@ -315,7 +316,7 @@ public partial class Form1
 
         RefreshEngineSuggestions();
         UpdateExtendedControls();
-        Invalidate();
+        InvalidateBoardSurface();
 
         if (replayFailed)
         {
@@ -406,7 +407,7 @@ public partial class Form1
         }
 
         UpdateExtendedControls();
-        Invalidate();
+        InvalidateBoardSurface();
         return true;
     }
 
@@ -487,6 +488,11 @@ public partial class Form1
         {
             playerProfilesButton.Enabled = AnalysisStoreProvider.GetStore() is not null;
         }
+
+        if (savedAnalysesButton is not null)
+        {
+            savedAnalysesButton.Enabled = AnalysisStoreProvider.GetStore() is not null;
+        }
     }
 
     private void LoadImportedGame(ImportedGame parsedGame)
@@ -541,7 +547,7 @@ public partial class Form1
         string players = $"{importedGame.WhitePlayer ?? "White"} vs {importedGame.BlackPlayer ?? "Black"}";
         string result = string.IsNullOrWhiteSpace(importedGame.Result) ? "Result: ?" : $"Result: {importedGame.Result}";
         string date = string.IsNullOrWhiteSpace(importedGame.DateText) ? string.Empty : $" | {importedGame.DateText}";
-        string eco = string.IsNullOrWhiteSpace(importedGame.Eco) ? string.Empty : $" | {importedGame.Eco}";
+        string eco = string.IsNullOrWhiteSpace(importedGame.Eco) ? string.Empty : $" | {OpeningCatalog.Describe(importedGame.Eco)}";
         string analysisStatus = HasSavedAnalysis(importedGame, out PlayerSide? savedSide)
             ? $" | saved analysis: {savedSide}"
             : string.Empty;

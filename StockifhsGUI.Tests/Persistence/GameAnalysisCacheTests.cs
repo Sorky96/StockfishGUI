@@ -69,6 +69,47 @@ public sealed class GameAnalysisCacheTests
     }
 
     [Fact]
+    public void GameAnalysisCache_RemoveGameClearsResultsAndWindowStateForFingerprint()
+    {
+        try
+        {
+            GameAnalysisCache.OverridePersistentStore(null);
+            GameAnalysisCache.Clear();
+            ImportedGame game = PgnGameParser.Parse(MiniPgn);
+            ImportedGame otherGame = PgnGameParser.Parse(
+                """
+[Event "Mini 2"]
+[Site "Local"]
+[Date "2026.04.18"]
+[White "OtherWhite"]
+[Black "OtherBlack"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 1-0
+""");
+
+            GameAnalysisCache.StoreResult(
+                GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions()),
+                new GameAnalysisResult(game, PlayerSide.White, [], [], []));
+            GameAnalysisCache.StoreWindowState(game, new AnalysisWindowState(PlayerSide.White, 1, 1));
+            GameAnalysisCache.StoreResult(
+                GameAnalysisCache.CreateKey(otherGame, PlayerSide.Black, new EngineAnalysisOptions()),
+                new GameAnalysisResult(otherGame, PlayerSide.Black, [], [], []));
+
+            GameAnalysisCache.RemoveGame(GameFingerprint.Compute(game.PgnText));
+
+            Assert.False(GameAnalysisCache.TryGetResult(GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions()), out _));
+            Assert.False(GameAnalysisCache.TryGetWindowState(game, out _));
+            Assert.True(GameAnalysisCache.TryGetResult(GameAnalysisCache.CreateKey(otherGame, PlayerSide.Black, new EngineAnalysisOptions()), out _));
+        }
+        finally
+        {
+            GameAnalysisCache.ResetPersistentStoreOverride();
+            GameAnalysisCache.Clear();
+        }
+    }
+
+    [Fact]
     public void GameAnalysisCache_LoadsPersistedResultAfterMemoryClear()
     {
         string databasePath = CreateTempDatabasePath();

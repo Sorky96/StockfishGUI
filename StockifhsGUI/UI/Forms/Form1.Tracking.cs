@@ -23,7 +23,6 @@ public partial class Form1
         startTrackingButton = new Button
         {
             Text = "Start Tracking",
-            Location = new Point(TileSize * GridSize + 20, 408),
             Size = new Size(120, 32)
         };
         startTrackingButton.Click += async (_, _) => await StartTrackingAsync();
@@ -32,7 +31,6 @@ public partial class Form1
         stopTrackingButton = new Button
         {
             Text = "Stop Tracking",
-            Location = new Point(TileSize * GridSize + 150, 408),
             Size = new Size(120, 32),
             Enabled = false
         };
@@ -42,7 +40,6 @@ public partial class Form1
         alwaysOnTopCheckBox = new CheckBox
         {
             AutoSize = true,
-            Location = new Point(TileSize * GridSize + 20, 450),
             Text = "Always on top"
         };
         alwaysOnTopCheckBox.CheckedChanged += (_, _) => TopMost = alwaysOnTopCheckBox.Checked;
@@ -51,7 +48,6 @@ public partial class Form1
         trackingStatusLabel = new Label
         {
             AutoSize = false,
-            Location = new Point(TileSize * GridSize + 20, 476),
             Size = new Size(260, 72),
             Text = "Tracking: idle"
         };
@@ -226,7 +222,7 @@ public partial class Form1
 
         RefreshEngineSuggestions();
         UpdateExtendedControls();
-        Invalidate();
+        InvalidateBoardSurface();
         return true;
     }
 

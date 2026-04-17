@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 
@@ -17,53 +18,90 @@ public sealed class PlayerProfilesForm : Form
 
         Text = "Player Profiles";
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(980, 620);
-        MinimumSize = new Size(980, 620);
+        ClientSize = new Size(1120, 720);
+        MinimumSize = new Size(920, 620);
+
+        TableLayoutPanel rootLayout = new()
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(16),
+            ColumnCount = 1,
+            RowCount = 2
+        };
+        rootLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        Controls.Add(rootLayout);
+
+        TableLayoutPanel topBar = new()
+        {
+            Dock = DockStyle.Top,
+            ColumnCount = 4,
+            AutoSize = true,
+            Margin = Padding.Empty
+        };
+        topBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        topBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 360f));
+        topBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 16f));
+        topBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        rootLayout.Controls.Add(topBar, 0, 0);
 
         Label filterLabel = new()
         {
             AutoSize = true,
-            Location = new Point(16, 18),
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(0, 6, 12, 0),
             Text = "Filter by analyzed player:"
         };
-        Controls.Add(filterLabel);
+        topBar.Controls.Add(filterLabel, 0, 0);
 
         filterTextBox = new TextBox
         {
-            Location = new Point(16, 42),
-            Size = new Size(360, 28)
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            Margin = new Padding(0, 2, 0, 0)
         };
         filterTextBox.TextChanged += (_, _) => RefreshList();
-        Controls.Add(filterTextBox);
+        topBar.Controls.Add(filterTextBox, 1, 0);
 
         Button closeButton = new()
         {
             Text = "Close",
-            Location = new Point(392, 40),
-            Size = new Size(120, 32)
+            Size = new Size(120, 32),
+            Anchor = AnchorStyles.Left
         };
         closeButton.Click += (_, _) => DialogResult = DialogResult.OK;
-        Controls.Add(closeButton);
+        topBar.Controls.Add(closeButton, 3, 0);
+
+        SplitContainer splitContainer = new()
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 16, 0, 0),
+            FixedPanel = FixedPanel.Panel1,
+            SplitterDistance = 340
+        };
+        rootLayout.Controls.Add(splitContainer, 0, 1);
 
         profilesListBox = new ListBox
         {
-            Location = new Point(16, 88),
-            Size = new Size(360, 512),
-            Font = new Font("Consolas", 10)
+            Dock = DockStyle.Fill,
+            Font = new Font("Consolas", 10),
+            HorizontalScrollbar = true,
+            IntegralHeight = false
         };
         profilesListBox.SelectedIndexChanged += (_, _) => UpdateDetails();
-        Controls.Add(profilesListBox);
+        splitContainer.Panel1.Padding = new Padding(0);
+        splitContainer.Panel1.Controls.Add(profilesListBox);
 
         detailsTextBox = new TextBox
         {
-            Location = new Point(392, 88),
-            Size = new Size(572, 512),
+            Dock = DockStyle.Fill,
             Multiline = true,
             ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
+            ScrollBars = ScrollBars.Both,
+            WordWrap = false,
             Font = new Font("Consolas", 10)
         };
-        Controls.Add(detailsTextBox);
+        splitContainer.Panel2.Padding = new Padding(0);
+        splitContainer.Panel2.Controls.Add(detailsTextBox);
 
         RefreshList();
     }
@@ -153,7 +191,7 @@ public sealed class PlayerProfilesForm : Form
         {
             foreach (ProfileOpeningStat openingStat in report.MistakesByOpening)
             {
-                builder.AppendLine($"- {openingStat.Eco}: {openingStat.Count}");
+                builder.AppendLine($"- {OpeningCatalog.Describe(openingStat.Eco)}: {openingStat.Count}");
             }
         }
 
@@ -188,15 +226,72 @@ public sealed class PlayerProfilesForm : Form
         {
             foreach (TrainingRecommendation recommendation in report.Recommendations)
             {
-                builder.AppendLine($"- {recommendation.Title}: {recommendation.Description}");
+                builder.AppendLine($"{recommendation.Priority}. {recommendation.Title} ({recommendation.FocusArea})");
+                builder.AppendLine($"   {recommendation.Description}");
+                builder.AppendLine($"   Emphasis: {FormatRecommendationContext(recommendation)}");
+                builder.AppendLine("   Checklist:");
+                foreach (string checklistItem in recommendation.Checklist)
+                {
+                    builder.AppendLine($"   - {checklistItem}");
+                }
+
+                builder.AppendLine("   Suggested drills:");
+                foreach (string drill in recommendation.SuggestedDrills)
+                {
+                    builder.AppendLine($"   - {drill}");
+                }
+
+                builder.AppendLine();
             }
         }
 
-        detailsTextBox.Text = builder.ToString();
+        builder.AppendLine("Weekly training plan:");
+        builder.AppendLine(report.WeeklyPlan.Title);
+        builder.AppendLine(report.WeeklyPlan.Summary);
+        builder.AppendLine();
+        foreach (WeeklyTrainingDay day in report.WeeklyPlan.Days)
+        {
+            builder.AppendLine($"Day {day.DayNumber}: {day.Theme} | {day.PrimaryFocus} | {day.EstimatedMinutes} min");
+            foreach (string activity in day.Activities)
+            {
+                builder.AppendLine($"- {activity}");
+            }
+
+            builder.AppendLine($"Success check: {day.SuccessCheck}");
+            builder.AppendLine();
+        }
+
+        detailsTextBox.Text = builder.ToString().TrimEnd();
+        detailsTextBox.SelectionStart = 0;
+        detailsTextBox.SelectionLength = 0;
     }
 
     private sealed record ProfileListItem(PlayerProfileSummary Summary, string Label)
     {
         public override string ToString() => Label;
+    }
+
+    private static string FormatRecommendationContext(TrainingRecommendation recommendation)
+    {
+        List<string> parts = [];
+
+        if (recommendation.EmphasisPhase.HasValue)
+        {
+            parts.Add(recommendation.EmphasisPhase.Value.ToString());
+        }
+
+        if (recommendation.EmphasisSide.HasValue)
+        {
+            parts.Add(recommendation.EmphasisSide.Value.ToString());
+        }
+
+        if (recommendation.RelatedOpenings.Count > 0)
+        {
+            parts.Add(string.Join(", ", recommendation.RelatedOpenings.Select(OpeningCatalog.Describe)));
+        }
+
+        return parts.Count == 0
+            ? "general"
+            : string.Join(" | ", parts);
     }
 }

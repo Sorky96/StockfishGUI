@@ -33,8 +33,28 @@ public sealed record ProfileMonthlyTrend(
     int? AverageCentipawnLoss);
 
 public sealed record TrainingRecommendation(
+    int Priority,
+    string FocusArea,
     string Title,
-    string Description);
+    string Description,
+    GamePhase? EmphasisPhase,
+    PlayerSide? EmphasisSide,
+    IReadOnlyList<string> RelatedOpenings,
+    IReadOnlyList<string> Checklist,
+    IReadOnlyList<string> SuggestedDrills);
+
+public sealed record WeeklyTrainingDay(
+    int DayNumber,
+    string Theme,
+    string PrimaryFocus,
+    int EstimatedMinutes,
+    IReadOnlyList<string> Activities,
+    string SuccessCheck);
+
+public sealed record WeeklyTrainingPlan(
+    string Title,
+    string Summary,
+    IReadOnlyList<WeeklyTrainingDay> Days);
 
 public sealed record PlayerProfileReport(
     string PlayerKey,
@@ -48,4 +68,5 @@ public sealed record PlayerProfileReport(
     IReadOnlyList<ProfileOpeningStat> MistakesByOpening,
     IReadOnlyList<ProfileSideStat> GamesBySide,
     IReadOnlyList<ProfileMonthlyTrend> MonthlyTrend,
-    IReadOnlyList<TrainingRecommendation> Recommendations);
+    IReadOnlyList<TrainingRecommendation> Recommendations,
+    WeeklyTrainingPlan WeeklyPlan);

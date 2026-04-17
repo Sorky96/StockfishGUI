@@ -149,6 +149,49 @@ public sealed class SqliteAnalysisStoreTests
         }
     }
 
+    [Fact]
+    public void SqliteAnalysisStore_DeletesImportedGameTogetherWithAnalysisData()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            ImportedGame game = PgnGameParser.Parse(GameOnePgn);
+            string fingerprint = GameFingerprint.Compute(game.PgnText);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions());
+            GameAnalysisResult result = new(
+                game,
+                PlayerSide.White,
+                [],
+                [],
+                [
+                    new SelectedMistake(
+                        [],
+                        MoveQualityBucket.Mistake,
+                        new MistakeTag("opening_principles", 0.8, ["evidence"]),
+                        new MoveExplanation("Short", "Hint", "Detailed"))
+                ]);
+
+            store.SaveImportedGame(game);
+            store.SaveResult(key, result);
+            store.SaveWindowState(fingerprint, new AnalysisWindowState(PlayerSide.White, 1, 2));
+
+            bool deleted = store.DeleteImportedGame(fingerprint);
+
+            Assert.True(deleted);
+            Assert.False(store.TryLoadImportedGame(fingerprint, out _));
+            Assert.False(store.TryLoadResult(key, out _));
+            Assert.False(store.TryLoadWindowState(fingerprint, out _));
+            Assert.Empty(store.ListImportedGames());
+            Assert.Empty(store.ListResults());
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
     private static string CreateTempDatabasePath()
     {
         return Path.Combine(Path.GetTempPath(), $"stockifhsgui-store-{Guid.NewGuid():N}.db");

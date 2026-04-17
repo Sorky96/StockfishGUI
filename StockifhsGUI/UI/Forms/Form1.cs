@@ -10,9 +10,14 @@ namespace StockifhsGUI;
 
 public partial class Form1 : Form
 {
-    private const int TileSize = 64;
     private const int GridSize = 8;
-    private const int SidePanelWidth = 300;
+    private const int DefaultTileSize = 64;
+    private const int MinTileSize = 56;
+    private const int MaxTileSize = 88;
+    private const int MinimumSidePanelWidth = 320;
+    private const int LayoutMargin = 10;
+    private const int LayoutGap = 18;
+    private const int MinimumBottomPanelHeight = 118;
     private const string MissingEngineMessage = "Stockfish unavailable. Download stockfish.exe and place it next to the app.";
 
     private readonly string?[,] board = new string?[8, 8];
@@ -28,6 +33,7 @@ public partial class Form1 : Form
     private Point? analysisTargetSquare;
     private readonly List<Point> availableMoves = new();
     private readonly Dictionary<string, Image> pieceImages = new();
+    private EvaluationSummary? currentEvaluation;
 
     private Point? selectedSquare;
     private bool whiteToMove = true;
@@ -42,19 +48,24 @@ public partial class Form1 : Form
     private string? enPassantTargetSquare;
     private int halfmoveClock;
     private int fullmoveNumber = 1;
+    private int boardTileSize = DefaultTileSize;
 
     public Form1(bool rotate = false)
     {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        UpdateStyles();
         DoubleBuffered = true;
-        ClientSize = new Size(TileSize * GridSize + SidePanelWidth + 20, TileSize * GridSize + 260);
+        ResizeRedraw = true;
+        ClientSize = new Size(DefaultTileSize * GridSize + MinimumSidePanelWidth + LayoutGap + LayoutMargin, DefaultTileSize * GridSize + 260);
+        MinimumSize = SizeFromClientSize(new Size(MinTileSize * GridSize + MinimumSidePanelWidth + LayoutGap + LayoutMargin, MinTileSize * GridSize + 260));
         Text = "Manual Chess (Player vs Player)";
         rotateBoard = rotate;
 
         suggestionLabel = new Label
         {
-            AutoSize = true,
-            Location = new Point(10, TileSize * GridSize + 5),
+            AutoSize = false,
             Font = new Font("Segoe UI", 12),
+            AutoEllipsis = true,
             Text = "Stockfish suggests:"
         };
         Controls.Add(suggestionLabel);
@@ -62,8 +73,6 @@ public partial class Form1 : Form
         evaluationLabel = new Label
         {
             AutoSize = false,
-            Location = new Point(10, TileSize * GridSize + 32),
-            Size = new Size(250, 22),
             Font = new Font("Segoe UI", 10, FontStyle.Bold),
             Text = "Evaluation: even"
         };
@@ -71,8 +80,6 @@ public partial class Form1 : Form
 
         evaluationBarBackground = new Panel
         {
-            Location = new Point(10, TileSize * GridSize + 56),
-            Size = new Size(250, 14),
             BackColor = Color.FromArgb(45, 45, 45),
             BorderStyle = BorderStyle.FixedSingle
         };
@@ -89,16 +96,16 @@ public partial class Form1 : Form
         rotateButton = new Button
         {
             Text = "Rotate Board",
-            Location = new Point(300, TileSize * GridSize + 5),
             Size = new Size(120, 30)
         };
         rotateButton.Click += (_, _) =>
         {
             rotateBoard = !rotateBoard;
-            Invalidate();
+            InvalidateBoardSurface();
         };
         Controls.Add(rotateButton);
         InitializeExtendedControls();
+        Resize += (_, _) => UpdateResponsiveLayout();
 
         MouseClick += Form1_MouseClick;
         Paint += Form1_Paint;
@@ -109,6 +116,7 @@ public partial class Form1 : Form
         LoadPieceImages();
         InitializeEngine(enginePath);
         RefreshEngineSuggestions();
+        UpdateResponsiveLayout();
         UpdateExtendedControls();
     }
 
@@ -153,7 +161,7 @@ public partial class Form1 : Form
     private void Form1_Paint(object? sender, PaintEventArgs e)
     {
         Graphics g = e.Graphics;
-        using Font coordinateFont = new("Segoe UI", 10, FontStyle.Bold);
+        using Font coordinateFont = new("Segoe UI", Math.Max(9, boardTileSize / 6f), FontStyle.Bold);
 
         for (int y = 0; y < GridSize; y++)
         {
@@ -163,11 +171,11 @@ public partial class Form1 : Form
                 int drawY = rotateBoard ? 7 - y : y;
                 bool lightSquare = (x + y) % 2 == 0;
                 Brush brush = lightSquare ? Brushes.Beige : Brushes.Brown;
-                g.FillRectangle(brush, drawX * TileSize, drawY * TileSize, TileSize, TileSize);
+                g.FillRectangle(brush, drawX * boardTileSize, drawY * boardTileSize, boardTileSize, boardTileSize);
 
                 if (selectedSquare.HasValue && selectedSquare.Value.X == x && selectedSquare.Value.Y == y)
                 {
-                    g.DrawRectangle(Pens.Red, drawX * TileSize, drawY * TileSize, TileSize, TileSize);
+                    g.DrawRectangle(Pens.Red, drawX * boardTileSize, drawY * boardTileSize, boardTileSize, boardTileSize);
                 }
 
                 if (analysisTargetSquare.HasValue && analysisTargetSquare.Value.X == x && analysisTargetSquare.Value.Y == y)
@@ -175,34 +183,34 @@ public partial class Form1 : Form
                     using Pen analysisPen = new(Color.Gold, 4);
                     g.DrawRectangle(
                         analysisPen,
-                        drawX * TileSize + 2,
-                        drawY * TileSize + 2,
-                        TileSize - 4,
-                        TileSize - 4);
+                        drawX * boardTileSize + 2,
+                        drawY * boardTileSize + 2,
+                        boardTileSize - 4,
+                        boardTileSize - 4);
                 }
 
                 if (pieceMoveOptionTargetSquare.HasValue && pieceMoveOptionTargetSquare.Value.X == x && pieceMoveOptionTargetSquare.Value.Y == y)
                 {
                     using SolidBrush previewBrush = new(Color.FromArgb(96, Color.DeepSkyBlue));
                     using Pen previewPen = new(Color.DeepSkyBlue, 3);
-                    g.FillRectangle(previewBrush, drawX * TileSize + 4, drawY * TileSize + 4, TileSize - 8, TileSize - 8);
-                    g.DrawRectangle(previewPen, drawX * TileSize + 4, drawY * TileSize + 4, TileSize - 8, TileSize - 8);
+                    g.FillRectangle(previewBrush, drawX * boardTileSize + 4, drawY * boardTileSize + 4, boardTileSize - 8, boardTileSize - 8);
+                    g.DrawRectangle(previewPen, drawX * boardTileSize + 4, drawY * boardTileSize + 4, boardTileSize - 8, boardTileSize - 8);
                 }
 
                 if (availableMoves.Contains(new Point(x, y)))
                 {
                     g.FillEllipse(
                         Brushes.Gold,
-                        drawX * TileSize + TileSize / 3,
-                        drawY * TileSize + TileSize / 3,
-                        TileSize / 3,
-                        TileSize / 3);
+                        drawX * boardTileSize + boardTileSize / 3,
+                        drawY * boardTileSize + boardTileSize / 3,
+                        boardTileSize / 3,
+                        boardTileSize / 3);
                 }
 
                 string? piece = board[x, y];
                 if (!string.IsNullOrEmpty(piece) && pieceImages.TryGetValue(piece, out Image? pieceImage))
                 {
-                    g.DrawImage(pieceImage, drawX * TileSize, drawY * TileSize, TileSize, TileSize);
+                    g.DrawImage(pieceImage, drawX * boardTileSize, drawY * boardTileSize, boardTileSize, boardTileSize);
                 }
 
                 DrawBoardCoordinates(g, coordinateFont, x, y, drawX, drawY, lightSquare);
@@ -231,8 +239,8 @@ public partial class Form1 : Form
         Point drawFrom = rotateBoard ? new Point(7 - from.X, 7 - from.Y) : from;
         Point drawTo = rotateBoard ? new Point(7 - to.X, 7 - to.Y) : to;
 
-        PointF start = new(drawFrom.X * TileSize + TileSize / 2f, drawFrom.Y * TileSize + TileSize / 2f);
-        PointF end = new(drawTo.X * TileSize + TileSize / 2f, drawTo.Y * TileSize + TileSize / 2f);
+        PointF start = new(drawFrom.X * boardTileSize + boardTileSize / 2f, drawFrom.Y * boardTileSize + boardTileSize / 2f);
+        PointF end = new(drawTo.X * boardTileSize + boardTileSize / 2f, drawTo.Y * boardTileSize + boardTileSize / 2f);
 
         g.DrawLine(arrowPen, start, end);
     }
@@ -240,7 +248,7 @@ public partial class Form1 : Form
     private void DrawBoardCoordinates(Graphics g, Font coordinateFont, int boardX, int boardY, int drawX, int drawY, bool lightSquare)
     {
         using SolidBrush textBrush = new(lightSquare ? Color.SaddleBrown : Color.Bisque);
-        Rectangle squareRect = new(drawX * TileSize, drawY * TileSize, TileSize, TileSize);
+        Rectangle squareRect = new(drawX * boardTileSize, drawY * boardTileSize, boardTileSize, boardTileSize);
 
         if (drawX == 0)
         {
@@ -263,13 +271,13 @@ public partial class Form1 : Form
 
     private void Form1_MouseClick(object? sender, MouseEventArgs e)
     {
-        if (e.X >= TileSize * GridSize || e.Y >= TileSize * GridSize)
+        if (e.X >= BoardPixelSize || e.Y >= BoardPixelSize)
         {
             return;
         }
 
-        int x = e.X / TileSize;
-        int y = e.Y / TileSize;
+        int x = e.X / boardTileSize;
+        int y = e.Y / boardTileSize;
 
         if (rotateBoard)
         {
@@ -343,7 +351,7 @@ public partial class Form1 : Form
         }
 
         UpdateSelectedPieceMoveOptions(GetCurrentFen(), selectedSquare.Value, movesForPiece);
-        Invalidate();
+        InvalidateBoardSurface();
     }
 
     private void ClearSelection()
@@ -351,7 +359,7 @@ public partial class Form1 : Form
         selectedSquare = null;
         availableMoves.Clear();
         ClearPieceMoveOptions();
-        Invalidate();
+        InvalidateBoardSurface();
     }
 
     private void RefreshEngineSuggestions()
@@ -362,7 +370,7 @@ public partial class Form1 : Form
             suggestionLabel.Text = MissingEngineMessage;
             UpdateEvaluationDisplay(null);
             UpdateExtendedControls();
-            Invalidate();
+            InvalidateBoardSurface();
             return;
         }
 
@@ -384,6 +392,7 @@ public partial class Form1 : Form
             : "Top moves: " + string.Join(", ", topMoves);
         UpdateEvaluationDisplay(engine.GetEvaluationSummary());
         UpdateExtendedControls();
+        InvalidateBoardSurface();
     }
 
     private string BuildUciMove(Point from, Point to, string? promotionPiece)
@@ -421,6 +430,8 @@ public partial class Form1 : Form
 
     private void UpdateEvaluationDisplay(EvaluationSummary? evaluation)
     {
+        currentEvaluation = evaluation;
+
         if (evaluation is null)
         {
             evaluationLabel.Text = "Evaluation: unavailable";
@@ -461,6 +472,89 @@ public partial class Form1 : Form
         {
             evaluationLabel.Text = $"Evaluation: Black +{Math.Abs(pawnAdvantage):F1}";
         }
+    }
+
+    private int BoardPixelSize => boardTileSize * GridSize;
+    private Rectangle BoardBounds => new(0, 0, BoardPixelSize, BoardPixelSize);
+
+    private void UpdateResponsiveLayout()
+    {
+        boardTileSize = CalculateBoardTileSize();
+
+        int boardBottom = BoardPixelSize;
+        int panelLeft = BoardPixelSize + LayoutGap;
+        int panelWidth = Math.Max(MinimumSidePanelWidth, ClientSize.Width - panelLeft - LayoutMargin);
+        int buttonHeight = 32;
+        int buttonGap = 10;
+        int buttonWidth = Math.Max(140, (panelWidth - buttonGap) / 2);
+        int secondColumnLeft = panelLeft + buttonWidth + buttonGap;
+
+        importPgnButton?.SetBounds(panelLeft, 16, buttonWidth, buttonHeight);
+        loadSavedGamesButton?.SetBounds(secondColumnLeft, 16, buttonWidth, buttonHeight);
+        applyNextImportedButton?.SetBounds(panelLeft, 16 + buttonHeight + buttonGap, buttonWidth, buttonHeight);
+        applySelectedImportedButton?.SetBounds(secondColumnLeft, 16 + buttonHeight + buttonGap, buttonWidth, buttonHeight);
+        analyzeImportedButton?.SetBounds(panelLeft, 16 + ((buttonHeight + buttonGap) * 2), buttonWidth, buttonHeight);
+        playerProfilesButton?.SetBounds(secondColumnLeft, 16 + ((buttonHeight + buttonGap) * 2), buttonWidth, buttonHeight);
+
+        int buttonRow4Y = 16 + ((buttonHeight + buttonGap) * 3);
+        savedAnalysesButton?.SetBounds(panelLeft, buttonRow4Y, panelWidth, buttonHeight);
+
+        int rightColumnY = buttonRow4Y + buttonHeight + 10;
+        importedMovesLabel?.SetBounds(panelLeft, rightColumnY, panelWidth, 54);
+        rightColumnY += 60;
+
+        int trackingSectionHeight = 146;
+        int pieceOptionsLabelHeight = 42;
+        int minimumPieceOptionsListHeight = 150;
+        int importedListHeight = Math.Max(
+            170,
+            ClientSize.Height - rightColumnY - LayoutMargin - trackingSectionHeight - pieceOptionsLabelHeight - minimumPieceOptionsListHeight - 20);
+        importedMovesList?.SetBounds(panelLeft, rightColumnY, panelWidth, importedListHeight);
+        rightColumnY += importedListHeight + 16;
+
+        startTrackingButton?.SetBounds(panelLeft, rightColumnY, buttonWidth, buttonHeight);
+        stopTrackingButton?.SetBounds(secondColumnLeft, rightColumnY, buttonWidth, buttonHeight);
+        rightColumnY += buttonHeight + 10;
+
+        alwaysOnTopCheckBox?.SetBounds(panelLeft, rightColumnY, panelWidth, 24);
+        rightColumnY += 28;
+
+        trackingStatusLabel?.SetBounds(panelLeft, rightColumnY, panelWidth, 72);
+        rightColumnY += 84;
+
+        pieceMoveOptionsLabel?.SetBounds(panelLeft, rightColumnY, panelWidth, pieceOptionsLabelHeight);
+        rightColumnY += pieceOptionsLabelHeight + 6;
+        pieceMoveOptionsList?.SetBounds(panelLeft, rightColumnY, panelWidth, Math.Max(minimumPieceOptionsListHeight, ClientSize.Height - rightColumnY - LayoutMargin));
+
+        int buttonRowY = boardBottom + 8;
+        int undoWidth = 88;
+        undoButton?.SetBounds(BoardPixelSize - LayoutMargin - undoWidth, buttonRowY, undoWidth, 30);
+        rotateButton.SetBounds(
+            BoardPixelSize - LayoutMargin - undoWidth - 12 - rotateButton.Width,
+            buttonRowY,
+            rotateButton.Width,
+            rotateButton.Height);
+
+        int suggestionWidth = Math.Max(180, rotateButton.Left - LayoutMargin - 8);
+        suggestionLabel.SetBounds(LayoutMargin, buttonRowY + 2, suggestionWidth, 24);
+        evaluationLabel.SetBounds(LayoutMargin, boardBottom + 42, Math.Max(240, BoardPixelSize - (LayoutMargin * 2)), 22);
+        evaluationBarBackground.SetBounds(LayoutMargin, boardBottom + 68, Math.Max(220, BoardPixelSize - (LayoutMargin * 2)), 16);
+        evaluationBarFill.Height = evaluationBarBackground.ClientSize.Height;
+        UpdateEvaluationDisplay(currentEvaluation);
+        Invalidate();
+    }
+
+    private int CalculateBoardTileSize()
+    {
+        int widthDrivenTileSize = (ClientSize.Width - MinimumSidePanelWidth - LayoutGap - LayoutMargin) / GridSize;
+        int heightDrivenTileSize = (ClientSize.Height - MinimumBottomPanelHeight) / GridSize;
+        int targetTileSize = Math.Min(widthDrivenTileSize, heightDrivenTileSize);
+        return Math.Clamp(targetTileSize, MinTileSize, MaxTileSize);
+    }
+
+    private void InvalidateBoardSurface()
+    {
+        Invalidate(BoardBounds);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

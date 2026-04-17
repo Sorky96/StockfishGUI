@@ -12,6 +12,7 @@ public sealed class GameAnalysisForm : Form
     private readonly GameAnalysisService analysisService;
     private readonly ExplanationGenerator explanationGenerator = new();
     private readonly Action<MoveAnalysisResult>? navigateToMove;
+    private readonly PlayerSide? preferredSide;
     private readonly ComboBox sideComboBox;
     private readonly ComboBox qualityFilterComboBox;
     private readonly ComboBox explanationLevelComboBox;
@@ -24,10 +25,15 @@ public sealed class GameAnalysisForm : Form
     private GameAnalysisResult? currentResult;
     private bool currentResultIsCached;
 
-    public GameAnalysisForm(ImportedGame importedGame, IEngineAnalyzer engineAnalyzer, Action<MoveAnalysisResult>? navigateToMove = null)
+    public GameAnalysisForm(
+        ImportedGame importedGame,
+        IEngineAnalyzer engineAnalyzer,
+        Action<MoveAnalysisResult>? navigateToMove = null,
+        PlayerSide? preferredSide = null)
     {
         this.importedGame = importedGame ?? throw new ArgumentNullException(nameof(importedGame));
         this.navigateToMove = navigateToMove;
+        this.preferredSide = preferredSide;
         analysisService = new GameAnalysisService(engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer)));
 
         Text = "Imported Game Analysis";
@@ -143,6 +149,10 @@ public sealed class GameAnalysisForm : Form
         Controls.Add(detailsTextBox);
 
         RestoreWindowState();
+        if (this.preferredSide.HasValue)
+        {
+            sideComboBox.SelectedIndex = this.preferredSide.Value == PlayerSide.Black ? 1 : 0;
+        }
         TryLoadCachedResultForSelectedSide();
     }
 

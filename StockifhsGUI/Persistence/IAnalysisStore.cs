@@ -4,6 +4,7 @@ public interface IAnalysisStore
 {
     void SaveImportedGame(ImportedGame game);
     bool TryLoadImportedGame(string gameFingerprint, out ImportedGame? game);
+    bool DeleteImportedGame(string gameFingerprint);
     IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText = null, int limit = 200);
     IReadOnlyList<GameAnalysisResult> ListResults(string? filterText = null, int limit = 500);
     bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result);
