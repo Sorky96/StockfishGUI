@@ -65,6 +65,22 @@ public static class SanNotation
         return normalized;
     }
 
+    public static bool HasExplicitPiecePrefix(string normalizedSan)
+    {
+        if (string.IsNullOrEmpty(normalizedSan))
+        {
+            return false;
+        }
+
+        char first = normalizedSan[0];
+        if ("KQRBN".Contains(first))
+        {
+            return true;
+        }
+
+        return "kqrbn".Contains(first) && ShouldUppercasePiecePrefix(normalizedSan);
+    }
+
     private static bool ShouldUppercasePiecePrefix(string normalized)
     {
         char first = normalized[0];

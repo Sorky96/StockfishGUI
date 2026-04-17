@@ -12,11 +12,13 @@ public partial class Form1
 {
     private readonly Stack<GameStateSnapshot> undoStack = new();
     private readonly List<ImportedMove> importedMoves = new();
+    private ImportedGame? importedGame;
 
     private Button? undoButton;
     private Button? importPgnButton;
     private Button? applyNextImportedButton;
     private Button? applySelectedImportedButton;
+    private Button? analyzeImportedButton;
     private Label? importedMovesLabel;
     private ListBox? importedMovesList;
     private int importedMoveCursor;
@@ -54,12 +56,21 @@ public partial class Form1
 
         applySelectedImportedButton = new Button
         {
-            Text = "Apply To Selected",
+            Text = "Apply Selected",
             Location = new Point(TileSize * GridSize + 20, 56),
-            Size = new Size(250, 32)
+            Size = new Size(120, 32)
         };
         applySelectedImportedButton.Click += (_, _) => ApplyImportedMovesThroughSelection();
         Controls.Add(applySelectedImportedButton);
+
+        analyzeImportedButton = new Button
+        {
+            Text = "Analyze Imported",
+            Location = new Point(TileSize * GridSize + 150, 56),
+            Size = new Size(120, 32)
+        };
+        analyzeImportedButton.Click += async (_, _) => await OpenImportedGameAnalysisAsync();
+        Controls.Add(analyzeImportedButton);
 
         importedMovesLabel = new Label
         {
@@ -73,17 +84,20 @@ public partial class Form1
         importedMovesList = new ListBox
         {
             Location = new Point(TileSize * GridSize + 20, 140),
-            Size = new Size(260, 330),
+            Size = new Size(260, 250),
             Font = new Font("Consolas", 10)
         };
         importedMovesList.SelectedIndexChanged += (_, _) => ApplyImportedMovesThroughSelection(resetToStart: true);
         importedMovesList.DoubleClick += (_, _) => ApplyImportedMovesThroughSelection();
         Controls.Add(importedMovesList);
+
+        InitializeTrackingControls();
     }
 
     private void ResetGameState()
     {
         ResetBoardState();
+        importedGame = null;
         importedMoves.Clear();
         importedMovesList?.Items.Clear();
         importedMoveCursor = 0;
@@ -92,6 +106,8 @@ public partial class Form1
     private void ResetBoardState()
     {
         undoStack.Clear();
+        analysisArrows.Clear();
+        analysisTargetSquare = null;
         whiteToMove = true;
         whiteKingMoved = false;
         blackKingMoved = false;
@@ -139,6 +155,8 @@ public partial class Form1
     private void ExecuteMove(Point from, Point to, string piece, string? promotionPiece, bool advanceImportedCursor)
     {
         undoStack.Push(CaptureCurrentState());
+        analysisArrows.Clear();
+        analysisTargetSquare = null;
 
         string uciMove = BuildUciMove(from, to, promotionPiece);
         string? capturedPiece = board[to.X, to.Y];
@@ -186,12 +204,16 @@ public partial class Form1
 
         try
         {
-            List<string> sanMoves = ParsePgnMoves(dialog.PgnText);
+            ImportedGame parsedGame = PgnGameParser.Parse(dialog.PgnText);
+            GameReplayService replayService = new();
+            IReadOnlyList<ReplayPly> replay = replayService.Replay(parsedGame);
             ResetGameState();
+            importedGame = parsedGame;
             suppressImportedSelectionHandling = true;
-            for (int i = 0; i < sanMoves.Count; i++)
+            for (int i = 0; i < replay.Count; i++)
             {
-                ImportedMove move = new(i + 1, sanMoves[i]);
+                ReplayPly replayPly = replay[i];
+                ImportedMove move = new(i + 1, replayPly.MoveNumber, replayPly.Side, replayPly.San);
                 importedMoves.Add(move);
                 importedMovesList?.Items.Add(move);
             }
@@ -278,6 +300,7 @@ public partial class Form1
 
         RefreshEngineSuggestions();
         UpdateExtendedControls();
+        Invalidate();
 
         if (replayFailed)
         {
@@ -312,9 +335,13 @@ public partial class Form1
     {
         if (importedMovesLabel is not null)
         {
+            string players = importedGame is null
+                ? string.Empty
+                : $" | {importedGame.WhitePlayer ?? "White"} vs {importedGame.BlackPlayer ?? "Black"}";
+
             importedMovesLabel.Text = importedMoves.Count == 0
                 ? "Imported moves: none"
-                : $"Imported moves: {importedMoveCursor}/{importedMoves.Count} applied";
+                : $"Imported moves: {importedMoveCursor}/{importedMoves.Count} applied{players}";
         }
 
         if (importedMovesList is not null)
@@ -329,6 +356,7 @@ public partial class Form1
             if (highlightIndex >= 0 && highlightIndex < importedMovesList.Items.Count)
             {
                 importedMovesList.SelectedIndex = highlightIndex;
+                EnsureImportedMoveVisible(highlightIndex);
             }
             suppressImportedSelectionHandling = false;
         }
@@ -347,11 +375,29 @@ public partial class Form1
         {
             applySelectedImportedButton.Enabled = importedMoves.Count > 0;
         }
+
+        if (analyzeImportedButton is not null)
+        {
+            analyzeImportedButton.Enabled = importedGame?.SanMoves.Count > 0 && engine is not null;
+        }
     }
 
     private static List<string> ParsePgnMoves(string pgnText)
     {
         return SanNotation.ParsePgnMoves(pgnText);
+    }
+
+    private void EnsureImportedMoveVisible(int index)
+    {
+        if (importedMovesList is null || index < 0 || index >= importedMovesList.Items.Count)
+        {
+            return;
+        }
+
+        int itemHeight = Math.Max(1, importedMovesList.ItemHeight);
+        int visibleItemCount = Math.Max(1, importedMovesList.ClientSize.Height / itemHeight);
+        int targetTopIndex = Math.Max(0, index - (visibleItemCount / 2));
+        importedMovesList.TopIndex = targetTopIndex;
     }
 
     private bool TryResolveSan(string san, out MoveCandidate candidate, out string? error)
@@ -419,7 +465,8 @@ public partial class Form1
 
         bool isCapture = sanWithoutSuffix.Contains('x');
         char firstChar = sanWithoutSuffix[0];
-        char pieceLetter = "KQRBNkqrbn".Contains(firstChar) ? char.ToUpperInvariant(firstChar) : 'P';
+        bool hasExplicitPiecePrefix = "KQRBNkqrbn".Contains(firstChar);
+        char pieceLetter = hasExplicitPiecePrefix ? char.ToUpperInvariant(firstChar) : 'P';
         string moverPiece = whiteToMove
             ? pieceLetter.ToString()
             : pieceLetter == 'P' ? "p" : pieceLetter.ToString().ToLowerInvariant();
@@ -473,16 +520,44 @@ public partial class Form1
             return true;
         }
 
-        if (matches.Count == 0 && pieceLetter == 'P' && !isCapture)
+        if (matches.Count == 0 && !hasExplicitPiecePrefix)
         {
+            List<MoveCandidate> implicitPieceMatches = new();
             foreach (MoveCandidate move in legalMoves)
             {
-                if ((move.Piece == "P" || move.Piece == "p") && move.To == target && !move.IsCapture)
+                if (move.To != target || move.IsCapture != isCapture)
                 {
-                    candidate = move;
-                    error = null;
-                    return true;
+                    continue;
                 }
+
+                if (!string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece != promotionPiece)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece is not null)
+                {
+                    continue;
+                }
+
+                if (disambiguationFile.HasValue && move.From.X != disambiguationFile.Value - 'a')
+                {
+                    continue;
+                }
+
+                if (disambiguationRank.HasValue && 8 - move.From.Y != disambiguationRank.Value - '0')
+                {
+                    continue;
+                }
+
+                implicitPieceMatches.Add(move);
+            }
+
+            if (implicitPieceMatches.Count == 1)
+            {
+                candidate = implicitPieceMatches[0];
+                error = null;
+                return true;
             }
         }
 
@@ -716,9 +791,12 @@ public partial class Form1
     }
 
     private readonly record struct MoveCandidate(Point From, Point To, string Piece, string? PromotionPiece, bool IsCapture);
-    private readonly record struct ImportedMove(int Number, string San)
+    private readonly record struct ImportedMove(int Ply, int MoveNumber, PlayerSide Side, string San)
     {
-        public string DisplayText => $"{Number,3}. {San}";
+        public string DisplayText => Side == PlayerSide.White
+            ? $"{MoveNumber,3}. {San}"
+            : $"{MoveNumber,3}... {San}";
+
         public override string ToString() => DisplayText;
     }
 

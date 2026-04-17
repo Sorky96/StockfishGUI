@@ -23,6 +23,8 @@ public partial class Form1 : Form
     private readonly Panel evaluationBarBackground;
     private readonly Panel evaluationBarFill;
     private readonly List<(Point from, Point to)> bestMoves = new();
+    private readonly List<AnalysisArrow> analysisArrows = new();
+    private Point? analysisTargetSquare;
     private readonly List<Point> availableMoves = new();
     private readonly Dictionary<string, Image> pieceImages = new();
 
@@ -147,18 +149,32 @@ public partial class Form1 : Form
     private void Form1_Paint(object? sender, PaintEventArgs e)
     {
         Graphics g = e.Graphics;
+        using Font coordinateFont = new("Segoe UI", 10, FontStyle.Bold);
+
         for (int y = 0; y < GridSize; y++)
         {
             for (int x = 0; x < GridSize; x++)
             {
                 int drawX = rotateBoard ? 7 - x : x;
                 int drawY = rotateBoard ? 7 - y : y;
-                Brush brush = (x + y) % 2 == 0 ? Brushes.Beige : Brushes.Brown;
+                bool lightSquare = (x + y) % 2 == 0;
+                Brush brush = lightSquare ? Brushes.Beige : Brushes.Brown;
                 g.FillRectangle(brush, drawX * TileSize, drawY * TileSize, TileSize, TileSize);
 
                 if (selectedSquare.HasValue && selectedSquare.Value.X == x && selectedSquare.Value.Y == y)
                 {
                     g.DrawRectangle(Pens.Red, drawX * TileSize, drawY * TileSize, TileSize, TileSize);
+                }
+
+                if (analysisTargetSquare.HasValue && analysisTargetSquare.Value.X == x && analysisTargetSquare.Value.Y == y)
+                {
+                    using Pen analysisPen = new(Color.Gold, 4);
+                    g.DrawRectangle(
+                        analysisPen,
+                        drawX * TileSize + 2,
+                        drawY * TileSize + 2,
+                        TileSize - 4,
+                        TileSize - 4);
                 }
 
                 if (availableMoves.Contains(new Point(x, y)))
@@ -176,6 +192,8 @@ public partial class Form1 : Form
                 {
                     g.DrawImage(pieceImage, drawX * TileSize, drawY * TileSize, TileSize, TileSize);
                 }
+
+                DrawBoardCoordinates(g, coordinateFont, x, y, drawX, drawY, lightSquare);
             }
         }
 
@@ -183,6 +201,11 @@ public partial class Form1 : Form
         for (int i = 0; i < bestMoves.Count && i < colors.Length; i++)
         {
             DrawArrow(g, bestMoves[i].from, bestMoves[i].to, colors[i]);
+        }
+
+        foreach (AnalysisArrow arrow in analysisArrows)
+        {
+            DrawArrow(g, arrow.From, arrow.To, arrow.Color);
         }
     }
 
@@ -200,6 +223,30 @@ public partial class Form1 : Form
         PointF end = new(drawTo.X * TileSize + TileSize / 2f, drawTo.Y * TileSize + TileSize / 2f);
 
         g.DrawLine(arrowPen, start, end);
+    }
+
+    private void DrawBoardCoordinates(Graphics g, Font coordinateFont, int boardX, int boardY, int drawX, int drawY, bool lightSquare)
+    {
+        using SolidBrush textBrush = new(lightSquare ? Color.SaddleBrown : Color.Bisque);
+        Rectangle squareRect = new(drawX * TileSize, drawY * TileSize, TileSize, TileSize);
+
+        if (drawX == 0)
+        {
+            string rankLabel = (8 - boardY).ToString();
+            g.DrawString(rankLabel, coordinateFont, textBrush, squareRect.Left + 3, squareRect.Top + 2);
+        }
+
+        if (drawY == GridSize - 1)
+        {
+            string fileLabel = ((char)('a' + boardX)).ToString();
+            SizeF textSize = g.MeasureString(fileLabel, coordinateFont);
+            g.DrawString(
+                fileLabel,
+                coordinateFont,
+                textBrush,
+                squareRect.Right - textSize.Width - 4,
+                squareRect.Bottom - textSize.Height - 2);
+        }
     }
 
     private void Form1_MouseClick(object? sender, MouseEventArgs e)
@@ -292,7 +339,7 @@ public partial class Form1 : Form
             return;
         }
 
-        engine.AddMove(moveHistory);
+        engine.SetPositionFen(GetCurrentFen());
 
         bestMoves.Clear();
         List<string> topMoves = engine.GetTopMoves(3);
@@ -763,6 +810,7 @@ public partial class Form1 : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        trackingTimer?.Stop();
         engine?.Dispose();
         foreach (Image image in pieceImages.Values)
         {
@@ -788,4 +836,6 @@ public partial class Form1 : Form
         pieceImages["n"] = Image.FromFile(Path.Combine(path, "bN.svg"));
         pieceImages["p"] = Image.FromFile(Path.Combine(path, "bP.svg"));
     }
+
+    private readonly record struct AnalysisArrow(Point From, Point To, Color Color);
 }

@@ -16,6 +16,7 @@ public sealed class ChessGame
     private bool whiteRookRightMoved;
     private bool blackRookLeftMoved;
     private bool blackRookRightMoved;
+    private Point? enPassantTarget;
     private int halfmoveClock;
     private int fullmoveNumber;
 
@@ -34,6 +35,7 @@ public sealed class ChessGame
         whiteRookRightMoved = false;
         blackRookLeftMoved = false;
         blackRookRightMoved = false;
+        enPassantTarget = null;
         halfmoveClock = 0;
         fullmoveNumber = 1;
 
@@ -55,6 +57,10 @@ public sealed class ChessGame
         }
     }
 
+    public bool WhiteToMove => whiteToMove;
+    public int FullmoveNumber => fullmoveNumber;
+    public string? EnPassantTargetSquare => enPassantTarget is null ? null : ToSquare(enPassantTarget.Value);
+
     public void ApplyPgn(string pgn)
     {
         foreach (string san in ParsePgnMoves(pgn))
@@ -65,53 +71,101 @@ public sealed class ChessGame
 
     public void ApplySan(string san)
     {
+        _ = ApplySanWithResult(san);
+    }
+
+    public AppliedMoveInfo ApplySanWithResult(string san)
+    {
+        string fenBefore = GetFen();
+        string placementFenBefore = GetPlacementFen();
+        bool whiteMoved = whiteToMove;
+        int moveNumber = fullmoveNumber;
+        string normalizedSan = SanNotation.NormalizeSan(san);
+
         if (!TryResolveSan(san, out MoveCandidate move, out string? error))
         {
             throw new InvalidOperationException(error ?? $"Could not resolve SAN '{san}'.");
         }
 
         ExecuteMove(move);
+
+        return new AppliedMoveInfo(
+            san,
+            normalizedSan,
+            BuildUciMove(move),
+            fenBefore,
+            GetFen(),
+            placementFenBefore,
+            GetPlacementFen(),
+            move.Piece,
+            move.PromotionPiece,
+            ToSquare(move.From),
+            ToSquare(move.To),
+            move.IsCapture,
+            move.IsEnPassant,
+            move.Piece.Equals("K", StringComparison.OrdinalIgnoreCase) && Math.Abs(move.To.X - move.From.X) == 2,
+            whiteMoved,
+            moveNumber);
+    }
+
+    public bool TryLoadFen(string fen, out string? error)
+    {
+        if (!FenPosition.TryParse(fen, out FenPosition? position, out error) || position is null)
+        {
+            return false;
+        }
+
+        for (int x = 0; x < 8; x++)
+        {
+            for (int y = 0; y < 8; y++)
+            {
+                board[x, y] = position.Board[x, y];
+            }
+        }
+
+        whiteToMove = position.WhiteToMove;
+        whiteKingMoved = position.WhiteKingMoved;
+        blackKingMoved = position.BlackKingMoved;
+        whiteRookLeftMoved = position.WhiteRookLeftMoved;
+        whiteRookRightMoved = position.WhiteRookRightMoved;
+        blackRookLeftMoved = position.BlackRookLeftMoved;
+        blackRookRightMoved = position.BlackRookRightMoved;
+        enPassantTarget = TryParseSquare(position.EnPassantTargetSquare, out Point square) ? square : null;
+        halfmoveClock = position.HalfmoveClock;
+        fullmoveNumber = position.FullmoveNumber;
+        return true;
     }
 
     public string GetFen()
     {
-        return $"{GetPlacementFen()} {(whiteToMove ? "w" : "b")} {GetCastlingFen()} - {halfmoveClock} {fullmoveNumber}";
+        return FenPosition.FromBoardState(
+            board,
+            whiteToMove,
+            whiteKingMoved,
+            blackKingMoved,
+            whiteRookLeftMoved,
+            whiteRookRightMoved,
+            blackRookLeftMoved,
+            blackRookRightMoved,
+            EnPassantTargetSquare,
+            halfmoveClock,
+            fullmoveNumber).GetFen();
     }
 
     public string GetPlacementFen()
     {
-        List<string> rows = new();
-        for (int y = 0; y < 8; y++)
-        {
-            int empty = 0;
-            string row = string.Empty;
-            for (int x = 0; x < 8; x++)
-            {
-                string? piece = board[x, y];
-                if (string.IsNullOrEmpty(piece))
-                {
-                    empty++;
-                    continue;
-                }
-
-                if (empty > 0)
-                {
-                    row += empty.ToString();
-                    empty = 0;
-                }
-
-                row += piece;
-            }
-
-            if (empty > 0)
-            {
-                row += empty.ToString();
-            }
-
-            rows.Add(row);
-        }
-
-        return string.Join("/", rows);
+        return FenPosition.FromBoardState(
+            board,
+            whiteToMove,
+            whiteKingMoved,
+            blackKingMoved,
+            whiteRookLeftMoved,
+            whiteRookRightMoved,
+            blackRookLeftMoved,
+            blackRookRightMoved,
+            EnPassantTargetSquare,
+            halfmoveClock,
+            fullmoveNumber).GetPlacementFen();
     }
 
     public List<string> GetLegalSanMoves()
@@ -121,16 +175,6 @@ public sealed class ChessGame
             .Select(move => GenerateSan(move, legalMoves))
             .OrderBy(move => move, StringComparer.Ordinal)
             .ToList();
-    }
-
-    private string GetCastlingFen()
-    {
-        string rights = string.Empty;
-        if (!whiteKingMoved && !whiteRookRightMoved && board[4, 7] == "K" && board[7, 7] == "R") rights += "K";
-        if (!whiteKingMoved && !whiteRookLeftMoved && board[4, 7] == "K" && board[0, 7] == "R") rights += "Q";
-        if (!blackKingMoved && !blackRookRightMoved && board[4, 0] == "k" && board[7, 0] == "r") rights += "k";
-        if (!blackKingMoved && !blackRookLeftMoved && board[4, 0] == "k" && board[0, 0] == "r") rights += "q";
-        return string.IsNullOrEmpty(rights) ? "-" : rights;
     }
 
     public static List<string> ParsePgnMoves(string pgnText)
@@ -159,8 +203,149 @@ public sealed class ChessGame
             return true;
         }
 
+        if (normalizedSan == "O-O" || normalizedSan == "O-O-O")
+        {
+            int rank = whiteToMove ? 7 : 0;
+            int targetFile = normalizedSan == "O-O" ? 6 : 2;
+
+            foreach (MoveCandidate move in legalMoves)
+            {
+                if (move.Piece == (whiteToMove ? "K" : "k")
+                    && move.From == new Point(4, rank)
+                    && move.To == new Point(targetFile, rank))
+                {
+                    candidate = move;
+                    error = null;
+                    return true;
+                }
+            }
+
+            candidate = default;
+            error = "Castling is not legal in the current position.";
+            return false;
+        }
+
+        Match destinationMatch = Regex.Match(normalizedSan, @"([a-h][1-8])", RegexOptions.IgnoreCase);
+        if (!destinationMatch.Success)
+        {
+            candidate = default;
+            error = $"Could not read target square from SAN '{san}'.";
+            return false;
+        }
+
+        Point target = ParseSquare(destinationMatch.Groups[1].Value);
+        string sanWithoutSuffix = Regex.Replace(normalizedSan, @"[+#]+$", string.Empty);
+        string sanWithoutPromotion = Regex.Replace(sanWithoutSuffix, @"=([QRBN])", string.Empty);
+
+        string promotionPiece = string.Empty;
+        Match promotionMatch = Regex.Match(normalizedSan, @"=([QRBN])");
+        if (promotionMatch.Success)
+        {
+            promotionPiece = whiteToMove ? promotionMatch.Groups[1].Value : promotionMatch.Groups[1].Value.ToLowerInvariant();
+        }
+
+        bool isCapture = sanWithoutSuffix.Contains('x');
+        char firstChar = sanWithoutSuffix[0];
+        bool hasExplicitPiecePrefix = "KQRBNkqrbn".Contains(firstChar);
+        char pieceLetter = hasExplicitPiecePrefix ? char.ToUpperInvariant(firstChar) : 'P';
+        string moverPiece = whiteToMove
+            ? pieceLetter.ToString()
+            : pieceLetter == 'P' ? "p" : pieceLetter.ToString().ToLowerInvariant();
+
+        int destinationIndex = sanWithoutPromotion.IndexOf(destinationMatch.Groups[1].Value, StringComparison.Ordinal);
+        string prefix = destinationIndex > 0 ? sanWithoutPromotion[..destinationIndex] : string.Empty;
+        prefix = prefix.Replace("x", string.Empty, StringComparison.Ordinal);
+        if (pieceLetter != 'P')
+        {
+            prefix = prefix.Replace(pieceLetter.ToString(), string.Empty, StringComparison.Ordinal);
+        }
+
+        char? disambiguationFile = prefix.FirstOrDefault(c => c is >= 'a' and <= 'h');
+        char? disambiguationRank = prefix.FirstOrDefault(c => c is >= '1' and <= '8');
+
+        List<MoveCandidate> matches = new();
+        foreach (MoveCandidate move in legalMoves)
+        {
+            if (move.Piece != moverPiece || move.To != target || move.IsCapture != isCapture)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece != promotionPiece)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece is not null)
+            {
+                continue;
+            }
+
+            if (disambiguationFile.HasValue && move.From.X != disambiguationFile.Value - 'a')
+            {
+                continue;
+            }
+
+            if (disambiguationRank.HasValue && 8 - move.From.Y != disambiguationRank.Value - '0')
+            {
+                continue;
+            }
+
+            matches.Add(move);
+        }
+
+        if (matches.Count == 1)
+        {
+            candidate = matches[0];
+            error = null;
+            return true;
+        }
+
+        if (matches.Count == 0 && !hasExplicitPiecePrefix)
+        {
+            List<MoveCandidate> implicitPieceMatches = new();
+            foreach (MoveCandidate move in legalMoves)
+            {
+                if (move.To != target || move.IsCapture != isCapture)
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece != promotionPiece)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece is not null)
+                {
+                    continue;
+                }
+
+                if (disambiguationFile.HasValue && move.From.X != disambiguationFile.Value - 'a')
+                {
+                    continue;
+                }
+
+                if (disambiguationRank.HasValue && 8 - move.From.Y != disambiguationRank.Value - '0')
+                {
+                    continue;
+                }
+
+                implicitPieceMatches.Add(move);
+            }
+
+            if (implicitPieceMatches.Count == 1)
+            {
+                candidate = implicitPieceMatches[0];
+                error = null;
+                return true;
+            }
+        }
+
         candidate = default;
-        error = $"No legal move matches SAN '{san}' in the current position.";
+        error = matches.Count == 0
+            ? $"No legal move matches SAN '{san}' in the current position."
+            : $"SAN '{san}' is ambiguous in the current position.";
         return false;
     }
 
@@ -227,11 +412,14 @@ public sealed class ChessGame
 
     private void ExecuteMoveInternal(MoveCandidate move)
     {
-        string? capturedPiece = board[move.To.X, move.To.Y];
+        string? capturedPiece = move.IsEnPassant
+            ? board[move.To.X, move.To.Y + (IsPieceWhite(move.Piece) ? 1 : -1)]
+            : board[move.To.X, move.To.Y];
         bool pawnMove = move.Piece.Equals("P", StringComparison.OrdinalIgnoreCase);
 
-        ApplyMoveToBoard(move.From, move.To, move.Piece, move.PromotionPiece);
+        ApplyMoveToBoard(move.From, move.To, move.Piece, move.PromotionPiece, move.IsEnPassant);
         UpdateCastlingRights(move.From, move.To, move.Piece, capturedPiece);
+        enPassantTarget = GetEnPassantTargetAfterMove(move);
 
         halfmoveClock = pawnMove || move.IsCapture ? 0 : halfmoveClock + 1;
         if (!whiteToMove)
@@ -281,17 +469,18 @@ public sealed class ChessGame
                     continue;
                 }
 
-                bool capture = !string.IsNullOrEmpty(board[to.X, to.Y]);
+                bool isEnPassant = IsEnPassantCapture(from, to, piece);
+                bool capture = !string.IsNullOrEmpty(board[to.X, to.Y]) || isEnPassant;
                 if (NeedsPromotion(piece, to))
                 {
                     foreach (string promotion in GetPromotionOptions(piece))
                     {
-                        moves.Add(new MoveCandidate(from, to, piece, promotion, capture));
+                        moves.Add(new MoveCandidate(from, to, piece, promotion, capture, isEnPassant));
                     }
                 }
                 else
                 {
-                    moves.Add(new MoveCandidate(from, to, piece, null, capture));
+                    moves.Add(new MoveCandidate(from, to, piece, null, capture, isEnPassant));
                 }
             }
         }
@@ -341,6 +530,7 @@ public sealed class ChessGame
                 if (dx == 0 && dy == direction && string.IsNullOrEmpty(target)) return true;
                 if (dx == 0 && dy == 2 * direction && from.Y == startRow && string.IsNullOrEmpty(target) && string.IsNullOrEmpty(board[from.X, from.Y + direction])) return true;
                 if (Math.Abs(dx) == 1 && dy == direction && !string.IsNullOrEmpty(target) && IsPieceWhite(target) != IsPieceWhite(piece)) return true;
+                if (Math.Abs(dx) == 1 && dy == direction && IsEnPassantCapture(from, to, piece)) return true;
                 return false;
             case "r":
                 return (dx == 0 || dy == 0) && IsPathClear(from, to);
@@ -383,7 +573,7 @@ public sealed class ChessGame
     private bool WouldLeaveKingInCheck(Point from, Point to, string piece)
     {
         Snapshot snapshot = Capture();
-        ApplyMoveToBoard(from, to, piece, null);
+        ApplyMoveToBoard(from, to, piece, null, IsEnPassantCapture(from, to, piece));
         Point? king = FindKing(IsPieceWhite(piece));
         bool inCheck = king is null || IsSquareAttacked(king.Value, !IsPieceWhite(piece));
         Restore(snapshot);
@@ -446,9 +636,15 @@ public sealed class ChessGame
         };
     }
 
-    private void ApplyMoveToBoard(Point from, Point to, string piece, string? promotionPiece)
+    private void ApplyMoveToBoard(Point from, Point to, string piece, string? promotionPiece, bool isEnPassant)
     {
         board[from.X, from.Y] = null;
+
+        if (isEnPassant)
+        {
+            int capturedPawnY = to.Y + (IsPieceWhite(piece) ? 1 : -1);
+            board[to.X, capturedPawnY] = null;
+        }
 
         if (piece.Equals("K", StringComparison.OrdinalIgnoreCase) && Math.Abs(to.X - from.X) == 2)
         {
@@ -465,6 +661,40 @@ public sealed class ChessGame
         }
 
         board[to.X, to.Y] = promotionPiece ?? piece;
+    }
+
+    private bool IsEnPassantCapture(Point from, Point to, string piece)
+    {
+        if (!piece.Equals("P", StringComparison.OrdinalIgnoreCase) || enPassantTarget is null || to != enPassantTarget.Value)
+        {
+            return false;
+        }
+
+        int direction = IsPieceWhite(piece) ? -1 : 1;
+        if (Math.Abs(to.X - from.X) != 1 || to.Y - from.Y != direction || !string.IsNullOrEmpty(board[to.X, to.Y]))
+        {
+            return false;
+        }
+
+        int capturedPawnY = to.Y + (IsPieceWhite(piece) ? 1 : -1);
+        string? capturedPawn = board[to.X, capturedPawnY];
+        return capturedPawn == (IsPieceWhite(piece) ? "p" : "P");
+    }
+
+    private Point? GetEnPassantTargetAfterMove(MoveCandidate move)
+    {
+        if (!move.Piece.Equals("P", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        int deltaY = move.To.Y - move.From.Y;
+        if (Math.Abs(deltaY) != 2)
+        {
+            return null;
+        }
+
+        return new Point(move.From.X, move.From.Y + deltaY / 2);
     }
 
     private void UpdateCastlingRights(Point from, Point to, string movingPiece, string? capturedPiece)
@@ -530,6 +760,41 @@ public sealed class ChessGame
     private static bool IsPieceWhite(string piece) => char.IsUpper(piece[0]);
     private static bool IsOnBoard(Point point) => point.X >= 0 && point.X < 8 && point.Y >= 0 && point.Y < 8;
     private static string ToSquare(Point point) => $"{(char)('a' + point.X)}{8 - point.Y}";
+    private static bool TryParseSquare(string? square, out Point point)
+    {
+        point = default;
+        if (string.IsNullOrWhiteSpace(square) || square.Length != 2)
+        {
+            return false;
+        }
+
+        char file = char.ToLowerInvariant(square[0]);
+        char rank = square[1];
+        if (file < 'a' || file > 'h' || rank < '1' || rank > '8')
+        {
+            return false;
+        }
+
+        point = new Point(file - 'a', 8 - (rank - '0'));
+        return true;
+    }
+
+    private static string BuildUciMove(MoveCandidate move)
+    {
+        string uci = $"{ToSquare(move.From)}{ToSquare(move.To)}";
+        if (!string.IsNullOrEmpty(move.PromotionPiece))
+        {
+            uci += move.PromotionPiece.ToLowerInvariant();
+        }
+
+        return uci;
+    }
+
+    private static Point ParseSquare(string square)
+    {
+        char file = char.ToLowerInvariant(square[0]);
+        return new Point(file - 'a', 8 - (square[1] - '0'));
+    }
 
     private Snapshot Capture()
     {
@@ -542,7 +807,7 @@ public sealed class ChessGame
             }
         }
 
-        return new Snapshot(copy, whiteToMove, whiteKingMoved, blackKingMoved, whiteRookLeftMoved, whiteRookRightMoved, blackRookLeftMoved, blackRookRightMoved, halfmoveClock, fullmoveNumber);
+        return new Snapshot(copy, whiteToMove, whiteKingMoved, blackKingMoved, whiteRookLeftMoved, whiteRookRightMoved, blackRookLeftMoved, blackRookRightMoved, enPassantTarget, halfmoveClock, fullmoveNumber);
     }
 
     private void Restore(Snapshot snapshot)
@@ -562,11 +827,12 @@ public sealed class ChessGame
         whiteRookRightMoved = snapshot.WhiteRookRightMoved;
         blackRookLeftMoved = snapshot.BlackRookLeftMoved;
         blackRookRightMoved = snapshot.BlackRookRightMoved;
+        enPassantTarget = snapshot.EnPassantTarget;
         halfmoveClock = snapshot.HalfmoveClock;
         fullmoveNumber = snapshot.FullmoveNumber;
     }
 
-    private readonly record struct MoveCandidate(Point From, Point To, string Piece, string? PromotionPiece, bool IsCapture);
+    private readonly record struct MoveCandidate(Point From, Point To, string Piece, string? PromotionPiece, bool IsCapture, bool IsEnPassant);
     private readonly record struct Snapshot(
         string?[,] Board,
         bool WhiteToMove,
@@ -576,8 +842,27 @@ public sealed class ChessGame
         bool WhiteRookRightMoved,
         bool BlackRookLeftMoved,
         bool BlackRookRightMoved,
+        Point? EnPassantTarget,
         int HalfmoveClock,
         int FullmoveNumber);
 
     private readonly record struct Point(int X, int Y);
 }
+
+public sealed record AppliedMoveInfo(
+    string San,
+    string NormalizedSan,
+    string Uci,
+    string FenBefore,
+    string FenAfter,
+    string PlacementFenBefore,
+    string PlacementFenAfter,
+    string MovingPiece,
+    string? PromotionPiece,
+    string FromSquare,
+    string ToSquare,
+    bool IsCapture,
+    bool IsEnPassant,
+    bool IsCastle,
+    bool WhiteMoved,
+    int MoveNumber);

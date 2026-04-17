@@ -70,4 +70,55 @@ Kxa2 $6 62. Qb2# 1-0
 
         Assert.Equal(match.Groups[1].Value, game.GetFen());
     }
+
+    [Fact]
+    public void TryLoadFen_RoundTripsLoadedPosition()
+    {
+        const string fen = "r3k2r/pppq1ppp/2npbn2/4p3/2BPP3/2N2N2/PPP2PPP/R2Q1RK1 w kq - 4 9";
+
+        ChessGame game = new();
+
+        bool loaded = game.TryLoadFen(fen, out string? error);
+
+        Assert.True(loaded, error);
+        Assert.Equal(fen, game.GetFen());
+    }
+
+    [Fact]
+    public void TryLoadFen_RejectsInvalidPlacement()
+    {
+        ChessGame game = new();
+
+        bool loaded = game.TryLoadFen("8/8/8/8/8/8/8/8 w - - 0 1", out string? error);
+
+        Assert.False(loaded);
+        Assert.Contains("exactly one white king", error);
+    }
+
+    [Fact]
+    public void TryLoadFen_RoundTripsEnPassantTarget()
+    {
+        const string fen = "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1";
+
+        ChessGame game = new();
+
+        bool loaded = game.TryLoadFen(fen, out string? error);
+
+        Assert.True(loaded, error);
+        Assert.Equal(fen, game.GetFen());
+    }
+
+    [Fact]
+    public void ApplySan_ExecutesEnPassantCapture()
+    {
+        const string fen = "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1";
+
+        ChessGame game = new();
+        Assert.True(game.TryLoadFen(fen, out string? error), error);
+
+        game.ApplySan("exd6");
+
+        Assert.Equal("4k3/8/3P4/8/8/8/8/4K3 b - - 0 1", game.GetFen());
+    }
+
 }
