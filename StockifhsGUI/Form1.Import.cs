@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Media;
-using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace StockifhsGUI;
@@ -12,13 +11,16 @@ public partial class Form1
 {
     private readonly Stack<GameStateSnapshot> undoStack = new();
     private readonly List<ImportedMove> importedMoves = new();
+    private readonly List<ReplayPly> importedReplay = new();
     private ImportedGame? importedGame;
 
     private Button? undoButton;
     private Button? importPgnButton;
+    private Button? loadSavedGamesButton;
     private Button? applyNextImportedButton;
     private Button? applySelectedImportedButton;
     private Button? analyzeImportedButton;
+    private Button? playerProfilesButton;
     private Label? importedMovesLabel;
     private ListBox? importedMovesList;
     private int importedMoveCursor;
@@ -45,10 +47,19 @@ public partial class Form1
         importPgnButton.Click += (_, _) => ImportMovesFromPgn();
         Controls.Add(importPgnButton);
 
+        loadSavedGamesButton = new Button
+        {
+            Text = "Load Saved",
+            Location = new Point(TileSize * GridSize + 150, 16),
+            Size = new Size(120, 32)
+        };
+        loadSavedGamesButton.Click += (_, _) => LoadSavedImportedGame();
+        Controls.Add(loadSavedGamesButton);
+
         applyNextImportedButton = new Button
         {
             Text = "Apply Next",
-            Location = new Point(TileSize * GridSize + 150, 16),
+            Location = new Point(TileSize * GridSize + 20, 56),
             Size = new Size(120, 32)
         };
         applyNextImportedButton.Click += (_, _) => ApplyNextImportedMove();
@@ -57,7 +68,7 @@ public partial class Form1
         applySelectedImportedButton = new Button
         {
             Text = "Apply Selected",
-            Location = new Point(TileSize * GridSize + 20, 56),
+            Location = new Point(TileSize * GridSize + 150, 56),
             Size = new Size(120, 32)
         };
         applySelectedImportedButton.Click += (_, _) => ApplyImportedMovesThroughSelection();
@@ -66,31 +77,41 @@ public partial class Form1
         analyzeImportedButton = new Button
         {
             Text = "Analyze Imported",
-            Location = new Point(TileSize * GridSize + 150, 56),
+            Location = new Point(TileSize * GridSize + 20, 96),
             Size = new Size(120, 32)
         };
         analyzeImportedButton.Click += async (_, _) => await OpenImportedGameAnalysisAsync();
         Controls.Add(analyzeImportedButton);
 
+        playerProfilesButton = new Button
+        {
+            Text = "Profiles",
+            Location = new Point(TileSize * GridSize + 150, 96),
+            Size = new Size(120, 32)
+        };
+        playerProfilesButton.Click += (_, _) => OpenPlayerProfiles();
+        Controls.Add(playerProfilesButton);
+
         importedMovesLabel = new Label
         {
             AutoSize = false,
-            Location = new Point(TileSize * GridSize + 20, 100),
-            Size = new Size(260, 36),
+            Location = new Point(TileSize * GridSize + 20, 140),
+            Size = new Size(260, 52),
             Text = "Imported moves: none"
         };
         Controls.Add(importedMovesLabel);
 
         importedMovesList = new ListBox
         {
-            Location = new Point(TileSize * GridSize + 20, 140),
-            Size = new Size(260, 250),
+            Location = new Point(TileSize * GridSize + 20, 196),
+            Size = new Size(260, 194),
             Font = new Font("Consolas", 10)
         };
         importedMovesList.SelectedIndexChanged += (_, _) => ApplyImportedMovesThroughSelection(resetToStart: true);
         importedMovesList.DoubleClick += (_, _) => ApplyImportedMovesThroughSelection();
         Controls.Add(importedMovesList);
 
+        InitializePieceMoveOptionsControls();
         InitializeTrackingControls();
     }
 
@@ -99,6 +120,7 @@ public partial class Form1
         ResetBoardState();
         importedGame = null;
         importedMoves.Clear();
+        importedReplay.Clear();
         importedMovesList?.Items.Clear();
         importedMoveCursor = 0;
     }
@@ -115,16 +137,20 @@ public partial class Form1
         whiteRookRightMoved = false;
         blackRookLeftMoved = false;
         blackRookRightMoved = false;
+        enPassantTargetSquare = null;
+        halfmoveClock = 0;
+        fullmoveNumber = 1;
         selectedSquare = null;
         availableMoves.Clear();
         bestMoves.Clear();
         moveHistory.Clear();
+        ClearPieceMoveOptions();
         LoadStartingPosition();
     }
 
-    private bool TryExecuteMove(Point from, Point to, string piece, string? importedSan, bool advanceImportedCursor)
+    private bool TryExecuteMove(Point from, Point to, string piece, bool advanceImportedCursor)
     {
-        if (!IsLegalMove(from, to, piece))
+        if (!TryCreateGameFromCurrentPosition(out ChessGame? game, out string? error) || game is null)
         {
             return false;
         }
@@ -132,53 +158,22 @@ public partial class Form1
         string? promotionPiece = null;
         if (NeedsPromotion(piece, to))
         {
-            if (!string.IsNullOrEmpty(importedSan))
+            using PromotionForm promotionDialog = new(IsPieceWhite(piece), pieceImages);
+            if (promotionDialog.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(promotionDialog.SelectedPiece))
             {
-                promotionPiece = GetPromotionPieceFromSan(importedSan, IsPieceWhite(piece)) ?? (IsPieceWhite(piece) ? "Q" : "q");
+                return false;
             }
-            else
-            {
-                using PromotionForm promotionDialog = new(IsPieceWhite(piece), pieceImages);
-                if (promotionDialog.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(promotionDialog.SelectedPiece))
-                {
-                    return false;
-                }
 
-                promotionPiece = promotionDialog.SelectedPiece;
-            }
+            promotionPiece = promotionDialog.SelectedPiece;
         }
-
-        ExecuteMove(from, to, piece, promotionPiece, advanceImportedCursor);
-        return true;
-    }
-
-    private void ExecuteMove(Point from, Point to, string piece, string? promotionPiece, bool advanceImportedCursor)
-    {
-        undoStack.Push(CaptureCurrentState());
-        analysisArrows.Clear();
-        analysisTargetSquare = null;
 
         string uciMove = BuildUciMove(from, to, promotionPiece);
-        string? capturedPiece = board[to.X, to.Y];
-
-        ApplyMoveToBoard(from, to, piece, promotionPiece);
-        UpdateCastlingRights(from, to, piece, capturedPiece);
-
-        whiteToMove = !whiteToMove;
-        moveHistory.Add(uciMove);
-        if (advanceImportedCursor)
+        if (!game.TryApplyUci(uciMove, out AppliedMoveInfo? appliedMove, out error) || appliedMove is null)
         {
-            importedMoveCursor++;
+            return false;
         }
 
-        if (!suppressEngineRefresh)
-        {
-            RefreshEngineSuggestions();
-            if (engine?.IsGameOver() == true)
-            {
-                MessageBox.Show("Game over. Stockfish reports no further legal continuation.", "Game Over", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
+        return TryApplyMoveResult(appliedMove, advanceImportedCursor, out _);
     }
 
     private void UndoLastMove()
@@ -205,23 +200,8 @@ public partial class Form1
         try
         {
             ImportedGame parsedGame = PgnGameParser.Parse(dialog.PgnText);
-            GameReplayService replayService = new();
-            IReadOnlyList<ReplayPly> replay = replayService.Replay(parsedGame);
-            ResetGameState();
-            importedGame = parsedGame;
-            suppressImportedSelectionHandling = true;
-            for (int i = 0; i < replay.Count; i++)
-            {
-                ReplayPly replayPly = replay[i];
-                ImportedMove move = new(i + 1, replayPly.MoveNumber, replayPly.Side, replayPly.San);
-                importedMoves.Add(move);
-                importedMovesList?.Items.Add(move);
-            }
-            suppressImportedSelectionHandling = false;
-
-            importedMoveCursor = 0;
-            RefreshEngineSuggestions();
-            UpdateExtendedControls();
+            LoadImportedGame(parsedGame);
+            SaveImportedGameToStore(parsedGame);
 
             if (importedMoves.Count == 0)
             {
@@ -231,6 +211,31 @@ public partial class Form1
         catch (Exception ex)
         {
             MessageBox.Show($"Could not import moves from PGN.\n{ex.Message}", "Paste PGN", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void LoadSavedImportedGame()
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        if (store is null)
+        {
+            MessageBox.Show("Local storage for imported games is unavailable on this machine.", "Saved Imported Games", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using SavedImportedGamesForm dialog = new(store);
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.SelectedGame is null)
+        {
+            return;
+        }
+
+        try
+        {
+            LoadImportedGame(dialog.SelectedGame);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not load the selected imported game.\n{ex.Message}", "Saved Imported Games", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -253,6 +258,11 @@ public partial class Form1
         }
 
         int targetIndex = importedMovesList.SelectedIndex;
+        if (TryJumpToImportedMove(targetIndex, preserveUndoHistory: false))
+        {
+            return;
+        }
+
         if (resetToStart || targetIndex < importedMoveCursor)
         {
             ReplayImportedMovesThrough(targetIndex);
@@ -273,6 +283,11 @@ public partial class Form1
         if (targetIndex < 0 || targetIndex >= importedMoves.Count)
         {
             SystemSounds.Beep.Play();
+            return;
+        }
+
+        if (TryJumpToImportedMove(targetIndex, preserveUndoHistory: false))
+        {
             return;
         }
 
@@ -315,8 +330,15 @@ public partial class Form1
             return false;
         }
 
+        if (TryJumpToImportedMove(index, preserveUndoHistory: true))
+        {
+            ClearSelection();
+            return true;
+        }
+
         ImportedMove move = importedMoves[index];
-        if (!TryResolveSan(move.San, out MoveCandidate candidate, out string? error))
+        if (!TryBuildImportedMoveResult(index, out AppliedMoveInfo? appliedMove, out string? error)
+            || appliedMove is null)
         {
             if (showError)
             {
@@ -326,22 +348,96 @@ public partial class Form1
             return false;
         }
 
-        ExecuteMove(candidate.From, candidate.To, candidate.Piece, candidate.PromotionPiece, advanceImportedCursor: true);
+        if (!TryApplyMoveResult(appliedMove, advanceImportedCursor: true, out error))
+        {
+            if (showError)
+            {
+                MessageBox.Show($"Move {move.DisplayText} could not be shown on the board.\n{error}", "Import PGN", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            return false;
+        }
+
         ClearSelection();
         return true;
+    }
+
+    private bool TryJumpToImportedMove(int index, bool preserveUndoHistory)
+    {
+        if (index < 0 || index >= importedReplay.Count)
+        {
+            return false;
+        }
+
+        if (preserveUndoHistory)
+        {
+            undoStack.Push(CaptureCurrentState());
+        }
+        else
+        {
+            undoStack.Clear();
+        }
+
+        ReplayPly replayPly = importedReplay[index];
+        if (!TryApplyFen(replayPly.FenAfter, out _))
+        {
+            if (preserveUndoHistory && undoStack.Count > 0)
+            {
+                undoStack.Pop();
+            }
+
+            return false;
+        }
+
+        analysisArrows.Clear();
+        analysisTargetSquare = null;
+        moveHistory.Clear();
+        foreach (ReplayPly appliedReplayPly in importedReplay.Take(index + 1))
+        {
+            moveHistory.Add(appliedReplayPly.Uci);
+        }
+
+        importedMoveCursor = index + 1;
+        ClearSelection();
+
+        if (!suppressEngineRefresh)
+        {
+            RefreshEngineSuggestions();
+        }
+
+        UpdateExtendedControls();
+        Invalidate();
+        return true;
+    }
+
+    private bool TryBuildImportedMoveResult(int index, out AppliedMoveInfo? appliedMove, out string? error)
+    {
+        appliedMove = null;
+        error = null;
+
+        try
+        {
+            ChessGame replayGame = new();
+            for (int i = 0; i < index; i++)
+            {
+                replayGame.ApplySan(importedMoves[i].San);
+            }
+
+            appliedMove = replayGame.ApplySanWithResult(importedMoves[index].San);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
     }
 
     private void UpdateExtendedControls()
     {
         if (importedMovesLabel is not null)
         {
-            string players = importedGame is null
-                ? string.Empty
-                : $" | {importedGame.WhitePlayer ?? "White"} vs {importedGame.BlackPlayer ?? "Black"}";
-
-            importedMovesLabel.Text = importedMoves.Count == 0
-                ? "Imported moves: none"
-                : $"Imported moves: {importedMoveCursor}/{importedMoves.Count} applied{players}";
+            importedMovesLabel.Text = BuildImportedGameSummaryText();
         }
 
         if (importedMovesList is not null)
@@ -366,6 +462,11 @@ public partial class Form1
             undoButton.Enabled = undoStack.Count > 0;
         }
 
+        if (loadSavedGamesButton is not null)
+        {
+            loadSavedGamesButton.Enabled = AnalysisStoreProvider.GetStore() is not null;
+        }
+
         if (applyNextImportedButton is not null)
         {
             applyNextImportedButton.Enabled = importedMoveCursor < importedMoves.Count;
@@ -379,12 +480,113 @@ public partial class Form1
         if (analyzeImportedButton is not null)
         {
             analyzeImportedButton.Enabled = importedGame?.SanMoves.Count > 0 && engine is not null;
+            analyzeImportedButton.Text = BuildAnalyzeButtonText();
+        }
+
+        if (playerProfilesButton is not null)
+        {
+            playerProfilesButton.Enabled = AnalysisStoreProvider.GetStore() is not null;
         }
     }
 
-    private static List<string> ParsePgnMoves(string pgnText)
+    private void LoadImportedGame(ImportedGame parsedGame)
     {
-        return SanNotation.ParsePgnMoves(pgnText);
+        ArgumentNullException.ThrowIfNull(parsedGame);
+
+        GameReplayService replayService = new();
+        IReadOnlyList<ReplayPly> replay = replayService.Replay(parsedGame);
+        ResetGameState();
+        importedGame = parsedGame;
+        importedReplay.AddRange(replay);
+        suppressImportedSelectionHandling = true;
+        for (int i = 0; i < replay.Count; i++)
+        {
+            ReplayPly replayPly = replay[i];
+            ImportedMove move = new(i + 1, replayPly.MoveNumber, replayPly.Side, replayPly.San);
+            importedMoves.Add(move);
+            importedMovesList?.Items.Add(move);
+        }
+
+        suppressImportedSelectionHandling = false;
+        importedMoveCursor = 0;
+        RefreshEngineSuggestions();
+        UpdateExtendedControls();
+    }
+
+    private static void SaveImportedGameToStore(ImportedGame parsedGame)
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        if (store is null)
+        {
+            return;
+        }
+
+        try
+        {
+            store.SaveImportedGame(parsedGame);
+        }
+        catch
+        {
+            // Import should still work if local persistence is temporarily unavailable.
+        }
+    }
+
+    private string BuildImportedGameSummaryText()
+    {
+        if (importedMoves.Count == 0 || importedGame is null)
+        {
+            return "Imported moves: none";
+        }
+
+        string players = $"{importedGame.WhitePlayer ?? "White"} vs {importedGame.BlackPlayer ?? "Black"}";
+        string result = string.IsNullOrWhiteSpace(importedGame.Result) ? "Result: ?" : $"Result: {importedGame.Result}";
+        string date = string.IsNullOrWhiteSpace(importedGame.DateText) ? string.Empty : $" | {importedGame.DateText}";
+        string eco = string.IsNullOrWhiteSpace(importedGame.Eco) ? string.Empty : $" | {importedGame.Eco}";
+        string analysisStatus = HasSavedAnalysis(importedGame, out PlayerSide? savedSide)
+            ? $" | saved analysis: {savedSide}"
+            : string.Empty;
+
+        return $"Imported moves: {importedMoveCursor}/{importedMoves.Count} applied | {players}{Environment.NewLine}{result}{date}{eco}{analysisStatus}";
+    }
+
+    private string BuildAnalyzeButtonText()
+    {
+        if (importedGame is null)
+        {
+            return "Analyze Imported";
+        }
+
+        return HasSavedAnalysis(importedGame, out PlayerSide? savedSide)
+            ? $"Open Analysis ({savedSide})"
+            : "Analyze Imported";
+    }
+
+    private static bool HasSavedAnalysis(ImportedGame game, out PlayerSide? savedSide)
+    {
+        savedSide = null;
+        EngineAnalysisOptions options = new();
+
+        if (GameAnalysisCache.TryGetWindowState(game, out AnalysisWindowState? state) && state is not null)
+        {
+            GameAnalysisCacheKey preferredKey = GameAnalysisCache.CreateKey(game, state.SelectedSide, options);
+            if (GameAnalysisCache.TryGetResult(preferredKey, out _))
+            {
+                savedSide = state.SelectedSide;
+                return true;
+            }
+        }
+
+        foreach (PlayerSide side in new[] { PlayerSide.White, PlayerSide.Black })
+        {
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, side, options);
+            if (GameAnalysisCache.TryGetResult(key, out _))
+            {
+                savedSide = side;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void EnsureImportedMoveVisible(int index)
@@ -398,348 +600,6 @@ public partial class Form1
         int visibleItemCount = Math.Max(1, importedMovesList.ClientSize.Height / itemHeight);
         int targetTopIndex = Math.Max(0, index - (visibleItemCount / 2));
         importedMovesList.TopIndex = targetTopIndex;
-    }
-
-    private bool TryResolveSan(string san, out MoveCandidate candidate, out string? error)
-    {
-        string normalizedSan = SanNotation.NormalizeSan(san);
-        List<MoveCandidate> legalMoves = GetAllLegalMoves(whiteToMove);
-        List<MoveCandidate> generatedSanMatches = new();
-
-        foreach (MoveCandidate move in legalMoves)
-        {
-            string generatedSan = GenerateSan(move, legalMoves);
-            if (SanNotation.NormalizeSan(generatedSan) == normalizedSan)
-            {
-                generatedSanMatches.Add(move);
-            }
-        }
-
-        if (generatedSanMatches.Count == 1)
-        {
-            candidate = generatedSanMatches[0];
-            error = null;
-            return true;
-        }
-
-        if (normalizedSan == "O-O" || normalizedSan == "O-O-O")
-        {
-            int rank = whiteToMove ? 7 : 0;
-            int targetFile = normalizedSan == "O-O" ? 6 : 2;
-
-            foreach (MoveCandidate move in legalMoves)
-            {
-                if (move.Piece == (whiteToMove ? "K" : "k")
-                    && move.From == new Point(4, rank)
-                    && move.To == new Point(targetFile, rank))
-                {
-                    candidate = move;
-                    error = null;
-                    return true;
-                }
-            }
-
-            candidate = default;
-            error = "Castling is not legal in the current position.";
-            return false;
-        }
-
-        Match destinationMatch = Regex.Match(normalizedSan, @"([a-h][1-8])", RegexOptions.IgnoreCase);
-        if (!destinationMatch.Success)
-        {
-            candidate = default;
-            error = $"Could not read target square from SAN '{san}'.";
-            return false;
-        }
-
-        Point target = ParseSquare(destinationMatch.Groups[1].Value);
-        string sanWithoutSuffix = Regex.Replace(normalizedSan, @"[+#]+$", string.Empty);
-        string sanWithoutPromotion = Regex.Replace(sanWithoutSuffix, @"=([QRBN])", string.Empty);
-
-        string promotionPiece = string.Empty;
-        Match promotionMatch = Regex.Match(normalizedSan, @"=([QRBN])");
-        if (promotionMatch.Success)
-        {
-            promotionPiece = whiteToMove ? promotionMatch.Groups[1].Value : promotionMatch.Groups[1].Value.ToLowerInvariant();
-        }
-
-        bool isCapture = sanWithoutSuffix.Contains('x');
-        char firstChar = sanWithoutSuffix[0];
-        bool hasExplicitPiecePrefix = "KQRBNkqrbn".Contains(firstChar);
-        char pieceLetter = hasExplicitPiecePrefix ? char.ToUpperInvariant(firstChar) : 'P';
-        string moverPiece = whiteToMove
-            ? pieceLetter.ToString()
-            : pieceLetter == 'P' ? "p" : pieceLetter.ToString().ToLowerInvariant();
-
-        int destinationIndex = sanWithoutPromotion.IndexOf(destinationMatch.Groups[1].Value, StringComparison.Ordinal);
-        string prefix = destinationIndex > 0 ? sanWithoutPromotion[..destinationIndex] : string.Empty;
-        prefix = prefix.Replace("x", string.Empty, StringComparison.Ordinal);
-        if (pieceLetter != 'P')
-        {
-            prefix = prefix.Replace(pieceLetter.ToString(), string.Empty, StringComparison.Ordinal);
-        }
-
-        char? disambiguationFile = prefix.FirstOrDefault(c => c is >= 'a' and <= 'h');
-        char? disambiguationRank = prefix.FirstOrDefault(c => c is >= '1' and <= '8');
-
-        List<MoveCandidate> matches = new();
-        foreach (MoveCandidate move in legalMoves)
-        {
-            if (move.Piece != moverPiece || move.To != target || move.IsCapture != isCapture)
-            {
-                continue;
-            }
-
-            if (!string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece != promotionPiece)
-            {
-                continue;
-            }
-
-            if (string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece is not null)
-            {
-                continue;
-            }
-
-            if (disambiguationFile.HasValue && move.From.X != disambiguationFile.Value - 'a')
-            {
-                continue;
-            }
-
-            if (disambiguationRank.HasValue && 8 - move.From.Y != disambiguationRank.Value - '0')
-            {
-                continue;
-            }
-
-            matches.Add(move);
-        }
-
-        if (matches.Count == 1)
-        {
-            candidate = matches[0];
-            error = null;
-            return true;
-        }
-
-        if (matches.Count == 0 && !hasExplicitPiecePrefix)
-        {
-            List<MoveCandidate> implicitPieceMatches = new();
-            foreach (MoveCandidate move in legalMoves)
-            {
-                if (move.To != target || move.IsCapture != isCapture)
-                {
-                    continue;
-                }
-
-                if (!string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece != promotionPiece)
-                {
-                    continue;
-                }
-
-                if (string.IsNullOrEmpty(promotionPiece) && move.PromotionPiece is not null)
-                {
-                    continue;
-                }
-
-                if (disambiguationFile.HasValue && move.From.X != disambiguationFile.Value - 'a')
-                {
-                    continue;
-                }
-
-                if (disambiguationRank.HasValue && 8 - move.From.Y != disambiguationRank.Value - '0')
-                {
-                    continue;
-                }
-
-                implicitPieceMatches.Add(move);
-            }
-
-            if (implicitPieceMatches.Count == 1)
-            {
-                candidate = implicitPieceMatches[0];
-                error = null;
-                return true;
-            }
-        }
-
-        candidate = default;
-        error = matches.Count == 0
-            ? $"No legal move matches SAN '{san}' in the current position."
-            : $"SAN '{san}' is ambiguous in the current position.";
-        return false;
-    }
-
-    private string GenerateSan(MoveCandidate move, List<MoveCandidate> legalMoves)
-    {
-        if (move.Piece.Equals("K", StringComparison.OrdinalIgnoreCase) && Math.Abs(move.To.X - move.From.X) == 2)
-        {
-            string castleSan = move.To.X > move.From.X ? "O-O" : "O-O-O";
-            return castleSan + GetCheckSuffix(move);
-        }
-
-        bool isPawn = move.Piece.Equals("P", StringComparison.OrdinalIgnoreCase);
-        string piecePrefix = isPawn ? string.Empty : move.Piece.ToUpperInvariant();
-        string disambiguation = GetSanDisambiguation(move, legalMoves, isPawn);
-        string captureMarker = move.IsCapture ? "x" : string.Empty;
-        string targetSquare = ToUCI(move.To);
-        string promotion = move.PromotionPiece is null ? string.Empty : $"={move.PromotionPiece.ToUpperInvariant()}";
-
-        return $"{piecePrefix}{disambiguation}{captureMarker}{targetSquare}{promotion}{GetCheckSuffix(move)}";
-    }
-
-    private string GetSanDisambiguation(MoveCandidate move, List<MoveCandidate> legalMoves, bool isPawn)
-    {
-        if (isPawn)
-        {
-            return move.IsCapture ? ((char)('a' + move.From.X)).ToString() : string.Empty;
-        }
-
-        List<MoveCandidate> conflicts = new();
-        foreach (MoveCandidate candidate in legalMoves)
-        {
-            if (candidate.From == move.From)
-            {
-                continue;
-            }
-
-            if (candidate.Piece == move.Piece && candidate.To == move.To)
-            {
-                conflicts.Add(candidate);
-            }
-        }
-
-        if (conflicts.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        bool fileUnique = !conflicts.Any(candidate => candidate.From.X == move.From.X);
-        bool rankUnique = !conflicts.Any(candidate => candidate.From.Y == move.From.Y);
-
-        char file = (char)('a' + move.From.X);
-        char rank = (char)('8' - move.From.Y);
-
-        if (fileUnique)
-        {
-            return file.ToString();
-        }
-
-        if (rankUnique)
-        {
-            return rank.ToString();
-        }
-
-        return $"{file}{rank}";
-    }
-
-    private string GetCheckSuffix(MoveCandidate move)
-    {
-        GameStateSnapshot snapshot = CaptureCurrentState();
-
-        string? capturedPiece = board[move.To.X, move.To.Y];
-        ApplyMoveToBoard(move.From, move.To, move.Piece, move.PromotionPiece);
-        UpdateCastlingRights(move.From, move.To, move.Piece, capturedPiece);
-        whiteToMove = !whiteToMove;
-
-        bool opponentInCheck = false;
-        Point? opponentKing = FindKing(whiteToMove);
-        if (opponentKing.HasValue)
-        {
-            opponentInCheck = IsSquareAttacked(opponentKing.Value, !whiteToMove);
-        }
-
-        bool opponentHasLegalMoves = GetAllLegalMoves(whiteToMove).Count > 0;
-        RestoreState(snapshot);
-
-        if (!opponentInCheck)
-        {
-            return string.Empty;
-        }
-
-        return opponentHasLegalMoves ? "+" : "#";
-    }
-
-    private List<MoveCandidate> GetAllLegalMoves(bool forWhite)
-    {
-        List<MoveCandidate> moves = new();
-        for (int x = 0; x < GridSize; x++)
-        {
-            for (int y = 0; y < GridSize; y++)
-            {
-                string? piece = board[x, y];
-                if (string.IsNullOrEmpty(piece) || IsPieceWhite(piece) != forWhite)
-                {
-                    continue;
-                }
-
-                moves.AddRange(GetLegalMovesForPiece(new Point(x, y)));
-            }
-        }
-
-        return moves;
-    }
-
-    private List<MoveCandidate> GetLegalMovesForPiece(Point from)
-    {
-        List<MoveCandidate> moves = new();
-        string? piece = board[from.X, from.Y];
-        if (string.IsNullOrEmpty(piece))
-        {
-            return moves;
-        }
-
-        for (int tx = 0; tx < GridSize; tx++)
-        {
-            for (int ty = 0; ty < GridSize; ty++)
-            {
-                Point to = new(tx, ty);
-                if (!IsLegalMove(from, to, piece))
-                {
-                    continue;
-                }
-
-                bool isCapture = !string.IsNullOrEmpty(board[to.X, to.Y]);
-                if (NeedsPromotion(piece, to))
-                {
-                    foreach (string promotionPiece in GetPromotionOptions(piece))
-                    {
-                        moves.Add(new MoveCandidate(from, to, piece, promotionPiece, isCapture));
-                    }
-                }
-                else
-                {
-                    moves.Add(new MoveCandidate(from, to, piece, null, isCapture));
-                }
-            }
-        }
-
-        return moves;
-    }
-
-    private static IEnumerable<string> GetPromotionOptions(string piece)
-    {
-        bool white = IsPieceWhite(piece);
-        yield return white ? "Q" : "q";
-        yield return white ? "R" : "r";
-        yield return white ? "B" : "b";
-        yield return white ? "N" : "n";
-    }
-
-    private static Point ParseSquare(string square)
-    {
-        char file = char.ToLowerInvariant(square[0]);
-        return new Point(file - 'a', 8 - (square[1] - '0'));
-    }
-
-    private static string? GetPromotionPieceFromSan(string san, bool isWhite)
-    {
-        Match match = Regex.Match(san, @"=([QRBN])", RegexOptions.IgnoreCase);
-        if (!match.Success)
-        {
-            return null;
-        }
-
-        string piece = match.Groups[1].Value.ToUpperInvariant();
-        return isWhite ? piece : piece.ToLowerInvariant();
     }
 
     private GameStateSnapshot CaptureCurrentState()
@@ -764,6 +624,9 @@ public partial class Form1
             whiteRookRightMoved,
             blackRookLeftMoved,
             blackRookRightMoved,
+            enPassantTargetSquare,
+            halfmoveClock,
+            fullmoveNumber,
             importedMoveCursor);
     }
 
@@ -787,10 +650,12 @@ public partial class Form1
         whiteRookRightMoved = snapshot.WhiteRookRightMoved;
         blackRookLeftMoved = snapshot.BlackRookLeftMoved;
         blackRookRightMoved = snapshot.BlackRookRightMoved;
+        enPassantTargetSquare = snapshot.EnPassantTargetSquare;
+        halfmoveClock = snapshot.HalfmoveClock;
+        fullmoveNumber = snapshot.FullmoveNumber;
         importedMoveCursor = snapshot.ImportedMoveCursor;
     }
 
-    private readonly record struct MoveCandidate(Point From, Point To, string Piece, string? PromotionPiece, bool IsCapture);
     private readonly record struct ImportedMove(int Ply, int MoveNumber, PlayerSide Side, string San)
     {
         public string DisplayText => Side == PlayerSide.White
@@ -811,5 +676,8 @@ public partial class Form1
         bool WhiteRookRightMoved,
         bool BlackRookLeftMoved,
         bool BlackRookRightMoved,
+        string? EnPassantTargetSquare,
+        int HalfmoveClock,
+        int FullmoveNumber,
         int ImportedMoveCursor);
 }

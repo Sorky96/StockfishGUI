@@ -81,14 +81,84 @@ public sealed class ChessGame
         bool whiteMoved = whiteToMove;
         int moveNumber = fullmoveNumber;
         string normalizedSan = SanNotation.NormalizeSan(san);
+        List<MoveCandidate> legalMoves = GetAllLegalMoves(whiteToMove);
 
-        if (!TryResolveSan(san, out MoveCandidate move, out string? error))
+        if (!TryResolveSan(san, legalMoves, out MoveCandidate move, out string? error))
         {
             throw new InvalidOperationException(error ?? $"Could not resolve SAN '{san}'.");
         }
 
         ExecuteMove(move);
 
+        return CreateAppliedMoveInfo(move, san, normalizedSan, fenBefore, placementFenBefore, whiteMoved, moveNumber);
+    }
+
+    public IReadOnlyList<LegalMoveInfo> GetLegalMoves()
+    {
+        List<MoveCandidate> legalMoves = GetAllLegalMoves(whiteToMove);
+        return legalMoves
+            .Select(move => new LegalMoveInfo(
+                BuildUciMove(move),
+                GenerateSan(move, legalMoves),
+                ToSquare(move.From),
+                ToSquare(move.To),
+                move.Piece,
+                move.PromotionPiece,
+                move.IsCapture,
+                move.IsEnPassant,
+                move.Piece.Equals("K", StringComparison.OrdinalIgnoreCase) && Math.Abs(move.To.X - move.From.X) == 2))
+            .ToList();
+    }
+
+    public bool TryApplyUci(string uci, out AppliedMoveInfo? appliedMove, out string? error)
+    {
+        appliedMove = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(uci))
+        {
+            error = "Move UCI cannot be empty.";
+            return false;
+        }
+
+        string fenBefore = GetFen();
+        string placementFenBefore = GetPlacementFen();
+        bool whiteMoved = whiteToMove;
+        int moveNumber = fullmoveNumber;
+        List<MoveCandidate> legalMoves = GetAllLegalMoves(whiteToMove);
+        List<MoveCandidate> matches = legalMoves
+            .Where(move => string.Equals(BuildUciMove(move), uci, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            error = $"No legal move matches UCI '{uci}' in the current position.";
+            return false;
+        }
+
+        if (matches.Count > 1)
+        {
+            error = $"UCI '{uci}' is ambiguous in the current position.";
+            return false;
+        }
+
+        MoveCandidate move = matches[0];
+        string san = GenerateSan(move, legalMoves);
+        string normalizedSan = SanNotation.NormalizeSan(san);
+        ExecuteMove(move);
+        appliedMove = CreateAppliedMoveInfo(move, san, normalizedSan, fenBefore, placementFenBefore, whiteMoved, moveNumber);
+        return true;
+    }
+
+    private AppliedMoveInfo CreateAppliedMoveInfo(
+        MoveCandidate move,
+        string san,
+        string normalizedSan,
+        string fenBefore,
+        string placementFenBefore,
+        bool whiteMoved,
+        int moveNumber)
+    {
         return new AppliedMoveInfo(
             san,
             normalizedSan,
@@ -184,8 +254,12 @@ public sealed class ChessGame
 
     private bool TryResolveSan(string san, out MoveCandidate candidate, out string? error)
     {
+        return TryResolveSan(san, GetAllLegalMoves(whiteToMove), out candidate, out error);
+    }
+
+    private bool TryResolveSan(string san, List<MoveCandidate> legalMoves, out MoveCandidate candidate, out string? error)
+    {
         string normalizedSan = SanNotation.NormalizeSan(san);
-        List<MoveCandidate> legalMoves = GetAllLegalMoves(whiteToMove);
 
         List<MoveCandidate> generatedMatches = new();
         foreach (MoveCandidate move in legalMoves)
@@ -866,3 +940,14 @@ public sealed record AppliedMoveInfo(
     bool IsCastle,
     bool WhiteMoved,
     int MoveNumber);
+
+public sealed record LegalMoveInfo(
+    string Uci,
+    string San,
+    string FromSquare,
+    string ToSquare,
+    string MovingPiece,
+    string? PromotionPiece,
+    bool IsCapture,
+    bool IsEnPassant,
+    bool IsCastle);

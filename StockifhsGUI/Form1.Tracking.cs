@@ -196,23 +196,10 @@ public partial class Form1
             analysisTargetSquare = null;
             importedGame = null;
             importedMoves.Clear();
+            importedReplay.Clear();
             importedMovesList?.Items.Clear();
-            for (int x = 0; x < GridSize; x++)
-            {
-                for (int y = 0; y < GridSize; y++)
-                {
-                    board[x, y] = position.Board[x, y];
-                }
-            }
-
             moveHistory.Clear();
-            whiteToMove = position.WhiteToMove;
-            whiteKingMoved = position.WhiteKingMoved;
-            blackKingMoved = position.BlackKingMoved;
-            whiteRookLeftMoved = position.WhiteRookLeftMoved;
-            whiteRookRightMoved = position.WhiteRookRightMoved;
-            blackRookLeftMoved = position.BlackRookLeftMoved;
-            blackRookRightMoved = position.BlackRookRightMoved;
+            ApplyPosition(position);
             importedMoveCursor = snapshot.Moves.Count;
 
             if (importedMovesList is not null)
@@ -254,9 +241,9 @@ public partial class Form1
             whiteRookRightMoved,
             blackRookLeftMoved,
             blackRookRightMoved,
-            null,
-            0,
-            Math.Max(1, moveHistory.Count / 2 + 1)).GetFen();
+            enPassantTargetSquare,
+            halfmoveClock,
+            fullmoveNumber).GetFen();
     }
 
     private void SetTrackingStatus(string message)

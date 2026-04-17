@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Media;
 using System.Windows.Forms;
 
@@ -38,11 +39,14 @@ public partial class Form1 : Form
     private bool whiteRookRightMoved;
     private bool blackRookLeftMoved;
     private bool blackRookRightMoved;
+    private string? enPassantTargetSquare;
+    private int halfmoveClock;
+    private int fullmoveNumber = 1;
 
     public Form1(bool rotate = false)
     {
         DoubleBuffered = true;
-        ClientSize = new Size(TileSize * GridSize + SidePanelWidth + 20, TileSize * GridSize + 80);
+        ClientSize = new Size(TileSize * GridSize + SidePanelWidth + 20, TileSize * GridSize + 260);
         Text = "Manual Chess (Player vs Player)";
         rotateBoard = rotate;
 
@@ -177,6 +181,14 @@ public partial class Form1 : Form
                         TileSize - 4);
                 }
 
+                if (pieceMoveOptionTargetSquare.HasValue && pieceMoveOptionTargetSquare.Value.X == x && pieceMoveOptionTargetSquare.Value.Y == y)
+                {
+                    using SolidBrush previewBrush = new(Color.FromArgb(96, Color.DeepSkyBlue));
+                    using Pen previewPen = new(Color.DeepSkyBlue, 3);
+                    g.FillRectangle(previewBrush, drawX * TileSize + 4, drawY * TileSize + 4, TileSize - 8, TileSize - 8);
+                    g.DrawRectangle(previewPen, drawX * TileSize + 4, drawY * TileSize + 4, TileSize - 8, TileSize - 8);
+                }
+
                 if (availableMoves.Contains(new Point(x, y)))
                 {
                     g.FillEllipse(
@@ -292,7 +304,7 @@ public partial class Form1 : Form
             return;
         }
 
-        if (!TryExecuteMove(from, to, piece, importedSan: null, advanceImportedCursor: false))
+        if (!TryExecuteMove(from, to, piece, advanceImportedCursor: false))
         {
             SystemSounds.Beep.Play();
             ClearSelection();
@@ -310,13 +322,27 @@ public partial class Form1 : Form
             return;
         }
 
-        selectedSquare = new Point(x, y);
-        availableMoves.Clear();
-        foreach (MoveCandidate move in GetLegalMovesForPiece(selectedSquare.Value))
+        if (!TryCreateGameFromCurrentPosition(out ChessGame? game, out _) || game is null)
         {
-            availableMoves.Add(move.To);
+            return;
         }
 
+        selectedSquare = new Point(x, y);
+        availableMoves.Clear();
+        string fromSquare = ToUCI(selectedSquare.Value);
+        List<LegalMoveInfo> movesForPiece = game.GetLegalMoves()
+            .Where(move => move.FromSquare == fromSquare)
+            .ToList();
+
+        foreach (LegalMoveInfo move in movesForPiece)
+        {
+            if (TryParseUciSquare(move.ToSquare, out Point targetSquare) && !availableMoves.Contains(targetSquare))
+            {
+                availableMoves.Add(targetSquare);
+            }
+        }
+
+        UpdateSelectedPieceMoveOptions(GetCurrentFen(), selectedSquare.Value, movesForPiece);
         Invalidate();
     }
 
@@ -324,6 +350,7 @@ public partial class Form1 : Form
     {
         selectedSquare = null;
         availableMoves.Clear();
+        ClearPieceMoveOptions();
         Invalidate();
     }
 
@@ -378,386 +405,14 @@ public partial class Form1 : Form
             || piece.Equals("p", StringComparison.Ordinal) && to.Y == 7;
     }
 
-    private bool IsLegalMove(Point from, Point to, string piece)
-    {
-        if (from == to || !IsOnBoard(from.X, from.Y) || !IsOnBoard(to.X, to.Y))
-        {
-            return false;
-        }
-
-        string? currentPiece = board[from.X, from.Y];
-        if (!string.Equals(currentPiece, piece, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        if (!IsPseudoLegalMove(from, to, piece))
-        {
-            return false;
-        }
-
-        return !WouldLeaveKingInCheck(from, to, piece);
-    }
-
-    private bool IsPseudoLegalMove(Point from, Point to, string piece)
-    {
-        string? target = board[to.X, to.Y];
-        if (!string.IsNullOrEmpty(target) && IsPieceWhite(target) == IsPieceWhite(piece))
-        {
-            return false;
-        }
-
-        int dx = to.X - from.X;
-        int dy = to.Y - from.Y;
-
-        switch (piece.ToLowerInvariant())
-        {
-            case "k":
-                if (Math.Abs(dx) <= 1 && Math.Abs(dy) <= 1)
-                {
-                    return true;
-                }
-
-                return dy == 0 && Math.Abs(dx) == 2 && CanCastle(from, to, IsPieceWhite(piece));
-
-            case "p":
-                int direction = IsPieceWhite(piece) ? -1 : 1;
-                int startRow = IsPieceWhite(piece) ? 6 : 1;
-
-                if (dx == 0 && dy == direction && string.IsNullOrEmpty(target))
-                {
-                    return true;
-                }
-
-                if (dx == 0 && dy == 2 * direction && from.Y == startRow
-                    && string.IsNullOrEmpty(target)
-                    && string.IsNullOrEmpty(board[from.X, from.Y + direction]))
-                {
-                    return true;
-                }
-
-                if (Math.Abs(dx) == 1 && dy == direction && !string.IsNullOrEmpty(target)
-                    && IsPieceWhite(target) != IsPieceWhite(piece))
-                {
-                    return true;
-                }
-
-                return false;
-
-            case "r":
-                return (dx == 0 || dy == 0) && IsPathClear(from, to);
-
-            case "n":
-                return (Math.Abs(dx) == 2 && Math.Abs(dy) == 1)
-                    || (Math.Abs(dx) == 1 && Math.Abs(dy) == 2);
-
-            case "b":
-                return Math.Abs(dx) == Math.Abs(dy) && IsPathClear(from, to);
-
-            case "q":
-                return (dx == 0 || dy == 0 || Math.Abs(dx) == Math.Abs(dy)) && IsPathClear(from, to);
-
-            default:
-                return false;
-        }
-    }
-
-    private bool CanCastle(Point from, Point to, bool isWhite)
-    {
-        int homeRow = isWhite ? 7 : 0;
-        if (from.Y != homeRow || from.X != 4 || to.Y != homeRow)
-        {
-            return false;
-        }
-
-        if (IsSquareAttacked(from, !isWhite))
-        {
-            return false;
-        }
-
-        if (to.X == 6)
-        {
-            if (isWhite ? whiteKingMoved || whiteRookRightMoved : blackKingMoved || blackRookRightMoved)
-            {
-                return false;
-            }
-
-            string? rook = board[7, homeRow];
-            if (rook != (isWhite ? "R" : "r"))
-            {
-                return false;
-            }
-
-            if (!string.IsNullOrEmpty(board[5, homeRow]) || !string.IsNullOrEmpty(board[6, homeRow]))
-            {
-                return false;
-            }
-
-            return !IsSquareAttacked(new Point(5, homeRow), !isWhite)
-                && !IsSquareAttacked(new Point(6, homeRow), !isWhite);
-        }
-
-        if (to.X == 2)
-        {
-            if (isWhite ? whiteKingMoved || whiteRookLeftMoved : blackKingMoved || blackRookLeftMoved)
-            {
-                return false;
-            }
-
-            string? rook = board[0, homeRow];
-            if (rook != (isWhite ? "R" : "r"))
-            {
-                return false;
-            }
-
-            if (!string.IsNullOrEmpty(board[1, homeRow])
-                || !string.IsNullOrEmpty(board[2, homeRow])
-                || !string.IsNullOrEmpty(board[3, homeRow]))
-            {
-                return false;
-            }
-
-            return !IsSquareAttacked(new Point(3, homeRow), !isWhite)
-                && !IsSquareAttacked(new Point(2, homeRow), !isWhite);
-        }
-
-        return false;
-    }
-
-    private bool WouldLeaveKingInCheck(Point from, Point to, string piece)
-    {
-        string? originalTarget = board[to.X, to.Y];
-        string? originalFrom = board[from.X, from.Y];
-        string? rookOriginalFrom = null;
-        string? rookOriginalTo = null;
-        Point? rookFrom = null;
-        Point? rookTo = null;
-
-        bool isCastling = piece.Equals("K", StringComparison.OrdinalIgnoreCase) && Math.Abs(to.X - from.X) == 2;
-        if (isCastling)
-        {
-            rookFrom = to.X > from.X ? new Point(7, from.Y) : new Point(0, from.Y);
-            rookTo = to.X > from.X ? new Point(5, from.Y) : new Point(3, from.Y);
-            rookOriginalFrom = board[rookFrom.Value.X, rookFrom.Value.Y];
-            rookOriginalTo = board[rookTo.Value.X, rookTo.Value.Y];
-        }
-
-        board[from.X, from.Y] = null;
-        board[to.X, to.Y] = piece;
-
-        if (isCastling && rookFrom.HasValue && rookTo.HasValue)
-        {
-            board[rookTo.Value.X, rookTo.Value.Y] = board[rookFrom.Value.X, rookFrom.Value.Y];
-            board[rookFrom.Value.X, rookFrom.Value.Y] = null;
-        }
-
-        Point? kingPosition = FindKing(IsPieceWhite(piece));
-        bool inCheck = kingPosition is null || IsSquareAttacked(kingPosition.Value, !IsPieceWhite(piece));
-
-        board[from.X, from.Y] = originalFrom;
-        board[to.X, to.Y] = originalTarget;
-
-        if (isCastling && rookFrom.HasValue && rookTo.HasValue)
-        {
-            board[rookFrom.Value.X, rookFrom.Value.Y] = rookOriginalFrom;
-            board[rookTo.Value.X, rookTo.Value.Y] = rookOriginalTo;
-        }
-
-        return inCheck;
-    }
-
-    private Point? FindKing(bool whiteKing)
-    {
-        string king = whiteKing ? "K" : "k";
-        for (int x = 0; x < GridSize; x++)
-        {
-            for (int y = 0; y < GridSize; y++)
-            {
-                if (board[x, y] == king)
-                {
-                    return new Point(x, y);
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private bool IsSquareAttacked(Point square, bool byWhite)
-    {
-        for (int x = 0; x < GridSize; x++)
-        {
-            for (int y = 0; y < GridSize; y++)
-            {
-                string? piece = board[x, y];
-                if (string.IsNullOrEmpty(piece) || IsPieceWhite(piece) != byWhite)
-                {
-                    continue;
-                }
-
-                Point from = new(x, y);
-                if (AttacksSquare(from, square, piece))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private bool AttacksSquare(Point from, Point to, string piece)
-    {
-        int dx = to.X - from.X;
-        int dy = to.Y - from.Y;
-
-        switch (piece.ToLowerInvariant())
-        {
-            case "p":
-                int direction = IsPieceWhite(piece) ? -1 : 1;
-                return Math.Abs(dx) == 1 && dy == direction;
-
-            case "n":
-                return (Math.Abs(dx) == 2 && Math.Abs(dy) == 1)
-                    || (Math.Abs(dx) == 1 && Math.Abs(dy) == 2);
-
-            case "b":
-                return Math.Abs(dx) == Math.Abs(dy) && IsPathClear(from, to);
-
-            case "r":
-                return (dx == 0 || dy == 0) && IsPathClear(from, to);
-
-            case "q":
-                return (dx == 0 || dy == 0 || Math.Abs(dx) == Math.Abs(dy)) && IsPathClear(from, to);
-
-            case "k":
-                return Math.Abs(dx) <= 1 && Math.Abs(dy) <= 1;
-
-            default:
-                return false;
-        }
-    }
-
-    private void ApplyMoveToBoard(Point from, Point to, string piece, string? promotionPiece)
-    {
-        board[from.X, from.Y] = null;
-
-        if (piece.Equals("K", StringComparison.OrdinalIgnoreCase) && Math.Abs(to.X - from.X) == 2)
-        {
-            if (to.X > from.X)
-            {
-                board[5, from.Y] = board[7, from.Y];
-                board[7, from.Y] = null;
-            }
-            else
-            {
-                board[3, from.Y] = board[0, from.Y];
-                board[0, from.Y] = null;
-            }
-        }
-
-        board[to.X, to.Y] = promotionPiece ?? piece;
-    }
-
-    private void UpdateCastlingRights(Point from, Point to, string movingPiece, string? capturedPiece)
-    {
-        switch (movingPiece)
-        {
-            case "K":
-                whiteKingMoved = true;
-                break;
-            case "k":
-                blackKingMoved = true;
-                break;
-            case "R":
-                if (from == new Point(0, 7))
-                {
-                    whiteRookLeftMoved = true;
-                }
-                else if (from == new Point(7, 7))
-                {
-                    whiteRookRightMoved = true;
-                }
-                break;
-            case "r":
-                if (from == new Point(0, 0))
-                {
-                    blackRookLeftMoved = true;
-                }
-                else if (from == new Point(7, 0))
-                {
-                    blackRookRightMoved = true;
-                }
-                break;
-        }
-
-        switch (capturedPiece)
-        {
-            case "R":
-                if (to == new Point(0, 7))
-                {
-                    whiteRookLeftMoved = true;
-                }
-                else if (to == new Point(7, 7))
-                {
-                    whiteRookRightMoved = true;
-                }
-                break;
-            case "r":
-                if (to == new Point(0, 0))
-                {
-                    blackRookLeftMoved = true;
-                }
-                else if (to == new Point(7, 0))
-                {
-                    blackRookRightMoved = true;
-                }
-                break;
-        }
-    }
-
-    private bool IsPathClear(Point from, Point to)
-    {
-        int dx = Math.Sign(to.X - from.X);
-        int dy = Math.Sign(to.Y - from.Y);
-
-        int x = from.X + dx;
-        int y = from.Y + dy;
-
-        while (x != to.X || y != to.Y)
-        {
-            if (!string.IsNullOrEmpty(board[x, y]))
-            {
-                return false;
-            }
-
-            x += dx;
-            y += dy;
-        }
-
-        return true;
-    }
-
     private bool IsSuggestionLegal(string move)
     {
-        if (move.Length < 4)
+        if (!TryCreateGameFromCurrentPosition(out ChessGame? game, out _) || game is null)
         {
             return false;
         }
 
-        int fx = move[0] - 'a';
-        int fy = 8 - (move[1] - '0');
-        int tx = move[2] - 'a';
-        int ty = 8 - (move[3] - '0');
-
-        if (!IsOnBoard(fx, fy) || !IsOnBoard(tx, ty))
-        {
-            return false;
-        }
-
-        string? piece = board[fx, fy];
-        return !string.IsNullOrEmpty(piece) && IsPieceWhite(piece) == whiteToMove
-            && IsLegalMove(new Point(fx, fy), new Point(tx, ty), piece);
+        return game.GetLegalMoves().Any(legalMove => string.Equals(legalMove.Uci, move, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsPieceWhite(string piece) => char.IsUpper(piece[0]);

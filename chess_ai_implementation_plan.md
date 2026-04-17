@@ -47,23 +47,37 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] Parser SAN / PGN oraz replay partii ruch po ruchu.
 - [x] Generowanie FEN przed i po ruchach.
 - [x] Obsługa pełnego round-tripu FEN z `en passant`.
+- [x] Replay importowanej partii oparty o `ChessGame` i snapshoty FEN zamiast lokalnego parsera SAN w `Form1`.
+- [x] Walidacja i wykonywanie ręcznych ruchów w UI oparte o `ChessGame` oraz legalne ruchy UCI.
 - [x] Strukturalne API analizy silnika oparte o Stockfisha i UCI.
 - [x] Analiza jednej partii dla wybranego koloru.
 - [x] Wyliczanie `best move`, `eval before`, `eval after`, `centipawn loss`.
 - [x] Podstawowy podział faz partii: opening / middlegame / endgame.
 - [x] Selekcja najważniejszych błędów partii.
 - [x] Heurystyczny klasyfikator v1.
+- [x] Rozszerzone heurystyki debiutowe o rozwój figur lekkich i nierozwijające ruchy w otwarciu.
+- [x] Rozszerzone heurystyki końcówkowe o centralizację króla i wykrywanie przegapionej aktywizacji króla.
 - [x] Szablonowy generator krótkich wyjaśnień.
+- [x] Rozszerzony komentarz edukacyjny w oknie analizy.
 - [x] Integracja z UI: po imporcie PGN można uruchomić analizę importowanej partii.
+- [x] Integracja z UI: wybór błędu przenosi planszę do właściwej pozycji i pokazuje zagrany ruch oraz `best move`.
+- [x] Integracja z UI: filtry jakości ruchu, poprawione numerowanie ruchów oraz współrzędne planszy.
+- [x] Cache całego wyniku analizy partii w sesji aplikacji.
+- [x] Trwały cache analizy jednej partii w SQLite między uruchomieniami aplikacji.
+- [x] Przywracanie ostatniego stanu okna analizy po ponownym otwarciu dialogu.
+- [x] Zapamiętywanie wybranego poziomu wyjaśnień w stanie okna analizy.
+- [x] Biblioteka zapisanych partii z filtrowaniem i ponownym wczytaniem do głównej planszy.
+- [x] Podstawowy `PlayerProfileService` agregujący zapisane analizy wielu partii.
+- [x] Prosty widok profilu gracza z top kategoriami błędów, fazami, otwarciami i trendem miesięcznym.
 - [x] Testy jednostkowe, integracyjne i end-to-end dla MVP jednej partii.
 
 ### Co jest świadomie jeszcze poza MVP
 - [ ] zapis wyników analizy do SQLite,
 - [ ] historia analiz i odczyt wcześniejszych partii,
-- [ ] profil gracza z wielu partii,
-- [ ] rekomendacje treningowe oparte o dane historyczne,
+- [ ] bardziej zaawansowany profil gracza z wielu partii,
+- [ ] bogatsze rekomendacje treningowe oparte o dane historyczne,
 - [ ] warstwa LLM,
-- [ ] pełne usunięcie duplikacji logiki szachowej z `Form1`.
+- [ ] dalsze porządkowanie `Form1`, ale bez lokalnej logiki legal moves / SAN jako źródła prawdy.
 
 ### Zasada na dalsze etapy
 Nowe funkcje powinny być dokładane do usług domenowych i modeli analitycznych, a nie do `Form1`. UI ma wywoływać pipeline i prezentować wynik.
@@ -353,8 +367,8 @@ Każdy komentarz powinien odpowiadać na 4 pytania:
 
 ### Zadania
 - [x] Zdefiniować szablon odpowiedzi krótkiej.
-- [ ] Zdefiniować szablon odpowiedzi rozszerzonej.
-- [ ] Dodać poziomy tłumaczenia dla np. początkującego, średniego i zaawansowanego gracza.
+- [x] Zdefiniować szablon odpowiedzi rozszerzonej.
+- [x] Dodać poziomy tłumaczenia dla np. początkującego, średniego i zaawansowanego gracza.
 - [ ] Dodać maksymalną długość komentarza.
 - [x] Dodać sekcję "jak ćwiczyć ten motyw".
 
@@ -596,14 +610,15 @@ Status: **wdrożone podstawowe v1**
 
 Zrealizowane:
 - krótki komentarz z lepszym ruchem i wskazówką treningową.
+- rozszerzony komentarz rozwijający: co było złe, dlaczego, co było lepsze i jak rozpoznawać podobny motyw.
 
 Do dopracowania:
-- wariant rozszerzony,
-- poziomy trudności komentarza,
-- prezentacja PV i SAN zamiast surowego UCI tam, gdzie to ma sens.
+- stylistyczne dopracowanie wariantu rozszerzonego,
+- dalsze strojenie poziomów trudności komentarza,
+- dalsze dopracowanie prezentacji PV i SAN zamiast surowego UCI tam, gdzie to ma sens.
 
 ### Etapy 5-7
-Status: **jeszcze nie rozpoczęte jako właściwa implementacja produktu**
+Status: **rozpoczęte w wersji podstawowej dla profilu gracza**
 
 Te etapy są nadal aktualne, ale powinny być podejmowane dopiero po uporządkowaniu UX, wydajności i persystencji pojedynczej analizy.
 
@@ -812,34 +827,59 @@ Ograniczenie:
 To jest aktualna kolejka prac po wdrożeniu MVP jednej partii.
 
 ### Krok 1 - uporządkowanie UI i UX analizy
-- [ ] dodać przejście z listy błędów do konkretnej pozycji na planszy,
-- [ ] podświetlać zagrany ruch i `best move`,
-- [ ] pokazywać SAN obok UCI,
-- [ ] dodać podstawowe filtry: wszystkie / blundery / błędy / niedokładności,
-- [ ] poprawić czytelność szczegółów analizy w oknie wyników.
+- [x] dodać przejście z listy błędów do konkretnej pozycji na planszy,
+- [x] podświetlać zagrany ruch i `best move`,
+- [x] pokazywać SAN obok UCI,
+- [x] dodać podstawowe filtry: wszystkie / blundery / błędy / niedokładności,
+- [x] poprawić czytelność szczegółów analizy w oknie wyników.
 
 ### Krok 2 - usunięcie resztek duplikacji logiki z `Form1`
 - [ ] ograniczyć `Form1` do prezentacji i sterowania,
-- [ ] oprzeć replay i walidację ruchów na `ChessGame`,
+- [x] oprzeć replay importowanych ruchów na `ChessGame` oraz FEN snapshotach,
+- [x] oprzeć walidację i wykonywanie ruchów na `ChessGame`,
 - [ ] nie rozwijać już lokalnej logiki SAN / legal moves w formularzu.
 
 ### Krok 3 - wzmocnienie heurystyk i scoringu
-- [ ] dodać więcej cech pozycji do klasyfikatora,
-- [ ] lepiej wykrywać stratę materiału po wymuszonej sekwencji,
-- [ ] dopracować rozpoznawanie błędów debiutowych i końcówkowych,
-- [ ] poprawić `confidence`,
-- [ ] dodać prosty cache analiz po FEN.
+- [x] dodać pierwszą dodatkową warstwę cech pozycji do klasyfikatora,
+- [x] lepiej wykrywać stratę materiału po wymuszonej sekwencji,
+- [x] dopracować rozpoznawanie błędów debiutowych i końcówkowych,
+- [x] poprawić `confidence`,
+- [x] dodać prosty cache analiz po FEN.
+
+Stan po bieżącej iteracji:
+- klasyfikator uwzględnia liczbę rozwiniętych figur lekkich przed i po ruchu,
+- ruchy typu wczesny hetman / wieża / pion skrzydłowy są mocniej wiązane z brakiem rozwoju,
+- końcówki lepiej rozpoznają przegapioną centralizację króla,
+- `hanging_piece` jest lepiej odróżniane od `missed_tactic` dzięki analizie bezpieczeństwa pola i natychmiastowej opłacalności bicia,
+- pojawiła się pierwsza bardziej strategiczna etykieta `piece_activity` dla ruchów obniżających aktywność figury w middlegame,
+- selektor błędów dla `inaccuracy` bierze pod uwagę nie tylko CPL, ale też wagę motywu, confidence i krytyczność momentu,
+- testy obejmują nowe heurystyki pozycyjne i aktualny wynik end-to-end.
 
 ### Krok 4 - persystencja jednej analizy
-- [ ] dodać `IAnalysisStore`,
-- [ ] dodać implementację SQLite,
-- [ ] zapisywać `ImportedGame`, replay, wyniki analizy i wybrane błędy,
-- [ ] umożliwić ponowne otwarcie zapisanej analizy.
+- [x] dodać `IAnalysisStore`,
+- [x] dodać implementację SQLite,
+- [x] zapisywać `ImportedGame`, replay, wyniki analizy i wybrane błędy,
+- [x] umożliwić ponowne otwarcie zapisanej analizy.
+
+Stan po bieżącej iteracji:
+- `GameAnalysisCache` korzysta z pamięci procesu oraz trwałego magazynu SQLite,
+- zapis i odczyt wyników działa bez dodatkowych paczek NuGet, przez systemowe `winsqlite3.dll`,
+- po ponownym imporcie tej samej partii analiza i stan okna mogą wrócić bez ponownego liczenia,
+- stan okna obejmuje już także wybrany poziom wyjaśnień,
+- aplikacja zapisuje też same zaimportowane PGN i pozwala filtrować je po graczu, dacie, ECO, wyniku lub serwisie,
+- historia wielu zapisanych analiz i osobny widok przeglądania wyników nadal pozostają kolejnym krokiem.
 
 ### Krok 5 - profil gracza i analiza wielu partii
-- [ ] agregować wyniki wielu zapisanych analiz,
-- [ ] wyliczać top kategorie błędów,
-- [ ] dodać trendy i podstawowe rekomendacje treningowe.
+- [x] agregować wyniki wielu zapisanych analiz,
+- [x] wyliczać top kategorie błędów,
+- [x] dodać trendy i podstawowe rekomendacje treningowe.
+
+Stan po bieżącej iteracji:
+- `PlayerProfileService` agreguje zapisane analizy po analizowanym graczu,
+- profil pokazuje liczbę przeanalizowanych partii, średni CPL, top etykiety błędów, fazy gry i otwarcia,
+- pojawił się prosty trend miesięczny oraz 1-3 podstawowe priorytety treningowe,
+- w UI głównego okna można otworzyć widok profili i filtrować graczy po nazwie,
+- kolejnym krokiem pozostaje bardziej zaawansowane grupowanie historyczne, lepsze trendy i bogatsze rekomendacje.
 
 ## Sprint 1
 - [x] Import PGN
@@ -867,9 +907,9 @@ To jest aktualna kolejka prac po wdrożeniu MVP jednej partii.
 - [x] Wskazówki treningowe
 
 ## Sprint 5
-- [ ] Profil gracza
-- [ ] Agregacja wielu partii
-- [ ] Top błędy i trendy
+- [x] Profil gracza
+- [x] Agregacja wielu partii
+- [x] Top błędy i trendy
 
 ## Sprint 6
 - [ ] Integracja z LLM

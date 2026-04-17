@@ -121,4 +121,42 @@ Kxa2 $6 62. Qb2# 1-0
         Assert.Equal("4k3/8/3P4/8/8/8/8/4K3 b - - 0 1", game.GetFen());
     }
 
+    [Fact]
+    public void GetLegalMoves_ReturnsStructuredMovesForCurrentPosition()
+    {
+        ChessGame game = new();
+
+        IReadOnlyList<LegalMoveInfo> legalMoves = game.GetLegalMoves();
+
+        Assert.Contains(legalMoves, move => move.Uci == "e2e4" && move.San == "e4");
+        Assert.Contains(legalMoves, move => move.Uci == "g1f3" && move.San == "Nf3");
+    }
+
+    [Fact]
+    public void TryApplyUci_AppliesLegalMoveAndReturnsSnapshots()
+    {
+        ChessGame game = new();
+
+        bool applied = game.TryApplyUci("e2e4", out AppliedMoveInfo? move, out string? error);
+
+        Assert.True(applied, error);
+        Assert.NotNull(move);
+        Assert.Equal("e4", move!.San);
+        Assert.Equal("e2e4", move.Uci);
+        Assert.Equal("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", move.FenBefore);
+        Assert.Equal("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1", move.FenAfter);
+    }
+
+    [Fact]
+    public void TryApplyUci_RejectsIllegalMove()
+    {
+        ChessGame game = new();
+
+        bool applied = game.TryApplyUci("e2e5", out AppliedMoveInfo? move, out string? error);
+
+        Assert.False(applied);
+        Assert.Null(move);
+        Assert.Contains("No legal move matches", error);
+    }
+
 }

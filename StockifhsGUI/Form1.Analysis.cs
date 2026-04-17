@@ -24,6 +24,19 @@ public partial class Form1
         return Task.CompletedTask;
     }
 
+    private void OpenPlayerProfiles()
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        if (store is null)
+        {
+            MessageBox.Show("Local analysis storage is unavailable on this machine.", "Player Profiles", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using PlayerProfilesForm profilesForm = new(new PlayerProfileService(store));
+        profilesForm.ShowDialog(this);
+    }
+
     private void NavigateToAnalysisMistake(MoveAnalysisResult moveAnalysis)
     {
         if (importedGame is null || importedMoves.Count == 0)
@@ -48,7 +61,7 @@ public partial class Form1
         }
         SetAnalysisTargetSquare(moveAnalysis.Replay.Uci);
 
-        suggestionLabel.Text = $"Analysis focus: {moveAnalysis.Replay.San} | best {moveAnalysis.BeforeAnalysis.BestMoveUci ?? "(unknown)"}";
+        suggestionLabel.Text = $"Analysis focus: {FormatSanAndUci(moveAnalysis.Replay.San, moveAnalysis.Replay.Uci)} | best {FormatBestMoveLabel(moveAnalysis)}";
         Invalidate();
     }
 
@@ -108,5 +121,31 @@ public partial class Form1
 
         point = new Point(file - 'a', 8 - (rank - '0'));
         return true;
+    }
+
+    private static string FormatBestMoveLabel(MoveAnalysisResult moveAnalysis)
+    {
+        string? bestMoveUci = moveAnalysis.BeforeAnalysis.BestMoveUci;
+        if (string.IsNullOrWhiteSpace(bestMoveUci))
+        {
+            return "(unknown)";
+        }
+
+        ChessGame game = new();
+        if (!game.TryLoadFen(moveAnalysis.Replay.FenBefore, out _)
+            || !game.TryApplyUci(bestMoveUci, out AppliedMoveInfo? appliedMove, out _)
+            || appliedMove is null)
+        {
+            return bestMoveUci;
+        }
+
+        return FormatSanAndUci(appliedMove.San, appliedMove.Uci);
+    }
+
+    private static string FormatSanAndUci(string san, string uci)
+    {
+        return string.Equals(san, uci, StringComparison.OrdinalIgnoreCase)
+            ? san
+            : $"{san} ({uci})";
     }
 }

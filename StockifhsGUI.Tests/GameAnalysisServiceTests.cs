@@ -133,6 +133,33 @@ Kxa2 62. Qb2# 1-0
     }
 
     [Fact]
+    public void MistakeClassifier_PrefersMissedTactic_WhenPieceIsOnlyUnderPressure()
+    {
+        MistakeClassifier classifier = new();
+        ReplayPly replay = CreateReplay(
+            GamePhase.Middlegame,
+            "N",
+            "f3",
+            "e5",
+            "4k3/8/8/8/8/5N2/8/4K3 w - - 0 1",
+            "4k3/8/8/4N3/8/8/8/4K3 b - - 1 1");
+
+        MoveHeuristicContext context = CreateContext(
+            MovedPieceHangingAfterMove: true,
+            MovedPieceFreeToTake: false,
+            MovedPieceLikelyLosesExchange: false,
+            MovedPieceAttackDeficit: 1,
+            MovedPieceValueCp: 320,
+            BestMoveIsCapture: true,
+            BestMoveMaterialSwingCp: 250);
+
+        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Mistake, 180, 0, context);
+
+        Assert.NotNull(tag);
+        Assert.Equal("missed_tactic", tag!.Label);
+    }
+
+    [Fact]
     public void MistakeClassifier_AssignsMissedTactic()
     {
         MistakeClassifier classifier = new();
@@ -145,6 +172,98 @@ Kxa2 62. Qb2# 1-0
             "4k3/8/8/3B4/8/8/8/4K3 b - - 1 1");
 
         MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Mistake, 180, 0);
+
+        Assert.NotNull(tag);
+        Assert.Equal("missed_tactic", tag!.Label);
+    }
+
+    [Fact]
+    public void MistakeClassifier_AssignsMissedTactic_WhenBestMoveWinsMaterial()
+    {
+        MistakeClassifier classifier = new();
+        ReplayPly replay = CreateReplay(
+            GamePhase.Middlegame,
+            "N",
+            "f3",
+            "g5",
+            "4k3/8/8/8/8/5N2/8/4K3 w - - 0 1",
+            "4k3/8/8/6N1/8/8/8/4K3 b - - 1 1");
+
+        MoveHeuristicContext context = CreateContext(
+            BestMoveIsCapture: true,
+            BestMoveMaterialSwingCp: 300);
+
+        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Mistake, 170, 0, context);
+
+        Assert.NotNull(tag);
+        Assert.Equal("missed_tactic", tag!.Label);
+        Assert.Contains("best_move_material_swing_300", tag.Evidence);
+    }
+
+    [Fact]
+    public void MistakeClassifier_AssignsMaterialLoss_WhenPlayedLineLosesMaterial()
+    {
+        MistakeClassifier classifier = new();
+        ReplayPly replay = CreateReplay(
+            GamePhase.Middlegame,
+            "N",
+            "c3",
+            "d5",
+            "4k3/8/8/8/8/2N5/8/4K3 w - - 0 1",
+            "4k3/8/8/3N4/8/8/8/4K3 b - - 1 1");
+
+        MoveHeuristicContext context = CreateContext(
+            PlayedLineMaterialSwingCp: -320);
+
+        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Mistake, 190, 0, context);
+
+        Assert.NotNull(tag);
+        Assert.Equal("material_loss", tag!.Label);
+        Assert.Contains("played_line_material_swing_-320", tag.Evidence);
+    }
+
+    [Fact]
+    public void MistakeClassifier_AssignsOpeningPrinciples_WhenWingPawnMoveSkipsDevelopment()
+    {
+        MistakeClassifier classifier = new();
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "P",
+            "h2",
+            "h4",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/8/7P/8/PPPPPPP1/RNBQKBNR b KQkq - 0 1");
+
+        MoveHeuristicContext context = CreateContext(
+            EdgePawnPush: true,
+            DevelopedMinorPiecesBefore: 0,
+            DevelopedMinorPiecesAfter: 0);
+
+        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Inaccuracy, 100, 0, context);
+
+        Assert.NotNull(tag);
+        Assert.Equal("opening_principles", tag!.Label);
+        Assert.Contains("wing_pawn_before_development", tag.Evidence);
+    }
+
+    [Fact]
+    public void MistakeClassifier_DoesNotAssignOpeningPrinciples_WhenDevelopmentIsAlreadyDone()
+    {
+        MistakeClassifier classifier = new();
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "h5",
+            "r1bqkbnr/pppppppp/2n5/8/8/2N2N2/PPPPPPPP/R1BQKB1R w KQkq - 0 1",
+            "r1bqkbnr/pppppppp/2n5/7Q/8/2N2N2/PPPPPPPP/R1B1KB1R b KQkq - 1 1");
+
+        MoveHeuristicContext context = CreateContext(
+            EarlyQueenMove: true,
+            DevelopedMinorPiecesBefore: 3,
+            DevelopedMinorPiecesAfter: 3);
+
+        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Inaccuracy, 100, 0, context);
 
         Assert.NotNull(tag);
         Assert.Equal("missed_tactic", tag!.Label);
@@ -198,10 +317,41 @@ Kxa2 62. Qb2# 1-0
             "4k3/8/8/8/8/8/4K3/8 w - - 0 1",
             "4k3/8/8/8/8/4K3/8/8 b - - 1 1");
 
-        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Mistake, 160, 0);
+        MoveHeuristicContext context = CreateContext(
+            KingCentralizedBeforeMove: false,
+            KingCentralizedAfterMove: false,
+            BestMoveCentralizesKing: true);
+
+        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Mistake, 160, 0, context);
 
         Assert.NotNull(tag);
         Assert.Equal("endgame_technique", tag!.Label);
+        Assert.Contains("missed_king_centralization", tag.Evidence);
+    }
+
+    [Fact]
+    public void MistakeClassifier_AssignsPieceActivity_WhenPieceBecomesPassive()
+    {
+        MistakeClassifier classifier = new();
+        ReplayPly replay = CreateReplay(
+            GamePhase.Middlegame,
+            "N",
+            "e4",
+            "g3",
+            "4k3/8/8/8/4N3/8/8/4K3 w - - 0 1",
+            "4k3/8/8/8/8/6N1/8/4K3 b - - 1 1");
+
+        MoveHeuristicContext context = CreateContext(
+            MovedPieceMobilityBefore: 8,
+            MovedPieceMobilityAfter: 4,
+            MovedPieceToEdge: false,
+            BestMoveIsCapture: false);
+
+        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Mistake, 130, 0, context);
+
+        Assert.NotNull(tag);
+        Assert.Equal("piece_activity", tag!.Label);
+        Assert.Contains("reduced_piece_activity", tag.Evidence);
     }
 
     [Fact]
@@ -220,6 +370,27 @@ Kxa2 62. Qb2# 1-0
         Assert.Equal(2, selected.Count);
         Assert.Equal(2, selected[0].Moves.Count);
         Assert.Equal("missed_tactic", selected[0].Tag!.Label);
+    }
+
+    [Fact]
+    public void MistakeSelector_PrioritizesEducationalInaccuracies_NotOnlyHighestCpl()
+    {
+        MistakeSelector selector = new();
+        List<MoveAnalysisResult> analyses =
+        [
+            CreateMoveAnalysis(1, 1, MoveQualityBucket.Inaccuracy, "unclassified", 150),
+            CreateMoveAnalysis(3, 2, MoveQualityBucket.Inaccuracy, "opening_principles", 140),
+            CreateMoveAnalysis(5, 3, MoveQualityBucket.Inaccuracy, "material_loss", 110),
+            CreateMoveAnalysis(7, 4, MoveQualityBucket.Inaccuracy, "piece_activity", 130)
+        ];
+
+        IReadOnlyList<SelectedMistake> selected = selector.Select(analyses);
+
+        Assert.Equal(3, selected.Count);
+        Assert.Contains(selected, item => item.Tag?.Label == "material_loss");
+        Assert.Contains(selected, item => item.Tag?.Label == "piece_activity");
+        Assert.DoesNotContain(selected, item => item.Tag?.Label == "unclassified");
+        Assert.Equal([2, 3, 4], selected.Select(item => item.Moves[0].Replay.MoveNumber).ToArray());
     }
 
     [Fact]
@@ -246,9 +417,11 @@ Kxa2 62. Qb2# 1-0
         Assert.Equal(2, result.MoveAnalyses.Count);
         Assert.Equal(MoveQualityBucket.Mistake, result.MoveAnalyses[0].Quality);
         Assert.Equal(MoveQualityBucket.Blunder, result.MoveAnalyses[1].Quality);
-        Assert.Single(result.HighlightedMistakes);
-        Assert.Equal(2, result.HighlightedMistakes[0].Moves.Count);
+        Assert.Equal(2, result.HighlightedMistakes.Count);
+        Assert.Equal("opening_principles", result.HighlightedMistakes[0].Tag?.Label);
+        Assert.Equal("missed_tactic", result.HighlightedMistakes[1].Tag?.Label);
         Assert.All(result.HighlightedMistakes, item => Assert.False(string.IsNullOrWhiteSpace(item.Explanation.ShortText)));
+        Assert.All(result.HighlightedMistakes, item => Assert.False(string.IsNullOrWhiteSpace(item.Explanation.DetailedText)));
     }
 
     [Fact]
@@ -272,9 +445,61 @@ Kxa2 62. Qb2# 1-0
         GameAnalysisService service = new(fakeEngine, replayService);
         GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
 
-        Assert.Single(result.HighlightedMistakes);
-        Assert.Equal(2, result.HighlightedMistakes[0].Moves.Count);
+        Assert.Equal(2, result.HighlightedMistakes.Count);
+        Assert.Equal("opening_principles", result.HighlightedMistakes[0].Tag?.Label);
+        Assert.Equal("missed_tactic", result.HighlightedMistakes[1].Tag?.Label);
         Assert.Contains("stronger option", result.HighlightedMistakes[0].Explanation.ShortText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("stronger option", result.HighlightedMistakes[1].Explanation.ShortText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("The move", result.HighlightedMistakes[0].Explanation.DetailedText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("The move", result.HighlightedMistakes[1].Explanation.DetailedText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GameAnalysisService_CachesRepeatedFenAnalysesWithinSingleRun()
+    {
+        const string repetitionPgn = "1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6";
+        ImportedGame game = PgnGameParser.Parse(repetitionPgn);
+        GameReplayService replayService = new();
+        IReadOnlyList<ReplayPly> replay = replayService.Replay(game);
+
+        CountingFakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [replay[0].FenBefore] = AnalysisFor(replay[0].FenBefore, "g1f3", 25, null, "g1f3"),
+            [replay[0].FenAfter] = AnalysisFor(replay[0].FenAfter, "g8f6", 15, null, "g8f6"),
+            [replay[2].FenBefore] = AnalysisFor(replay[2].FenBefore, "g1f3", 20, null, "g1f3"),
+            [replay[2].FenAfter] = AnalysisFor(replay[2].FenAfter, "g8f6", 10, null, "g8f6"),
+            [replay[4].FenBefore] = AnalysisFor(replay[4].FenBefore, "g1f3", 25, null, "g1f3"),
+            [replay[4].FenAfter] = AnalysisFor(replay[4].FenAfter, "g8f6", 15, null, "g8f6")
+        });
+
+        GameAnalysisService service = new(fakeEngine, replayService);
+        GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
+
+        Assert.Equal(3, result.MoveAnalyses.Count);
+        Assert.Equal(4, fakeEngine.CallCount);
+    }
+
+    [Fact]
+    public void GameAnalysisService_DetectsDeferredMaterialLossFromPlayedLinePv()
+    {
+        ImportedGame game = PgnGameParser.Parse("1. Nc3");
+        GameReplayService replayService = new();
+        IReadOnlyList<ReplayPly> replay = replayService.Replay(game);
+        ReplayPly whiteFirst = replay[0];
+
+        FakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [whiteFirst.FenBefore] = AnalysisFor(whiteFirst.FenBefore, "e2e4", 40, null, "e2e4", "e7e5"),
+            [whiteFirst.FenAfter] = AnalysisFor(whiteFirst.FenAfter, "d7d5", 220, null, "d7d5", "c3d5", "d8d5")
+        });
+
+        GameAnalysisService service = new(fakeEngine, replayService);
+        GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
+
+        Assert.Single(result.MoveAnalyses);
+        Assert.Equal(MoveQualityBucket.Mistake, result.MoveAnalyses[0].Quality);
+        Assert.Equal("material_loss", result.MoveAnalyses[0].MistakeTag?.Label);
+        Assert.Contains("played_line_material_swing_-220", result.MoveAnalyses[0].MistakeTag?.Evidence ?? []);
     }
 
     [Fact]
@@ -293,6 +518,81 @@ Kxa2 62. Qb2# 1-0
 
         Assert.NotEmpty(analysis.Lines);
         Assert.False(string.IsNullOrWhiteSpace(analysis.BestMoveUci));
+    }
+
+    [Fact]
+    public void PositionInspector_CountDevelopedMinorPieces_CountsPiecesOffStartingSquares()
+    {
+        int developed = PositionInspector.CountDevelopedMinorPieces(
+            "rnbqkbnr/pppppppp/8/8/8/2N2N2/PPPPPPPP/R1BQKB1R w KQkq - 0 1",
+            PlayerSide.White);
+
+        Assert.Equal(2, developed);
+    }
+
+    [Fact]
+    public void PositionInspector_IsKingCentralized_RecognizesCentralKing()
+    {
+        bool centralized = PositionInspector.IsKingCentralized(
+            "8/8/8/4k3/8/4K3/8/8 w - - 0 1",
+            PlayerSide.White);
+
+        Assert.True(centralized);
+    }
+
+    [Fact]
+    public void PositionInspector_CountPieceMobility_DetectsReducedKnightMobility()
+    {
+        int? centerMobility = PositionInspector.CountPieceMobility(
+            "4k3/8/8/8/4N3/8/8/4K3 w - - 0 1",
+            "e4",
+            PlayerSide.White);
+        int? rimMobility = PositionInspector.CountPieceMobility(
+            "4k3/8/8/8/8/7N/8/4K3 w - - 0 1",
+            "h3",
+            PlayerSide.White);
+
+        Assert.Equal(8, centerMobility);
+        Assert.Equal(4, rimMobility);
+    }
+
+    [Fact]
+    public void PositionInspector_AnalyzeSquareSafety_DetectsFreeCapture()
+    {
+        PositionInspector.SquareSafetySummary? safety = PositionInspector.AnalyzeSquareSafety(
+            "4k3/8/8/3p4/4N3/8/8/4K3 b - - 0 1",
+            "e4",
+            PlayerSide.White);
+
+        Assert.NotNull(safety);
+        Assert.True(safety!.Value.IsHanging);
+        Assert.True(safety.Value.IsFreeToTake);
+        Assert.True(safety.Value.LikelyLosesExchange);
+        Assert.Equal(1, safety.Value.Attackers);
+        Assert.Equal(0, safety.Value.Defenders);
+    }
+
+    [Fact]
+    public void ExplanationGenerator_ProducesDifferentTextsForEachLevel()
+    {
+        ExplanationGenerator generator = new();
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "h5",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/7Q/8/8/PPPPPPPP/RNB1KBNR b KQkq - 1 1");
+        MistakeTag tag = new("opening_principles", 0.82, ["early_queen_move"]);
+
+        MoveExplanation beginner = generator.Generate(replay, MoveQualityBucket.Inaccuracy, tag, "e2e4", 110, ExplanationLevel.Beginner);
+        MoveExplanation intermediate = generator.Generate(replay, MoveQualityBucket.Inaccuracy, tag, "e2e4", 110, ExplanationLevel.Intermediate);
+        MoveExplanation advanced = generator.Generate(replay, MoveQualityBucket.Inaccuracy, tag, "e2e4", 110, ExplanationLevel.Advanced);
+
+        Assert.NotEqual(beginner.ShortText, intermediate.ShortText);
+        Assert.NotEqual(intermediate.ShortText, advanced.ShortText);
+        Assert.Contains("simple habit", beginner.TrainingHint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tempo", advanced.DetailedText, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ReplayPly CreateReplay(
@@ -358,7 +658,7 @@ Kxa2 62. Qb2# 1-0
             quality,
             0,
             new MistakeTag(label, 0.8, ["evidence"]),
-            new MoveExplanation("Short explanation", "Training hint"));
+            new MoveExplanation("Short explanation", "Training hint", "Detailed explanation"));
     }
 
     private static EngineAnalysis AnalysisFor(string fen, string bestMove, int? centipawns, int? mateIn, params string[] pv)
@@ -382,6 +682,57 @@ Kxa2 62. Qb2# 1-0
         return candidates.FirstOrDefault(File.Exists);
     }
 
+    private static MoveHeuristicContext CreateContext(
+        bool MovedPieceHangingAfterMove = false,
+        bool MovedPieceFreeToTake = false,
+        bool MovedPieceLikelyLosesExchange = false,
+        int MovedPieceAttackDeficit = 0,
+        int? MovedPieceValueCp = null,
+        int? MovedPieceMobilityBefore = null,
+        int? MovedPieceMobilityAfter = null,
+        bool MovedPieceToEdge = false,
+        bool CastledKingWingPawnPush = false,
+        bool EarlyQueenMove = false,
+        bool EarlyRookMove = false,
+        bool EarlyKingMoveWithoutCastling = false,
+        bool EdgePawnPush = false,
+        bool BestMoveIsCapture = false,
+        int? BestMoveMaterialSwingCp = null,
+        int? PlayedLineMaterialSwingCp = null,
+        int DevelopedMinorPiecesBefore = 0,
+        int DevelopedMinorPiecesAfter = 0,
+        bool CastledBeforeMove = false,
+        bool CastledAfterMove = false,
+        bool KingCentralizedBeforeMove = false,
+        bool KingCentralizedAfterMove = false,
+        bool BestMoveCentralizesKing = false)
+    {
+        return new MoveHeuristicContext(
+            MovedPieceHangingAfterMove,
+            MovedPieceFreeToTake,
+            MovedPieceLikelyLosesExchange,
+            MovedPieceAttackDeficit,
+            MovedPieceValueCp,
+            MovedPieceMobilityBefore,
+            MovedPieceMobilityAfter,
+            MovedPieceToEdge,
+            CastledKingWingPawnPush,
+            EarlyQueenMove,
+            EarlyRookMove,
+            EarlyKingMoveWithoutCastling,
+            EdgePawnPush,
+            BestMoveIsCapture,
+            BestMoveMaterialSwingCp,
+            PlayedLineMaterialSwingCp,
+            DevelopedMinorPiecesBefore,
+            DevelopedMinorPiecesAfter,
+            CastledBeforeMove,
+            CastledAfterMove,
+            KingCentralizedBeforeMove,
+            KingCentralizedAfterMove,
+            BestMoveCentralizesKing);
+    }
+
     private sealed class FakeEngineAnalyzer : IEngineAnalyzer
     {
         private readonly IReadOnlyDictionary<string, EngineAnalysis> analysesByFen;
@@ -393,6 +744,29 @@ Kxa2 62. Qb2# 1-0
 
         public EngineAnalysis AnalyzePosition(string fen, EngineAnalysisOptions options)
         {
+            if (analysesByFen.TryGetValue(fen, out EngineAnalysis? analysis))
+            {
+                return analysis;
+            }
+
+            throw new InvalidOperationException($"No fake analysis configured for FEN: {fen}");
+        }
+    }
+
+    private sealed class CountingFakeEngineAnalyzer : IEngineAnalyzer
+    {
+        private readonly IReadOnlyDictionary<string, EngineAnalysis> analysesByFen;
+
+        public CountingFakeEngineAnalyzer(IReadOnlyDictionary<string, EngineAnalysis> analysesByFen)
+        {
+            this.analysesByFen = analysesByFen;
+        }
+
+        public int CallCount { get; private set; }
+
+        public EngineAnalysis AnalyzePosition(string fen, EngineAnalysisOptions options)
+        {
+            CallCount++;
             if (analysesByFen.TryGetValue(fen, out EngineAnalysis? analysis))
             {
                 return analysis;

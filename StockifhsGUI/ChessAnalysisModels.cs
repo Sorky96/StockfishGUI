@@ -23,6 +23,13 @@ public enum MoveQualityBucket
     Blunder
 }
 
+public enum ExplanationLevel
+{
+    Beginner,
+    Intermediate,
+    Advanced
+}
+
 public sealed record ImportedGame(
     string PgnText,
     IReadOnlyList<string> SanMoves,
@@ -34,6 +41,17 @@ public sealed record ImportedGame(
     string? Result,
     string? Eco,
     string? Site);
+
+public sealed record SavedImportedGameSummary(
+    string GameFingerprint,
+    string DisplayTitle,
+    string? WhitePlayer,
+    string? BlackPlayer,
+    string? DateText,
+    string? Result,
+    string? Eco,
+    string? Site,
+    DateTime UpdatedUtc);
 
 public sealed record ReplayPly(
     int Ply,
@@ -63,7 +81,32 @@ public sealed record EngineAnalysis(string Fen, IReadOnlyList<EngineLine> Lines,
 
 public sealed record MistakeTag(string Label, double Confidence, IReadOnlyList<string> Evidence);
 
-public sealed record MoveExplanation(string ShortText, string TrainingHint);
+public sealed record MoveExplanation(string ShortText, string TrainingHint, string DetailedText = "");
+
+public sealed record MoveHeuristicContext(
+    bool MovedPieceHangingAfterMove,
+    bool MovedPieceFreeToTake,
+    bool MovedPieceLikelyLosesExchange,
+    int MovedPieceAttackDeficit,
+    int? MovedPieceValueCp,
+    int? MovedPieceMobilityBefore,
+    int? MovedPieceMobilityAfter,
+    bool MovedPieceToEdge,
+    bool CastledKingWingPawnPush,
+    bool EarlyQueenMove,
+    bool EarlyRookMove,
+    bool EarlyKingMoveWithoutCastling,
+    bool EdgePawnPush,
+    bool BestMoveIsCapture,
+    int? BestMoveMaterialSwingCp,
+    int? PlayedLineMaterialSwingCp,
+    int DevelopedMinorPiecesBefore,
+    int DevelopedMinorPiecesAfter,
+    bool CastledBeforeMove,
+    bool CastledAfterMove,
+    bool KingCentralizedBeforeMove,
+    bool KingCentralizedAfterMove,
+    bool BestMoveCentralizesKing);
 
 public sealed record MoveAnalysisResult(
     ReplayPly Replay,

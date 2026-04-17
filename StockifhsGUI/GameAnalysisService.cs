@@ -29,11 +29,12 @@ public sealed class GameAnalysisService
 
         IReadOnlyList<ReplayPly> replay = replayService.Replay(game);
         List<MoveAnalysisResult> moveAnalyses = new();
+        Dictionary<EngineCacheKey, EngineAnalysis> analysisCache = new();
 
         foreach (ReplayPly ply in replay.Where(item => item.Side == analyzedSide))
         {
-            EngineAnalysis beforeAnalysis = engineAnalyzer.AnalyzePosition(ply.FenBefore, options);
-            EngineAnalysis afterAnalysis = engineAnalyzer.AnalyzePosition(ply.FenAfter, options);
+            EngineAnalysis beforeAnalysis = AnalyzeCached(ply.FenBefore, options, analysisCache);
+            EngineAnalysis afterAnalysis = AnalyzeCached(ply.FenAfter, options, analysisCache);
 
             EngineLine? bestLine = beforeAnalysis.Lines.FirstOrDefault();
             EngineLine? playedLine = afterAnalysis.Lines.FirstOrDefault();
@@ -46,8 +47,9 @@ public sealed class GameAnalysisService
             int materialDelta = materialAfter - materialBefore;
             int? centipawnLoss = ComputeCentipawnLoss(bestScore, playedScore);
             MoveQualityBucket quality = ClassifyQuality(bestScore, playedScore, centipawnLoss);
+            MoveHeuristicContext heuristicContext = BuildHeuristicContext(ply, analyzedSide, beforeAnalysis, afterAnalysis);
 
-            MistakeTag? tag = mistakeClassifier.Classify(ply, analyzedSide, quality, centipawnLoss, materialDelta);
+            MistakeTag? tag = mistakeClassifier.Classify(ply, analyzedSide, quality, centipawnLoss, materialDelta, heuristicContext);
             MoveExplanation? explanation = quality == MoveQualityBucket.Good
                 ? null
                 : explanationGenerator.Generate(ply, quality, tag, bestLine?.MoveUci, centipawnLoss);
@@ -69,6 +71,108 @@ public sealed class GameAnalysisService
 
         IReadOnlyList<SelectedMistake> highlightedMistakes = mistakeSelector.Select(moveAnalyses);
         return new GameAnalysisResult(game, analyzedSide, replay, moveAnalyses, highlightedMistakes);
+    }
+
+    private EngineAnalysis AnalyzeCached(
+        string fen,
+        EngineAnalysisOptions options,
+        IDictionary<EngineCacheKey, EngineAnalysis> analysisCache)
+    {
+        EngineCacheKey cacheKey = new(NormalizeFenForCache(fen), options.Depth, options.MultiPv, options.MoveTimeMs);
+        if (analysisCache.TryGetValue(cacheKey, out EngineAnalysis? cached))
+        {
+            return cached;
+        }
+
+        EngineAnalysis analysis = engineAnalyzer.AnalyzePosition(fen, options);
+        analysisCache[cacheKey] = analysis;
+        return analysis;
+    }
+
+    private static string NormalizeFenForCache(string fen)
+    {
+        string[] parts = fen.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 4
+            ? string.Join(' ', parts.Take(4))
+            : fen;
+    }
+
+    private static MoveHeuristicContext BuildHeuristicContext(
+        ReplayPly replay,
+        PlayerSide analyzedSide,
+        EngineAnalysis beforeAnalysis,
+        EngineAnalysis afterAnalysis)
+    {
+        char movedPiece = char.ToLowerInvariant(replay.MovingPiece[0]);
+        char fromFile = replay.FromSquare[0];
+        AppliedMoveInfo? bestMove = TryApplyBestMove(replay.FenBefore, beforeAnalysis.BestMoveUci);
+        PositionInspector.MaterialSwingSummary? bestLineSwing = PositionInspector.AnalyzeMaterialSwingAlongLine(
+            replay.FenBefore,
+            analyzedSide,
+            beforeAnalysis.Lines.FirstOrDefault()?.Pv);
+        PositionInspector.MaterialSwingSummary? playedLineSwing = PositionInspector.AnalyzeMaterialSwingAlongLine(
+            replay.FenAfter,
+            analyzedSide,
+            afterAnalysis.Lines.FirstOrDefault()?.Pv);
+
+        int? bestMoveMaterialSwing = bestLineSwing?.BestDeltaCp
+            ?? (bestMove is null
+                ? null
+                : PositionInspector.MaterialScore(bestMove.FenAfter, analyzedSide) - PositionInspector.MaterialScore(bestMove.FenBefore, analyzedSide));
+        int developedMinorPiecesBefore = PositionInspector.CountDevelopedMinorPieces(replay.FenBefore, analyzedSide);
+        int developedMinorPiecesAfter = PositionInspector.CountDevelopedMinorPieces(replay.FenAfter, analyzedSide);
+        bool castledBeforeMove = PositionInspector.IsKingOnCastledWing(replay.FenBefore, analyzedSide);
+        bool castledAfterMove = PositionInspector.IsKingOnCastledWing(replay.FenAfter, analyzedSide);
+        bool kingCentralizedBeforeMove = PositionInspector.IsKingCentralized(replay.FenBefore, analyzedSide);
+        bool kingCentralizedAfterMove = PositionInspector.IsKingCentralized(replay.FenAfter, analyzedSide);
+        bool bestMoveCentralizesKing = bestMove is not null
+            && PositionInspector.IsKingCentralized(bestMove.FenAfter, analyzedSide);
+        PositionInspector.SquareSafetySummary? movedPieceSafety = PositionInspector.AnalyzeSquareSafety(replay.FenAfter, replay.ToSquare, analyzedSide);
+        int? movedPieceMobilityBefore = PositionInspector.CountPieceMobility(replay.FenBefore, replay.FromSquare, analyzedSide);
+        int? movedPieceMobilityAfter = PositionInspector.CountPieceMobility(replay.FenAfter, replay.ToSquare, analyzedSide);
+
+        return new MoveHeuristicContext(
+            movedPieceSafety?.IsHanging == true,
+            movedPieceSafety?.IsFreeToTake == true,
+            movedPieceSafety?.LikelyLosesExchange == true,
+            movedPieceSafety is null ? 0 : movedPieceSafety.Value.Attackers - movedPieceSafety.Value.Defenders,
+            movedPieceSafety?.PieceValueCp,
+            movedPieceMobilityBefore,
+            movedPieceMobilityAfter,
+            PositionInspector.IsEdgeSquare(replay.ToSquare),
+            movedPiece == 'p' && fromFile is 'f' or 'g' or 'h' && castledBeforeMove,
+            replay.Phase == GamePhase.Opening && movedPiece == 'q',
+            replay.Phase == GamePhase.Opening && movedPiece == 'r',
+            replay.Phase == GamePhase.Opening && movedPiece == 'k' && !replay.IsCastle,
+            replay.Phase == GamePhase.Opening && movedPiece == 'p' && fromFile is 'a' or 'b' or 'g' or 'h',
+            bestMove?.IsCapture == true,
+            bestMoveMaterialSwing,
+            playedLineSwing?.WorstDeltaCp,
+            developedMinorPiecesBefore,
+            developedMinorPiecesAfter,
+            castledBeforeMove,
+            castledAfterMove,
+            kingCentralizedBeforeMove,
+            kingCentralizedAfterMove,
+            bestMoveCentralizesKing);
+    }
+
+    private static AppliedMoveInfo? TryApplyBestMove(string fenBefore, string? bestMoveUci)
+    {
+        if (string.IsNullOrWhiteSpace(bestMoveUci))
+        {
+            return null;
+        }
+
+        ChessGame game = new();
+        if (!game.TryLoadFen(fenBefore, out _)
+            || !game.TryApplyUci(bestMoveUci, out AppliedMoveInfo? appliedMove, out _)
+            || appliedMove is null)
+        {
+            return null;
+        }
+
+        return appliedMove;
     }
 
     private static ScoreSnapshot NormalizeScore(EngineLine? line, PlayerSide analyzedSide, PlayerSide sideToMove)
@@ -133,4 +237,5 @@ public sealed class GameAnalysisService
     private static PlayerSide Opponent(PlayerSide side) => side == PlayerSide.White ? PlayerSide.Black : PlayerSide.White;
 
     private readonly record struct ScoreSnapshot(int? Centipawns, int? MateIn);
+    private readonly record struct EngineCacheKey(string Fen, int Depth, int MultiPv, int? MoveTimeMs);
 }
