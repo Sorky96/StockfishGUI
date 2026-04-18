@@ -15,6 +15,7 @@ public sealed class PlayerProfilesForm : Form
     public PlayerProfilesForm(PlayerProfileService profileService)
     {
         this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
+        UiTheme.ApplyFormChrome(this);
 
         Text = "Player Profiles";
         StartPosition = FormStartPosition.CenterParent;
@@ -52,6 +53,7 @@ public sealed class PlayerProfilesForm : Form
             Margin = new Padding(0, 6, 12, 0),
             Text = "Filter by analyzed player:"
         };
+        UiTheme.StyleSectionLabel(filterLabel);
         topBar.Controls.Add(filterLabel, 0, 0);
 
         filterTextBox = new TextBox
@@ -59,6 +61,7 @@ public sealed class PlayerProfilesForm : Form
             Anchor = AnchorStyles.Left | AnchorStyles.Right,
             Margin = new Padding(0, 2, 0, 0)
         };
+        UiTheme.StyleTextBox(filterTextBox);
         filterTextBox.TextChanged += (_, _) => RefreshList();
         topBar.Controls.Add(filterTextBox, 1, 0);
 
@@ -68,6 +71,7 @@ public sealed class PlayerProfilesForm : Form
             Size = new Size(120, 32),
             Anchor = AnchorStyles.Left
         };
+        UiTheme.StyleSecondaryButton(closeButton);
         closeButton.Click += (_, _) => DialogResult = DialogResult.OK;
         topBar.Controls.Add(closeButton, 3, 0);
 
@@ -78,6 +82,7 @@ public sealed class PlayerProfilesForm : Form
             FixedPanel = FixedPanel.Panel1,
             SplitterDistance = 340
         };
+        splitContainer.BackColor = UiTheme.BorderColor;
         rootLayout.Controls.Add(splitContainer, 0, 1);
 
         profilesListBox = new ListBox
@@ -87,8 +92,10 @@ public sealed class PlayerProfilesForm : Form
             HorizontalScrollbar = true,
             IntegralHeight = false
         };
+        UiTheme.StyleListBox(profilesListBox);
         profilesListBox.SelectedIndexChanged += (_, _) => UpdateDetails();
         splitContainer.Panel1.Padding = new Padding(0);
+        splitContainer.Panel1.BackColor = UiTheme.CardBackground;
         splitContainer.Panel1.Controls.Add(profilesListBox);
 
         detailsTextBox = new TextBox
@@ -100,7 +107,9 @@ public sealed class PlayerProfilesForm : Form
             WordWrap = false,
             Font = new Font("Consolas", 10)
         };
+        UiTheme.StyleTextBox(detailsTextBox);
         splitContainer.Panel2.Padding = new Padding(0);
+        splitContainer.Panel2.BackColor = UiTheme.CardBackground;
         splitContainer.Panel2.Controls.Add(detailsTextBox);
 
         RefreshList();
@@ -213,6 +222,20 @@ public sealed class PlayerProfilesForm : Form
             foreach (ProfileMonthlyTrend trend in report.MonthlyTrend)
             {
                 builder.AppendLine($"- {trend.MonthKey}: {trend.GamesAnalyzed} games | highlights {trend.HighlightedMistakes} | avg CPL {trend.AverageCentipawnLoss?.ToString() ?? "n/a"}");
+            }
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Quarterly trend:");
+        if (report.QuarterlyTrend.Count == 0)
+        {
+            builder.AppendLine("- unknown");
+        }
+        else
+        {
+            foreach (ProfileQuarterlyTrend trend in report.QuarterlyTrend)
+            {
+                builder.AppendLine($"- {trend.QuarterKey}: {trend.GamesAnalyzed} games | highlights {trend.HighlightedMistakes} | avg CPL {trend.AverageCentipawnLoss?.ToString() ?? "n/a"}");
             }
         }
 

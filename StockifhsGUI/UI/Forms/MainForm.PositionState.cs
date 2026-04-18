@@ -2,7 +2,7 @@ using System.Windows.Forms;
 
 namespace StockifhsGUI;
 
-public partial class Form1
+public partial class MainForm
 {
     private bool TryCreateGameFromCurrentPosition(out ChessGame? game, out string? error)
     {
@@ -44,7 +44,7 @@ public partial class Form1
         moveHistory.Add(appliedMove.Uci);
         if (advanceImportedCursor)
         {
-            importedMoveCursor++;
+            importedSession.Cursor++;
         }
 
         if (!suppressEngineRefresh)

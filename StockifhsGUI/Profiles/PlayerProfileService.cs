@@ -151,6 +151,16 @@ public sealed class PlayerProfileService
             .OrderBy(item => item.MonthKey, StringComparer.Ordinal)
             .ToList();
 
+        IReadOnlyList<ProfileQuarterlyTrend> quarterlyTrend = records
+            .GroupBy(record => record.QuarterKey ?? "Unknown")
+            .Select(group => new ProfileQuarterlyTrend(
+                group.Key,
+                group.Count(),
+                group.Sum(item => item.HighlightedMistakes.Count),
+                TryAverage(group.SelectMany(item => item.Result.MoveAnalyses).Select(move => move.CentipawnLoss))))
+            .OrderBy(item => item.QuarterKey, StringComparer.Ordinal)
+            .ToList();
+
         IReadOnlyList<TrainingRecommendation> recommendations = topLabels
             .Take(3)
             .Select((labelStat, index) => CreateRecommendation(labelStat, BuildRecommendationContext(records, labelStat.Label), index + 1))
@@ -169,6 +179,7 @@ public sealed class PlayerProfileService
             mistakesByOpening,
             gamesBySide,
             monthlyTrend,
+            quarterlyTrend,
             recommendations,
             weeklyPlan);
     }
@@ -679,6 +690,7 @@ public sealed class PlayerProfileService
             result.AnalyzedSide,
             result.HighlightedMistakes,
             ParseMonthKey(result.Game.DateText),
+            ParseQuarterKey(result.Game.DateText),
             result);
     }
 
@@ -724,6 +736,32 @@ public sealed class PlayerProfileService
         return null;
     }
 
+    private static string? ParseQuarterKey(string? dateText)
+    {
+        if (string.IsNullOrWhiteSpace(dateText))
+        {
+            return null;
+        }
+
+        string[] formats =
+        [
+            "yyyy.MM.dd",
+            "yyyy-MM-dd",
+            "yyyy/MM/dd",
+            "yyyy.MM",
+            "yyyy-MM",
+            "yyyy/MM"
+        ];
+
+        if (DateTime.TryParseExact(dateText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed))
+        {
+            int quarter = ((parsed.Month - 1) / 3) + 1;
+            return $"{parsed:yyyy}-Q{quarter}";
+        }
+
+        return null;
+    }
+
     private sealed record PlayerProfileRecord(
         string GameFingerprint,
         string PlayerKey,
@@ -731,6 +769,7 @@ public sealed class PlayerProfileService
         PlayerSide Side,
         IReadOnlyList<SelectedMistake> HighlightedMistakes,
         string? MonthKey,
+        string? QuarterKey,
         GameAnalysisResult Result);
 
     private sealed record RecommendationContext(

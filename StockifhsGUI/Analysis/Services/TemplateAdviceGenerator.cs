@@ -1,14 +1,22 @@
 namespace StockifhsGUI;
 
-public sealed class ExplanationGenerator
+public sealed class TemplateAdviceGenerator : IAdviceGenerator
 {
+    private readonly AdviceGenerationSettings settings;
+
+    public TemplateAdviceGenerator(AdviceGenerationSettings? settings = null)
+    {
+        this.settings = settings ?? AdviceGenerationSettings.Default;
+    }
+
     public MoveExplanation Generate(
         ReplayPly replay,
         MoveQualityBucket quality,
         MistakeTag? tag,
         string? bestMoveUci,
         int? centipawnLoss,
-        ExplanationLevel level = ExplanationLevel.Intermediate)
+        ExplanationLevel level = ExplanationLevel.Intermediate,
+        AdviceGenerationContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(replay);
 
@@ -33,11 +41,39 @@ public sealed class ExplanationGenerator
             _ => "Pause on tactical turns and look for forcing replies before choosing a natural-looking move."
         };
 
-        string shortText = BuildShortText(replay, qualityText, lossText, label, bestMoveSentence, level);
-        string detailedText = BuildDetailedText(replay, qualityText, label, bestMoveSentence, centipawnLoss, level);
-        string trainingHint = BuildTrainingHint(patternHint, label, level);
+        string shortText = Shorten(BuildShortText(replay, qualityText, lossText, label, bestMoveSentence, level), settings.MaxShortTextLength);
+        string detailedText = Shorten(BuildDetailedText(replay, qualityText, label, bestMoveSentence, centipawnLoss, level), settings.MaxDetailedTextLength);
+        string trainingHint = Shorten(BuildTrainingHint(patternHint, label, level), settings.MaxTrainingHintLength);
 
         return new MoveExplanation(shortText, trainingHint, detailedText);
+    }
+
+    private static string Shorten(string text, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(text) || maxLength <= 0 || text.Length <= maxLength)
+        {
+            return text;
+        }
+
+        if (maxLength <= 3)
+        {
+            return text[..maxLength];
+        }
+
+        int candidateLength = Math.Max(0, maxLength - 1);
+        int lastSentenceBreak = text.LastIndexOfAny(['.', '!', '?'], candidateLength - 1);
+        if (lastSentenceBreak >= 0 && lastSentenceBreak + 1 >= maxLength / 2)
+        {
+            return text[..(lastSentenceBreak + 1)].Trim();
+        }
+
+        int lastWordBreak = text.LastIndexOf(' ', candidateLength - 1);
+        if (lastWordBreak >= maxLength / 2)
+        {
+            return $"{text[..lastWordBreak].Trim()}...";
+        }
+
+        return $"{text[..candidateLength].Trim()}...";
     }
 
     private static string BuildShortText(

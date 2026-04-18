@@ -48,8 +48,8 @@ If the app is already running, a normal `dotnet build` may fail to overwrite `St
 
 ## Project structure
 
-- `StockifhsGUI/Form1.cs` - main form, board rendering, core UI logic
-- `StockifhsGUI/Form1.Import.cs` - undo support and PGN import/replay
+- `StockifhsGUI/UI/Forms/MainForm.cs` - main window, layout orchestration, engine summary and board hosting
+- `StockifhsGUI/UI/Forms/MainForm.Import.cs` - undo support and PGN import/replay
 - `StockifhsGUI/StockfishEngine.cs` - communication with Stockfish
 - `StockifhsGUI/PromotionForm.cs` - promotion dialog
 - `StockifhsGUI/Images` - piece assets copied to the output directory

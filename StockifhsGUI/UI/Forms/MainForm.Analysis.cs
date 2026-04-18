@@ -3,11 +3,11 @@ using System.Windows.Forms;
 
 namespace StockifhsGUI;
 
-public partial class Form1
+public partial class MainForm
 {
     private Task OpenImportedGameAnalysisAsync()
     {
-        if (importedGame is null || importedGame.SanMoves.Count == 0)
+        if (importedSession.Game is null || importedSession.Game.SanMoves.Count == 0)
         {
             MessageBox.Show("Import a PGN game before starting analysis.", "Analyze Imported Game", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return Task.CompletedTask;
@@ -19,7 +19,7 @@ public partial class Form1
             return Task.CompletedTask;
         }
 
-        using GameAnalysisForm analysisForm = new(importedGame, engine, NavigateToAnalysisMistake);
+        using GameAnalysisForm analysisForm = new(importedSession.Game, engine, NavigateToAnalysisMistake);
         analysisForm.ShowDialog(this);
         return Task.CompletedTask;
     }
@@ -76,13 +76,13 @@ public partial class Form1
 
     private void NavigateToAnalysisMistake(MoveAnalysisResult moveAnalysis)
     {
-        if (importedGame is null || importedMoves.Count == 0)
+        if (importedSession.Game is null || importedSession.Moves.Count == 0)
         {
             return;
         }
 
         int targetIndex = moveAnalysis.Replay.Ply - 1;
-        if (targetIndex < 0 || targetIndex >= importedMoves.Count)
+        if (targetIndex < 0 || targetIndex >= importedSession.Moves.Count)
         {
             return;
         }
@@ -109,7 +109,7 @@ public partial class Form1
             return;
         }
 
-        analysisArrows.Add(new AnalysisArrow(from, to, color));
+        analysisArrows.Add(new BoardArrow(from, to, color));
     }
 
     private void SetAnalysisTargetSquare(string uciMove)

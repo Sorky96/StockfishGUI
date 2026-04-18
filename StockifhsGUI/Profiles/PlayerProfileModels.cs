@@ -32,6 +32,12 @@ public sealed record ProfileMonthlyTrend(
     int HighlightedMistakes,
     int? AverageCentipawnLoss);
 
+public sealed record ProfileQuarterlyTrend(
+    string QuarterKey,
+    int GamesAnalyzed,
+    int HighlightedMistakes,
+    int? AverageCentipawnLoss);
+
 public sealed record TrainingRecommendation(
     int Priority,
     string FocusArea,
@@ -68,5 +74,6 @@ public sealed record PlayerProfileReport(
     IReadOnlyList<ProfileOpeningStat> MistakesByOpening,
     IReadOnlyList<ProfileSideStat> GamesBySide,
     IReadOnlyList<ProfileMonthlyTrend> MonthlyTrend,
+    IReadOnlyList<ProfileQuarterlyTrend> QuarterlyTrend,
     IReadOnlyList<TrainingRecommendation> Recommendations,
     WeeklyTrainingPlan WeeklyPlan);

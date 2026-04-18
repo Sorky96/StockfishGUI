@@ -2,6 +2,8 @@ namespace StockifhsGUI;
 
 public sealed class MistakeSelector
 {
+    private const int MaxInaccuracies = 3;
+
     public IReadOnlyList<SelectedMistake> Select(IReadOnlyList<MoveAnalysisResult> moveAnalyses)
     {
         ArgumentNullException.ThrowIfNull(moveAnalyses);
@@ -21,13 +23,12 @@ public sealed class MistakeSelector
             .Select(item => item.Mistake)
             .ToList();
 
-        List<SelectedMistake> topInaccuracies = ranked
+        List<RankedMistake> rankedInaccuracies = ranked
             .Where(item => item.Mistake.Quality == MoveQualityBucket.Inaccuracy)
             .OrderByDescending(item => item.Score)
             .ThenBy(item => item.Mistake.Moves.First().Replay.Ply)
-            .Take(3)
-            .Select(item => item.Mistake)
             .ToList();
+        List<SelectedMistake> topInaccuracies = SelectTopInaccuracies(rankedInaccuracies);
 
         selected.AddRange(topInaccuracies);
 
@@ -84,6 +85,65 @@ public sealed class MistakeSelector
         return new SelectedMistake(group, lead.Quality, lead.MistakeTag, explanation);
     }
 
+    private static List<SelectedMistake> SelectTopInaccuracies(IReadOnlyList<RankedMistake> rankedInaccuracies)
+    {
+        List<SelectedMistake> selected = new();
+        HashSet<string> labels = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<GamePhase> phases = [];
+
+        foreach (RankedMistake candidate in rankedInaccuracies)
+        {
+            if (selected.Count >= MaxInaccuracies)
+            {
+                break;
+            }
+
+            string label = candidate.Mistake.Tag?.Label ?? "unclassified";
+            GamePhase phase = GetDominantPhase(candidate.Mistake);
+            bool duplicateLabel = labels.Contains(label);
+            bool duplicatePhase = phases.Contains(phase);
+
+            if (duplicateLabel || duplicatePhase)
+            {
+                continue;
+            }
+
+            selected.Add(candidate.Mistake);
+            labels.Add(label);
+            phases.Add(phase);
+        }
+
+        foreach (RankedMistake candidate in rankedInaccuracies)
+        {
+            if (selected.Count >= MaxInaccuracies)
+            {
+                break;
+            }
+
+            if (selected.Contains(candidate.Mistake))
+            {
+                continue;
+            }
+
+            string label = candidate.Mistake.Tag?.Label ?? "unclassified";
+            bool duplicateLabel = labels.Contains(label);
+            int bestSelectedScore = selected.Count == 0
+                ? 0
+                : selected.Max(mistake => rankedInaccuracies.First(item => ReferenceEquals(item.Mistake, mistake)).Score);
+            bool significantlyStronger = bestSelectedScore - candidate.Score <= 90;
+
+            if (duplicateLabel && !significantlyStronger)
+            {
+                continue;
+            }
+
+            selected.Add(candidate.Mistake);
+            labels.Add(label);
+        }
+
+        return selected;
+    }
+
     private static int ScoreGroup(SelectedMistake mistake)
     {
         MoveAnalysisResult lead = mistake.Moves
@@ -107,11 +167,12 @@ public sealed class MistakeSelector
         int mateWeight = lead.PlayedMateIn is < 0 || (lead.BestMateIn is > 0 && lead.PlayedMateIn is null)
             ? 220
             : 0;
+        int practicalSwingWeight = PracticalSwingWeight(lead);
         int materialWeight = lead.MaterialDeltaCp < 0
             ? Math.Min(120, Math.Abs(lead.MaterialDeltaCp))
             : 0;
 
-        return qualityWeight + cplWeight + tagWeight + confidenceWeight + groupWeight + criticalWeight + mateWeight + materialWeight;
+        return qualityWeight + cplWeight + tagWeight + confidenceWeight + groupWeight + criticalWeight + mateWeight + practicalSwingWeight + materialWeight;
     }
 
     private static bool IsCriticalMoment(MoveAnalysisResult result)
@@ -144,6 +205,28 @@ public sealed class MistakeSelector
             "opening_principles" => 80,
             _ => 0
         };
+    }
+
+    private static int PracticalSwingWeight(MoveAnalysisResult result)
+    {
+        if (result.EvalBeforeCp is not int before || result.EvalAfterCp is not int after)
+        {
+            return 0;
+        }
+
+        int swing = Math.Abs(after - before);
+        int closenessBonus = Math.Max(0, 120 - Math.Abs(before)) / 2;
+        return Math.Min(180, (swing / 4) + closenessBonus);
+    }
+
+    private static GamePhase GetDominantPhase(SelectedMistake mistake)
+    {
+        return mistake.Moves
+            .GroupBy(item => item.Replay.Phase)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key)
+            .Select(group => group.Key)
+            .FirstOrDefault();
     }
 
     private sealed record RankedMistake(SelectedMistake Mistake, int Score);

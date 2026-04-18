@@ -19,6 +19,7 @@ public sealed class SavedAnalysesForm : Form
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
         this.canOpenAnalysis = canOpenAnalysis;
+        UiTheme.ApplyFormChrome(this);
 
         Text = "Saved Analyses";
         StartPosition = FormStartPosition.CenterParent;
@@ -58,6 +59,7 @@ public sealed class SavedAnalysesForm : Form
             Margin = new Padding(0, 6, 12, 0),
             Text = "Filter by player, opening, result or labels:"
         };
+        UiTheme.StyleSectionLabel(filterLabel);
         topBar.Controls.Add(filterLabel, 0, 0);
 
         filterTextBox = new TextBox
@@ -65,6 +67,7 @@ public sealed class SavedAnalysesForm : Form
             Anchor = AnchorStyles.Left | AnchorStyles.Right,
             Margin = new Padding(0, 2, 0, 0)
         };
+        UiTheme.StyleTextBox(filterTextBox);
         filterTextBox.TextChanged += (_, _) => RefreshList();
         topBar.Controls.Add(filterTextBox, 1, 0);
 
@@ -75,6 +78,7 @@ public sealed class SavedAnalysesForm : Form
             Enabled = false,
             Anchor = AnchorStyles.Right
         };
+        UiTheme.StyleSecondaryButton(loadGameButton);
         loadGameButton.Click += (_, _) => ConfirmSelection(SavedAnalysisAction.LoadGame);
         topBar.Controls.Add(loadGameButton, 3, 0);
 
@@ -85,6 +89,7 @@ public sealed class SavedAnalysesForm : Form
             Enabled = false,
             Anchor = AnchorStyles.Right
         };
+        UiTheme.StylePrimaryButton(openAnalysisButton);
         openAnalysisButton.Click += (_, _) => ConfirmSelection(SavedAnalysisAction.OpenAnalysis);
         topBar.Controls.Add(openAnalysisButton, 4, 0);
 
@@ -94,6 +99,7 @@ public sealed class SavedAnalysesForm : Form
             Size = new Size(120, 32),
             Anchor = AnchorStyles.Right
         };
+        UiTheme.StyleSecondaryButton(closeButton);
         closeButton.Click += (_, _) => DialogResult = DialogResult.Cancel;
         topBar.Controls.Add(closeButton, 5, 0);
 
@@ -104,6 +110,7 @@ public sealed class SavedAnalysesForm : Form
             FixedPanel = FixedPanel.None,
             SplitterDistance = 460
         };
+        splitContainer.BackColor = UiTheme.BorderColor;
         rootLayout.Controls.Add(splitContainer, 0, 1);
 
         analysesListBox = new ListBox
@@ -113,8 +120,10 @@ public sealed class SavedAnalysesForm : Form
             HorizontalScrollbar = true,
             IntegralHeight = false
         };
+        UiTheme.StyleListBox(analysesListBox);
         analysesListBox.SelectedIndexChanged += (_, _) => UpdateDetails();
         analysesListBox.DoubleClick += (_, _) => ConfirmSelection(canOpenAnalysis ? SavedAnalysisAction.OpenAnalysis : SavedAnalysisAction.LoadGame);
+        splitContainer.Panel1.BackColor = UiTheme.CardBackground;
         splitContainer.Panel1.Controls.Add(analysesListBox);
 
         detailsTextBox = new TextBox
@@ -126,6 +135,8 @@ public sealed class SavedAnalysesForm : Form
             WordWrap = false,
             Font = new Font("Consolas", 10)
         };
+        UiTheme.StyleTextBox(detailsTextBox);
+        splitContainer.Panel2.BackColor = UiTheme.CardBackground;
         splitContainer.Panel2.Controls.Add(detailsTextBox);
 
         RefreshList();

@@ -6,7 +6,7 @@ using System.Windows.Forms;
 
 namespace StockifhsGUI;
 
-public partial class Form1
+public partial class MainForm
 {
     private Button? startTrackingButton;
     private Button? stopTrackingButton;
@@ -190,28 +190,10 @@ public partial class Form1
             undoStack.Clear();
             analysisArrows.Clear();
             analysisTargetSquare = null;
-            importedGame = null;
-            importedMoves.Clear();
-            importedReplay.Clear();
-            importedMovesList?.Items.Clear();
             moveHistory.Clear();
             ApplyPosition(position);
-            importedMoveCursor = snapshot.Moves.Count;
-
-            if (importedMovesList is not null)
-            {
-                suppressImportedSelectionHandling = true;
-                for (int i = 0; i < snapshot.Moves.Count; i++)
-                {
-                    int ply = i + 1;
-                    PlayerSide side = ply % 2 == 1 ? PlayerSide.White : PlayerSide.Black;
-                    int moveNumber = (ply + 1) / 2;
-                    ImportedMove move = new(ply, moveNumber, side, snapshot.Moves[i]);
-                    importedMoves.Add(move);
-                    importedMovesList.Items.Add(move);
-                }
-                suppressImportedSelectionHandling = false;
-            }
+            importedSession.LoadTrackedMoves(snapshot.Moves);
+            PopulateImportedMovesList();
 
             ClearSelection();
         }

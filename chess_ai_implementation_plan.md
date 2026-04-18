@@ -13,7 +13,7 @@ Zbudować system, który:
 To nie jest wersja "pełne własne AI od zera", tylko dobra i trudniejsza wersja produktu:
 - silnik szachowy odpowiada za prawdę szachową,
 - warstwa heurystyk i klasyfikacji odpowiada za wykrywanie rodzaju błędu,
-- model językowy odpowiada za tłumaczenie błędów ludzkim językiem.
+- lokalna warstwa generatora porad odpowiada za tłumaczenie błędów ludzkim językiem.
 
 ---
 
@@ -47,7 +47,7 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] Parser SAN / PGN oraz replay partii ruch po ruchu.
 - [x] Generowanie FEN przed i po ruchach.
 - [x] Obsługa pełnego round-tripu FEN z `en passant`.
-- [x] Replay importowanej partii oparty o `ChessGame` i snapshoty FEN zamiast lokalnego parsera SAN w `Form1`.
+- [x] Replay importowanej partii oparty o `ChessGame` i snapshoty FEN zamiast lokalnego parsera SAN w `MainForm`.
 - [x] Walidacja i wykonywanie ręcznych ruchów w UI oparte o `ChessGame` oraz legalne ruchy UCI.
 - [x] Strukturalne API analizy silnika oparte o Stockfisha i UCI.
 - [x] Analiza jednej partii dla wybranego koloru.
@@ -58,6 +58,7 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] Rozszerzone heurystyki debiutowe o rozwój figur lekkich i nierozwijające ruchy w otwarciu.
 - [x] Rozszerzone heurystyki końcówkowe o centralizację króla i wykrywanie przegapionej aktywizacji króla.
 - [x] Szablonowy generator krótkich wyjaśnień.
+- [x] Wydzielony kontrakt `IAdviceGenerator` z implementacją `TemplateAdviceGenerator` jako przygotowanie pod przyszły mocniejszy generator lokalny.
 - [x] Rozszerzony komentarz edukacyjny w oknie analizy.
 - [x] Integracja z UI: po imporcie PGN można uruchomić analizę importowanej partii.
 - [x] Integracja z UI: wybór błędu przenosi planszę do właściwej pozycji i pokazuje zagrany ruch oraz `best move`.
@@ -67,6 +68,7 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] Przywracanie ostatniego stanu okna analizy po ponownym otwarciu dialogu.
 - [x] Zapamiętywanie wybranego poziomu wyjaśnień w stanie okna analizy.
 - [x] Biblioteka zapisanych partii z filtrowaniem i ponownym wczytaniem do głównej planszy.
+- [x] Odchudzenie UI: `Form1` przemianowany na `MainForm`, plansza wydzielona do `ChessBoardControl`, a stan zaimportowanej partii do osobnej sesji `ImportedGameSession`.
 - [x] Podstawowy `PlayerProfileService` agregujący zapisane analizy wielu partii.
 - [x] Prosty widok profilu gracza z top kategoriami błędów, fazami, otwarciami i trendem miesięcznym.
 - [x] Podstawowe rekomendacje treningowe z priorytetami, checklistą i sugerowanymi ćwiczeniami.
@@ -77,11 +79,11 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] historia analiz i odczyt wcześniejszych partii,
 - [ ] bardziej zaawansowany profil gracza z wielu partii,
 - [x] bardziej adaptacyjne rekomendacje treningowe oparte o dane historyczne,
-- [ ] warstwa LLM,
-- [ ] dalsze porządkowanie `Form1`, ale bez lokalnej logiki legal moves / SAN jako źródła prawdy.
+- [ ] opcjonalny mocniejszy generator lokalny on-device,
+- [ ] dalsze porządkowanie `MainForm`, ale bez lokalnej logiki legal moves / SAN jako źródła prawdy.
 
 ### Zasada na dalsze etapy
-Nowe funkcje powinny być dokładane do usług domenowych i modeli analitycznych, a nie do `Form1`. UI ma wywoływać pipeline i prezentować wynik.
+Nowe funkcje powinny być dokładane do usług domenowych i modeli analitycznych, a nie do `MainForm`. UI ma wywoływać pipeline i prezentować wynik.
 
 ## Warstwa 1 - Import i przygotowanie danych
 Odpowiedzialność:
@@ -272,7 +274,7 @@ Status w repo:
 Łączysz:
 - heurystyki,
 - cechy pozycji,
-- ewentualnie model ML lub LLM do doprecyzowania etykiety.
+- ewentualnie model ML lub lokalny model on-device do doprecyzowania etykiety.
 
 ### Etap 3 - ranking pewności
 Dla każdej etykiety zapisujesz:
@@ -370,7 +372,7 @@ Każdy komentarz powinien odpowiadać na 4 pytania:
 - [x] Zdefiniować szablon odpowiedzi krótkiej.
 - [x] Zdefiniować szablon odpowiedzi rozszerzonej.
 - [x] Dodać poziomy tłumaczenia dla np. początkującego, średniego i zaawansowanego gracza.
-- [ ] Dodać maksymalną długość komentarza.
+- [x] Dodać maksymalną długość komentarza.
 - [x] Dodać sekcję "jak ćwiczyć ten motyw".
 
 ---
@@ -540,9 +542,11 @@ Odpowiada za:
 - confidence,
 - evidence.
 
-## 7. `ExplanationGenerator`
+## 7. `AdviceGenerator`
 Odpowiada za:
-- stworzenie krótkiego i rozszerzonego opisu błędu.
+- stworzenie krótkiego i rozszerzonego opisu błędu,
+- wybór implementacji generatora porady niezależnie od UI i pipeline,
+- umożliwienie późniejszego podpięcia mocniejszego generatora lokalnego bez przebudowy analizy partii.
 
 ## 8. `PlayerProfileService`
 Odpowiada za:
@@ -619,10 +623,14 @@ Status: **wdrożone podstawowe v1**
 Zrealizowane:
 - krótki komentarz z lepszym ruchem i wskazówką treningową.
 - rozszerzony komentarz rozwijający: co było złe, dlaczego, co było lepsze i jak rozpoznawać podobny motyw.
+- kontrakt `IAdviceGenerator`, dzięki któremu obecny generator szablonowy można później zastąpić mocniejszą implementacją lokalną.
+- lokalny tryb `Adaptive`, który wzbogaca komentarz bez korzystania z zewnętrznego API.
+- lokalny log diagnostyczny generatora porad do pliku JSONL.
 
 Do dopracowania:
 - stylistyczne dopracowanie wariantu rozszerzonego,
 - dalsze strojenie poziomów trudności komentarza,
+- dodanie polityki wyboru generatora porady zależnie od konfiguracji lokalnej,
 - dalsze dopracowanie prezentacji PV i SAN zamiast surowego UCI tam, gdzie to ma sens.
 
 ### Etapy 5-7
@@ -723,8 +731,8 @@ Cel: system ma rozumieć powtarzalne problemy.
 Cel: poprawić jakość klasyfikacji i opisu bez trenowania od zera.
 
 ### Zakres
-- wykorzystanie LLM do doprecyzowania opisu,
-- ewentualnie wykorzystanie LLM do wyboru labelu spośród kandydatów,
+- wykorzystanie lokalnego generatora adaptacyjnego do doprecyzowania opisu,
+- ewentualnie wykorzystanie lokalnego modelu on-device do wyboru labelu spośród kandydatów,
 - walidacja wyników przez reguły.
 
 ### Done criteria
@@ -841,11 +849,16 @@ To jest aktualna kolejka prac po wdrożeniu MVP jednej partii.
 - [x] dodać podstawowe filtry: wszystkie / blundery / błędy / niedokładności,
 - [x] poprawić czytelność szczegółów analizy w oknie wyników.
 
-### Krok 2 - usunięcie resztek duplikacji logiki z `Form1`
-- [ ] ograniczyć `Form1` do prezentacji i sterowania,
+### Krok 2 - usunięcie resztek duplikacji logiki z `MainForm`
+- [ ] ograniczyć `MainForm` do prezentacji i sterowania,
 - [x] oprzeć replay importowanych ruchów na `ChessGame` oraz FEN snapshotach,
 - [x] oprzeć walidację i wykonywanie ruchów na `ChessGame`,
 - [ ] nie rozwijać już lokalnej logiki SAN / legal moves w formularzu.
+
+Stan po bieżącej iteracji:
+- dawny `Form1` został przemianowany na `MainForm`,
+- renderowanie planszy i mapowanie kliknięć zostało wydzielone do `ChessBoardControl`,
+- `MainForm` pełni teraz bardziej rolę koordynatora UI niż miejsca do ręcznego rysowania planszy.
 
 ### Krok 3 - wzmocnienie heurystyk i scoringu
 - [x] dodać pierwszą dodatkową warstwę cech pozycji do klasyfikatora,
@@ -860,7 +873,7 @@ Stan po bieżącej iteracji:
 - końcówki lepiej rozpoznają przegapioną centralizację króla,
 - `hanging_piece` jest lepiej odróżniane od `missed_tactic` dzięki analizie bezpieczeństwa pola i natychmiastowej opłacalności bicia,
 - pojawiła się pierwsza bardziej strategiczna etykieta `piece_activity` dla ruchów obniżających aktywność figury w middlegame,
-- selektor błędów dla `inaccuracy` bierze pod uwagę nie tylko CPL, ale też wagę motywu, confidence i krytyczność momentu,
+- selektor błędów dla `inaccuracy` bierze pod uwagę nie tylko CPL, ale też wagę motywu, confidence, krytyczność momentu i dywersyfikację tematów,
 - testy obejmują nowe heurystyki pozycyjne i aktualny wynik end-to-end.
 
 ### Krok 4 - persystencja jednej analizy
@@ -889,10 +902,16 @@ Stan po bieżącej iteracji:
 Stan po bieżącej iteracji:
 - `PlayerProfileService` agreguje zapisane analizy po analizowanym graczu,
 - profil pokazuje liczbę przeanalizowanych partii, średni CPL, top etykiety błędów, fazy gry i otwarcia,
-- pojawił się prosty trend miesięczny oraz 1-3 priorytety treningowe z checklistą i sugerowanymi ćwiczeniami,
+- pojawił się prosty trend miesięczny i kwartalny oraz 1-3 priorytety treningowe z checklistą i sugerowanymi ćwiczeniami,
 - profil układa też deterministyczny tygodniowy plan treningowy z dniami, aktywnościami i kryterium ukończenia,
 - w UI głównego okna można otworzyć widok profili i filtrować graczy po nazwie,
 - kolejnym krokiem pozostaje bardziej zaawansowane grupowanie historyczne, lepsze trendy i później np. automatyczne śledzenie realizacji takiego planu.
+
+### Krok 6 - AdviceGenerator i ścieżka lokalna
+- [x] wydzielić `IAdviceGenerator` oraz szablonowe `TemplateAdviceGenerator`,
+- [x] dodać konfigurację wyboru generatora porady,
+- [x] przygotować osobną implementację `LocalHeuristicAdviceGenerator`,
+- [x] logować wejście/wyjście generatora porady do oceny jakości komentarzy.
 
 ## Sprint 1
 - [x] Import PGN
@@ -925,7 +944,8 @@ Stan po bieżącej iteracji:
 - [x] Top błędy i trendy
 
 ## Sprint 6
-- [ ] Integracja z LLM
+- [x] Lokalny wybór generatora porady
+- [x] Lokalny log diagnostyczny generatora
 - [ ] Poprawa jakości opisów
 - [ ] Lepsza personalizacja
 
@@ -1003,7 +1023,7 @@ Po wdrożeniu tej wersji można rozwijać:
 Najlepsza droga wdrożenia to:
 - **Stockfish jako rdzeń oceny**,
 - **heurystyki i cechy pozycji jako rdzeń klasyfikacji**,
-- **LLM jako warstwa tłumaczenia i personalizacji**,
+- **lokalny generator porad jako warstwa tłumaczenia i personalizacji**,
 - **profil gracza jako warstwa długoterminowej wartości**.
 
-Nie buduj od razu "magicznego AI od wszystkiego". Zbuduj mocny pipeline, zbieraj dane, poprawiaj heurystyki i dopiero potem dokładaj bardziej zaawansowaną inteligencję.
+Nie buduj od razu "magicznego AI od wszystkiego". Zbuduj mocny lokalny pipeline, zbieraj dane, poprawiaj heurystyki i dopiero potem dokładaj bardziej zaawansowaną inteligencję bez uzależniania produktu od zewnętrznego dostawcy.

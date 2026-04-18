@@ -67,6 +67,7 @@ public sealed class PlayerProfileServiceTests
         Assert.NotEmpty(topRecommendation.Checklist);
         Assert.NotEmpty(topRecommendation.SuggestedDrills);
         Assert.Contains(report.MonthlyTrend, item => item.MonthKey == "2026-05" && item.GamesAnalyzed == 2);
+        Assert.Contains(report.QuarterlyTrend, item => item.QuarterKey == "2026-Q2" && item.GamesAnalyzed == 4);
         Assert.Contains("middlegame", topRecommendation.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Alpha Weekly Training Plan", report.WeeklyPlan.Title);
         Assert.Equal(7, report.WeeklyPlan.Days.Count);

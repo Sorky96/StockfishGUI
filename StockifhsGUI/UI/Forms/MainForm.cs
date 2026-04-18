@@ -8,7 +8,7 @@ using System.Windows.Forms;
 
 namespace StockifhsGUI;
 
-public partial class Form1 : Form
+public partial class MainForm : Form
 {
     private const int GridSize = 8;
     private const int DefaultTileSize = 64;
@@ -21,6 +21,7 @@ public partial class Form1 : Form
     private const string MissingEngineMessage = "Stockfish unavailable. Download stockfish.exe and place it next to the app.";
 
     private readonly string?[,] board = new string?[8, 8];
+    private readonly ChessBoardControl boardSurface;
     private StockfishEngine? engine;
     private readonly List<string> moveHistory = new();
     private readonly Label suggestionLabel;
@@ -28,8 +29,8 @@ public partial class Form1 : Form
     private readonly Label evaluationLabel;
     private readonly Panel evaluationBarBackground;
     private readonly Panel evaluationBarFill;
-    private readonly List<(Point from, Point to)> bestMoves = new();
-    private readonly List<AnalysisArrow> analysisArrows = new();
+    private readonly List<BoardArrow> bestMoveArrows = new();
+    private readonly List<BoardArrow> analysisArrows = new();
     private Point? analysisTargetSquare;
     private readonly List<Point> availableMoves = new();
     private readonly Dictionary<string, Image> pieceImages = new();
@@ -50,16 +51,25 @@ public partial class Form1 : Form
     private int fullmoveNumber = 1;
     private int boardTileSize = DefaultTileSize;
 
-    public Form1(bool rotate = false)
+    public MainForm(bool rotate = false)
     {
-        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
-        UpdateStyles();
         DoubleBuffered = true;
         ResizeRedraw = true;
+        UiTheme.ApplyFormChrome(this);
         ClientSize = new Size(DefaultTileSize * GridSize + MinimumSidePanelWidth + LayoutGap + LayoutMargin, DefaultTileSize * GridSize + 260);
         MinimumSize = SizeFromClientSize(new Size(MinTileSize * GridSize + MinimumSidePanelWidth + LayoutGap + LayoutMargin, MinTileSize * GridSize + 260));
         Text = "Manual Chess (Player vs Player)";
         rotateBoard = rotate;
+
+        boardSurface = new ChessBoardControl
+        {
+            Location = Point.Empty,
+            Size = new Size(DefaultTileSize * GridSize, DefaultTileSize * GridSize),
+            BackColor = UiTheme.AppBackground,
+            TabStop = false
+        };
+        boardSurface.SquareClicked += (_, args) => HandleBoardSquareClick(args.Square);
+        Controls.Add(boardSurface);
 
         suggestionLabel = new Label
         {
@@ -105,10 +115,8 @@ public partial class Form1 : Form
         };
         Controls.Add(rotateButton);
         InitializeExtendedControls();
+        ApplyUiTheme();
         Resize += (_, _) => UpdateResponsiveLayout();
-
-        MouseClick += Form1_MouseClick;
-        Paint += Form1_Paint;
 
         ResetGameState();
 
@@ -158,132 +166,10 @@ public partial class Form1 : Form
         }
     }
 
-    private void Form1_Paint(object? sender, PaintEventArgs e)
+    private void HandleBoardSquareClick(Point square)
     {
-        Graphics g = e.Graphics;
-        using Font coordinateFont = new("Segoe UI", Math.Max(9, boardTileSize / 6f), FontStyle.Bold);
-
-        for (int y = 0; y < GridSize; y++)
-        {
-            for (int x = 0; x < GridSize; x++)
-            {
-                int drawX = rotateBoard ? 7 - x : x;
-                int drawY = rotateBoard ? 7 - y : y;
-                bool lightSquare = (x + y) % 2 == 0;
-                Brush brush = lightSquare ? Brushes.Beige : Brushes.Brown;
-                g.FillRectangle(brush, drawX * boardTileSize, drawY * boardTileSize, boardTileSize, boardTileSize);
-
-                if (selectedSquare.HasValue && selectedSquare.Value.X == x && selectedSquare.Value.Y == y)
-                {
-                    g.DrawRectangle(Pens.Red, drawX * boardTileSize, drawY * boardTileSize, boardTileSize, boardTileSize);
-                }
-
-                if (analysisTargetSquare.HasValue && analysisTargetSquare.Value.X == x && analysisTargetSquare.Value.Y == y)
-                {
-                    using Pen analysisPen = new(Color.Gold, 4);
-                    g.DrawRectangle(
-                        analysisPen,
-                        drawX * boardTileSize + 2,
-                        drawY * boardTileSize + 2,
-                        boardTileSize - 4,
-                        boardTileSize - 4);
-                }
-
-                if (pieceMoveOptionTargetSquare.HasValue && pieceMoveOptionTargetSquare.Value.X == x && pieceMoveOptionTargetSquare.Value.Y == y)
-                {
-                    using SolidBrush previewBrush = new(Color.FromArgb(96, Color.DeepSkyBlue));
-                    using Pen previewPen = new(Color.DeepSkyBlue, 3);
-                    g.FillRectangle(previewBrush, drawX * boardTileSize + 4, drawY * boardTileSize + 4, boardTileSize - 8, boardTileSize - 8);
-                    g.DrawRectangle(previewPen, drawX * boardTileSize + 4, drawY * boardTileSize + 4, boardTileSize - 8, boardTileSize - 8);
-                }
-
-                if (availableMoves.Contains(new Point(x, y)))
-                {
-                    g.FillEllipse(
-                        Brushes.Gold,
-                        drawX * boardTileSize + boardTileSize / 3,
-                        drawY * boardTileSize + boardTileSize / 3,
-                        boardTileSize / 3,
-                        boardTileSize / 3);
-                }
-
-                string? piece = board[x, y];
-                if (!string.IsNullOrEmpty(piece) && pieceImages.TryGetValue(piece, out Image? pieceImage))
-                {
-                    g.DrawImage(pieceImage, drawX * boardTileSize, drawY * boardTileSize, boardTileSize, boardTileSize);
-                }
-
-                DrawBoardCoordinates(g, coordinateFont, x, y, drawX, drawY, lightSquare);
-            }
-        }
-
-        Color[] colors = { Color.Blue, Color.Green, Color.Orange };
-        for (int i = 0; i < bestMoves.Count && i < colors.Length; i++)
-        {
-            DrawArrow(g, bestMoves[i].from, bestMoves[i].to, colors[i]);
-        }
-
-        foreach (AnalysisArrow arrow in analysisArrows)
-        {
-            DrawArrow(g, arrow.From, arrow.To, arrow.Color);
-        }
-    }
-
-    private void DrawArrow(Graphics g, Point from, Point to, Color color)
-    {
-        using Pen arrowPen = new(color, 4)
-        {
-            CustomEndCap = new System.Drawing.Drawing2D.AdjustableArrowCap(6, 6)
-        };
-
-        Point drawFrom = rotateBoard ? new Point(7 - from.X, 7 - from.Y) : from;
-        Point drawTo = rotateBoard ? new Point(7 - to.X, 7 - to.Y) : to;
-
-        PointF start = new(drawFrom.X * boardTileSize + boardTileSize / 2f, drawFrom.Y * boardTileSize + boardTileSize / 2f);
-        PointF end = new(drawTo.X * boardTileSize + boardTileSize / 2f, drawTo.Y * boardTileSize + boardTileSize / 2f);
-
-        g.DrawLine(arrowPen, start, end);
-    }
-
-    private void DrawBoardCoordinates(Graphics g, Font coordinateFont, int boardX, int boardY, int drawX, int drawY, bool lightSquare)
-    {
-        using SolidBrush textBrush = new(lightSquare ? Color.SaddleBrown : Color.Bisque);
-        Rectangle squareRect = new(drawX * boardTileSize, drawY * boardTileSize, boardTileSize, boardTileSize);
-
-        if (drawX == 0)
-        {
-            string rankLabel = (8 - boardY).ToString();
-            g.DrawString(rankLabel, coordinateFont, textBrush, squareRect.Left + 3, squareRect.Top + 2);
-        }
-
-        if (drawY == GridSize - 1)
-        {
-            string fileLabel = ((char)('a' + boardX)).ToString();
-            SizeF textSize = g.MeasureString(fileLabel, coordinateFont);
-            g.DrawString(
-                fileLabel,
-                coordinateFont,
-                textBrush,
-                squareRect.Right - textSize.Width - 4,
-                squareRect.Bottom - textSize.Height - 2);
-        }
-    }
-
-    private void Form1_MouseClick(object? sender, MouseEventArgs e)
-    {
-        if (e.X >= BoardPixelSize || e.Y >= BoardPixelSize)
-        {
-            return;
-        }
-
-        int x = e.X / boardTileSize;
-        int y = e.Y / boardTileSize;
-
-        if (rotateBoard)
-        {
-            x = 7 - x;
-            y = 7 - y;
-        }
+        int x = square.X;
+        int y = square.Y;
 
         if (!IsOnBoard(x, y))
         {
@@ -366,7 +252,7 @@ public partial class Form1 : Form
     {
         if (engine is null)
         {
-            bestMoves.Clear();
+            bestMoveArrows.Clear();
             suggestionLabel.Text = MissingEngineMessage;
             UpdateEvaluationDisplay(null);
             UpdateExtendedControls();
@@ -376,15 +262,17 @@ public partial class Form1 : Form
 
         engine.SetPositionFen(GetCurrentFen());
 
-        bestMoves.Clear();
+        bestMoveArrows.Clear();
         List<string> topMoves = engine.GetTopMoves(3);
         topMoves.RemoveAll(move => !IsSuggestionLegal(move));
 
+        Color[] colors = { Color.Blue, Color.Green, Color.Orange };
         foreach (string move in topMoves)
         {
             Point from = new(move[0] - 'a', 8 - (move[1] - '0'));
             Point to = new(move[2] - 'a', 8 - (move[3] - '0'));
-            bestMoves.Add((from, to));
+            int colorIndex = Math.Min(bestMoveArrows.Count, colors.Length - 1);
+            bestMoveArrows.Add(new BoardArrow(from, to, colors[colorIndex]));
         }
 
         suggestionLabel.Text = topMoves.Count == 0
@@ -475,7 +363,6 @@ public partial class Form1 : Form
     }
 
     private int BoardPixelSize => boardTileSize * GridSize;
-    private Rectangle BoardBounds => new(0, 0, BoardPixelSize, BoardPixelSize);
 
     private void UpdateResponsiveLayout()
     {
@@ -528,6 +415,8 @@ public partial class Form1 : Form
 
         int buttonRowY = boardBottom + 8;
         int undoWidth = 88;
+        boardSurface.SetBounds(0, 0, BoardPixelSize, BoardPixelSize);
+        SyncBoardSurface();
         undoButton?.SetBounds(BoardPixelSize - LayoutMargin - undoWidth, buttonRowY, undoWidth, 30);
         rotateButton.SetBounds(
             BoardPixelSize - LayoutMargin - undoWidth - 12 - rotateButton.Width,
@@ -541,7 +430,7 @@ public partial class Form1 : Form
         evaluationBarBackground.SetBounds(LayoutMargin, boardBottom + 68, Math.Max(220, BoardPixelSize - (LayoutMargin * 2)), 16);
         evaluationBarFill.Height = evaluationBarBackground.ClientSize.Height;
         UpdateEvaluationDisplay(currentEvaluation);
-        Invalidate();
+        InvalidateBoardSurface();
     }
 
     private int CalculateBoardTileSize()
@@ -554,7 +443,118 @@ public partial class Form1 : Form
 
     private void InvalidateBoardSurface()
     {
-        Invalidate(BoardBounds);
+        SyncBoardSurface();
+        boardSurface.Invalidate();
+    }
+
+    private void SyncBoardSurface()
+    {
+        boardSurface.TileSize = boardTileSize;
+        boardSurface.RotateBoard = rotateBoard;
+        boardSurface.Board = board;
+        boardSurface.SelectedSquare = selectedSquare;
+        boardSurface.AnalysisTargetSquare = analysisTargetSquare;
+        boardSurface.PreviewTargetSquare = pieceMoveOptionTargetSquare;
+        boardSurface.AvailableMoves = availableMoves;
+        boardSurface.Arrows = bestMoveArrows.Concat(analysisArrows).ToList();
+        boardSurface.PieceImages = pieceImages;
+    }
+
+    private void ApplyUiTheme()
+    {
+        suggestionLabel.BackColor = UiTheme.CardBackground;
+        suggestionLabel.ForeColor = UiTheme.TextColor;
+        suggestionLabel.BorderStyle = BorderStyle.FixedSingle;
+        suggestionLabel.Padding = new Padding(10, 6, 10, 6);
+
+        evaluationLabel.BackColor = UiTheme.AppBackground;
+        evaluationLabel.ForeColor = UiTheme.TextColor;
+
+        evaluationBarBackground.BackColor = Color.FromArgb(49, 56, 64);
+        evaluationBarBackground.BorderStyle = BorderStyle.FixedSingle;
+        evaluationBarFill.BackColor = Color.WhiteSmoke;
+
+        UiTheme.StyleSecondaryButton(rotateButton);
+
+        if (undoButton is not null)
+        {
+            UiTheme.StyleSecondaryButton(undoButton);
+        }
+
+        if (importPgnButton is not null)
+        {
+            UiTheme.StylePrimaryButton(importPgnButton);
+        }
+
+        if (loadSavedGamesButton is not null)
+        {
+            UiTheme.StyleSecondaryButton(loadSavedGamesButton);
+        }
+
+        if (applyNextImportedButton is not null)
+        {
+            UiTheme.StyleSecondaryButton(applyNextImportedButton);
+        }
+
+        if (applySelectedImportedButton is not null)
+        {
+            UiTheme.StyleSecondaryButton(applySelectedImportedButton);
+        }
+
+        if (analyzeImportedButton is not null)
+        {
+            UiTheme.StylePrimaryButton(analyzeImportedButton);
+        }
+
+        if (playerProfilesButton is not null)
+        {
+            UiTheme.StyleSecondaryButton(playerProfilesButton);
+        }
+
+        if (savedAnalysesButton is not null)
+        {
+            UiTheme.StyleSecondaryButton(savedAnalysesButton);
+        }
+
+        if (startTrackingButton is not null)
+        {
+            UiTheme.StylePrimaryButton(startTrackingButton);
+        }
+
+        if (stopTrackingButton is not null)
+        {
+            UiTheme.StyleDangerButton(stopTrackingButton);
+        }
+
+        if (alwaysOnTopCheckBox is not null)
+        {
+            UiTheme.StyleCheckBox(alwaysOnTopCheckBox);
+        }
+
+        if (importedMovesLabel is not null)
+        {
+            UiTheme.StyleInfoLabel(importedMovesLabel);
+        }
+
+        if (trackingStatusLabel is not null)
+        {
+            UiTheme.StyleInfoLabel(trackingStatusLabel);
+        }
+
+        if (pieceMoveOptionsLabel is not null)
+        {
+            UiTheme.StyleInfoLabel(pieceMoveOptionsLabel);
+        }
+
+        if (importedMovesList is not null)
+        {
+            UiTheme.StyleListBox(importedMovesList);
+        }
+
+        if (pieceMoveOptionsList is not null)
+        {
+            UiTheme.StyleListBox(pieceMoveOptionsList);
+        }
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -585,6 +585,4 @@ public partial class Form1 : Form
         pieceImages["n"] = Image.FromFile(Path.Combine(path, "bN.svg"));
         pieceImages["p"] = Image.FromFile(Path.Combine(path, "bP.svg"));
     }
-
-    private readonly record struct AnalysisArrow(Point From, Point To, Color Color);
 }

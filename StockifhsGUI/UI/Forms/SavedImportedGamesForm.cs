@@ -15,6 +15,7 @@ public sealed class SavedImportedGamesForm : Form
     public SavedImportedGamesForm(IAnalysisStore analysisStore)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
+        UiTheme.ApplyFormChrome(this);
 
         Text = "Saved Imported Games";
         StartPosition = FormStartPosition.CenterParent;
@@ -54,6 +55,7 @@ public sealed class SavedImportedGamesForm : Form
             Margin = new Padding(0, 6, 12, 0),
             Text = "Filter by player, date, ECO, result or site:"
         };
+        UiTheme.StyleSectionLabel(filterLabel);
         topBar.Controls.Add(filterLabel, 0, 0);
 
         filterTextBox = new TextBox
@@ -61,6 +63,7 @@ public sealed class SavedImportedGamesForm : Form
             Anchor = AnchorStyles.Left | AnchorStyles.Right,
             Margin = new Padding(0, 2, 0, 0)
         };
+        UiTheme.StyleTextBox(filterTextBox);
         filterTextBox.TextChanged += (_, _) => RefreshList();
         topBar.Controls.Add(filterTextBox, 1, 0);
 
@@ -71,6 +74,7 @@ public sealed class SavedImportedGamesForm : Form
             Enabled = false,
             Anchor = AnchorStyles.Right
         };
+        UiTheme.StylePrimaryButton(loadButton);
         loadButton.Click += (_, _) => LoadSelectedGame();
         topBar.Controls.Add(loadButton, 3, 0);
 
@@ -81,6 +85,7 @@ public sealed class SavedImportedGamesForm : Form
             Enabled = false,
             Anchor = AnchorStyles.Right
         };
+        UiTheme.StyleDangerButton(deleteButton);
         deleteButton.Click += (_, _) => DeleteSelectedGame();
         topBar.Controls.Add(deleteButton, 4, 0);
 
@@ -90,6 +95,7 @@ public sealed class SavedImportedGamesForm : Form
             Size = new Size(120, 32),
             Anchor = AnchorStyles.Right
         };
+        UiTheme.StyleSecondaryButton(cancelButton);
         cancelButton.Click += (_, _) => DialogResult = DialogResult.Cancel;
         topBar.Controls.Add(cancelButton, 5, 0);
 
@@ -100,6 +106,7 @@ public sealed class SavedImportedGamesForm : Form
             FixedPanel = FixedPanel.None,
             SplitterDistance = 430
         };
+        splitContainer.BackColor = UiTheme.BorderColor;
         rootLayout.Controls.Add(splitContainer, 0, 1);
 
         gamesListBox = new ListBox
@@ -109,8 +116,10 @@ public sealed class SavedImportedGamesForm : Form
             HorizontalScrollbar = true,
             IntegralHeight = false
         };
+        UiTheme.StyleListBox(gamesListBox);
         gamesListBox.SelectedIndexChanged += (_, _) => UpdateDetails();
         gamesListBox.DoubleClick += (_, _) => LoadSelectedGame();
+        splitContainer.Panel1.BackColor = UiTheme.CardBackground;
         splitContainer.Panel1.Controls.Add(gamesListBox);
 
         detailsTextBox = new TextBox
@@ -122,6 +131,8 @@ public sealed class SavedImportedGamesForm : Form
             WordWrap = false,
             Font = new Font("Consolas", 10)
         };
+        UiTheme.StyleTextBox(detailsTextBox);
+        splitContainer.Panel2.BackColor = UiTheme.CardBackground;
         splitContainer.Panel2.Controls.Add(detailsTextBox);
 
         RefreshList();

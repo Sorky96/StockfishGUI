@@ -3,7 +3,7 @@ using System.Windows.Forms;
 
 namespace StockifhsGUI;
 
-public partial class Form1
+public partial class MainForm
 {
     private readonly Dictionary<string, IReadOnlyList<PieceMoveOption>> pieceMoveOptionsCache = new();
     private Label? pieceMoveOptionsLabel;

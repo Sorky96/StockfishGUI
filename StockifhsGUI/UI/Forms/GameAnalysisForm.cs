@@ -10,7 +10,7 @@ public sealed class GameAnalysisForm : Form
 
     private readonly ImportedGame importedGame;
     private readonly GameAnalysisService analysisService;
-    private readonly ExplanationGenerator explanationGenerator = new();
+    private readonly IAdviceGenerator adviceGenerator = AdviceGeneratorFactory.CreateDefault();
     private readonly Action<MoveAnalysisResult>? navigateToMove;
     private readonly PlayerSide? preferredSide;
     private readonly ComboBox sideComboBox;
@@ -35,6 +35,7 @@ public sealed class GameAnalysisForm : Form
         this.navigateToMove = navigateToMove;
         this.preferredSide = preferredSide;
         analysisService = new GameAnalysisService(engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer)));
+        UiTheme.ApplyFormChrome(this);
 
         Text = "Imported Game Analysis";
         StartPosition = FormStartPosition.CenterParent;
@@ -46,28 +47,51 @@ public sealed class GameAnalysisForm : Form
             AutoSize = true,
             Font = new Font("Segoe UI", 12, FontStyle.Bold),
             Location = new Point(16, 16),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left,
             Text = $"{importedGame.WhitePlayer ?? "White"} vs {importedGame.BlackPlayer ?? "Black"}"
         };
         Controls.Add(headerLabel);
+
+        Label sideLabel = new()
+        {
+            AutoSize = true,
+            Location = new Point(16, 34),
+            Text = "Side"
+        };
+        UiTheme.StyleSectionLabel(sideLabel);
+        Controls.Add(sideLabel);
 
         sideComboBox = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
             Location = new Point(16, 52),
-            Size = new Size(220, 28)
+            Size = new Size(220, 28),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left
         };
+        UiTheme.StyleComboBox(sideComboBox);
         sideComboBox.Items.Add(new SideOption(PlayerSide.White, $"Analyze White ({importedGame.WhitePlayer ?? "White"})"));
         sideComboBox.Items.Add(new SideOption(PlayerSide.Black, $"Analyze Black ({importedGame.BlackPlayer ?? "Black"})"));
         sideComboBox.SelectedIndex = 0;
         sideComboBox.SelectedIndexChanged += (_, _) => HandleSelectedSideChanged();
         Controls.Add(sideComboBox);
 
+        Label qualityLabel = new()
+        {
+            AutoSize = true,
+            Location = new Point(392, 34),
+            Text = "Highlight filter"
+        };
+        UiTheme.StyleSectionLabel(qualityLabel);
+        Controls.Add(qualityLabel);
+
         qualityFilterComboBox = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
             Location = new Point(392, 52),
-            Size = new Size(180, 28)
+            Size = new Size(180, 28),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left
         };
+        UiTheme.StyleComboBox(qualityFilterComboBox);
         qualityFilterComboBox.Items.AddRange(
         [
             new FilterOption("All highlights", null),
@@ -79,12 +103,23 @@ public sealed class GameAnalysisForm : Form
         qualityFilterComboBox.SelectedIndexChanged += (_, _) => ApplyFilter();
         Controls.Add(qualityFilterComboBox);
 
+        Label explanationLabel = new()
+        {
+            AutoSize = true,
+            Location = new Point(744, 34),
+            Text = "Explanation level"
+        };
+        UiTheme.StyleSectionLabel(explanationLabel);
+        Controls.Add(explanationLabel);
+
         explanationLevelComboBox = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
             Location = new Point(744, 52),
-            Size = new Size(152, 28)
+            Size = new Size(152, 28),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
         };
+        UiTheme.StyleComboBox(explanationLevelComboBox);
         explanationLevelComboBox.Items.AddRange(
         [
             new ExplanationLevelOption(ExplanationLevel.Beginner, "Beginner"),
@@ -99,8 +134,10 @@ public sealed class GameAnalysisForm : Form
         {
             Location = new Point(252, 50),
             Size = new Size(120, 32),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left,
             Text = "Run Analysis"
         };
+        UiTheme.StylePrimaryButton(analyzeButton);
         analyzeButton.Click += async (_, _) => await RunAnalysisAsync();
         Controls.Add(analyzeButton);
 
@@ -108,9 +145,11 @@ public sealed class GameAnalysisForm : Form
         {
             Location = new Point(588, 50),
             Size = new Size(140, 32),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left,
             Text = "Show On Board",
             Enabled = false
         };
+        UiTheme.StyleSecondaryButton(showOnBoardButton);
         showOnBoardButton.Click += (_, _) => ShowSelectedMistakeOnBoard();
         Controls.Add(showOnBoardButton);
 
@@ -119,16 +158,38 @@ public sealed class GameAnalysisForm : Form
             AutoSize = false,
             Location = new Point(16, 92),
             Size = new Size(880, 44),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             Text = "Choose a side and run the analysis."
         };
+        UiTheme.StyleInfoLabel(summaryLabel);
         Controls.Add(summaryLabel);
+
+        Label mistakesHeader = new()
+        {
+            AutoSize = true,
+            Location = new Point(16, 128),
+            Text = "Highlighted moments"
+        };
+        UiTheme.StyleSectionLabel(mistakesHeader);
+        Controls.Add(mistakesHeader);
+
+        Label detailsHeader = new()
+        {
+            AutoSize = true,
+            Location = new Point(392, 128),
+            Text = "Details and guidance"
+        };
+        UiTheme.StyleSectionLabel(detailsHeader);
+        Controls.Add(detailsHeader);
 
         mistakesListBox = new ListBox
         {
             Location = new Point(16, 148),
             Size = new Size(360, 452),
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
             Font = new Font("Consolas", 10)
         };
+        UiTheme.StyleListBox(mistakesListBox);
         mistakesListBox.SelectedIndexChanged += (_, _) =>
         {
             UpdateDetails();
@@ -141,11 +202,13 @@ public sealed class GameAnalysisForm : Form
         {
             Location = new Point(392, 148),
             Size = new Size(504, 452),
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
             Multiline = true,
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
             Font = new Font("Consolas", 10)
         };
+        UiTheme.StyleTextBox(detailsTextBox);
         Controls.Add(detailsTextBox);
 
         RestoreWindowState();
@@ -255,13 +318,17 @@ public sealed class GameAnalysisForm : Form
         ExplanationLevel explanationLevel = explanationLevelComboBox.SelectedItem is ExplanationLevelOption levelOption
             ? levelOption.Level
             : ExplanationLevel.Intermediate;
-        MoveExplanation explanation = explanationGenerator.Generate(
+        MoveExplanation explanation = adviceGenerator.Generate(
             lead.Replay,
             lead.Quality,
             lead.MistakeTag,
             lead.BeforeAnalysis.BestMoveUci,
             lead.CentipawnLoss,
-            explanationLevel);
+            explanationLevel,
+            new AdviceGenerationContext(
+                "game-analysis-form",
+                GameFingerprint.Compute(importedGame.PgnText),
+                currentResult?.AnalyzedSide));
 
         StringBuilder builder = new();
         builder.AppendLine($"Moves: {BuildMoveRange(mistake)}");

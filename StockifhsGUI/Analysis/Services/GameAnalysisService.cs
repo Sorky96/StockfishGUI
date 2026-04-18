@@ -5,20 +5,20 @@ public sealed class GameAnalysisService
     private readonly IEngineAnalyzer engineAnalyzer;
     private readonly GameReplayService replayService;
     private readonly MistakeClassifier mistakeClassifier;
-    private readonly ExplanationGenerator explanationGenerator;
+    private readonly IAdviceGenerator adviceGenerator;
     private readonly MistakeSelector mistakeSelector;
 
     public GameAnalysisService(
         IEngineAnalyzer engineAnalyzer,
         GameReplayService? replayService = null,
         MistakeClassifier? mistakeClassifier = null,
-        ExplanationGenerator? explanationGenerator = null,
+        IAdviceGenerator? adviceGenerator = null,
         MistakeSelector? mistakeSelector = null)
     {
         this.engineAnalyzer = engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer));
         this.replayService = replayService ?? new GameReplayService();
         this.mistakeClassifier = mistakeClassifier ?? new MistakeClassifier();
-        this.explanationGenerator = explanationGenerator ?? new ExplanationGenerator();
+        this.adviceGenerator = adviceGenerator ?? AdviceGeneratorFactory.CreateDefault();
         this.mistakeSelector = mistakeSelector ?? new MistakeSelector();
     }
 
@@ -52,7 +52,16 @@ public sealed class GameAnalysisService
             MistakeTag? tag = mistakeClassifier.Classify(ply, analyzedSide, quality, centipawnLoss, materialDelta, heuristicContext);
             MoveExplanation? explanation = quality == MoveQualityBucket.Good
                 ? null
-                : explanationGenerator.Generate(ply, quality, tag, bestLine?.MoveUci, centipawnLoss);
+                : adviceGenerator.Generate(
+                    ply,
+                    quality,
+                    tag,
+                    bestLine?.MoveUci,
+                    centipawnLoss,
+                    context: new AdviceGenerationContext(
+                        "game-analysis-service",
+                        GameFingerprint.Compute(game.PgnText),
+                        analyzedSide));
 
             moveAnalyses.Add(new MoveAnalysisResult(
                 ply,

@@ -7,12 +7,10 @@ using System.Windows.Forms;
 
 namespace StockifhsGUI;
 
-public partial class Form1
+public partial class MainForm
 {
     private readonly Stack<GameStateSnapshot> undoStack = new();
-    private readonly List<ImportedMove> importedMoves = new();
-    private readonly List<ReplayPly> importedReplay = new();
-    private ImportedGame? importedGame;
+    private readonly ImportedGameSession importedSession = new();
 
     private Button? undoButton;
     private Button? importPgnButton;
@@ -24,7 +22,6 @@ public partial class Form1
     private Button? savedAnalysesButton;
     private Label? importedMovesLabel;
     private ListBox? importedMovesList;
-    private int importedMoveCursor;
     private bool suppressImportedSelectionHandling;
     private bool suppressEngineRefresh;
 
@@ -119,11 +116,8 @@ public partial class Form1
     private void ResetGameState()
     {
         ResetBoardState();
-        importedGame = null;
-        importedMoves.Clear();
-        importedReplay.Clear();
-        importedMovesList?.Items.Clear();
-        importedMoveCursor = 0;
+        importedSession.Clear();
+        PopulateImportedMovesList();
     }
 
     private void ResetBoardState()
@@ -143,7 +137,7 @@ public partial class Form1
         fullmoveNumber = 1;
         selectedSquare = null;
         availableMoves.Clear();
-        bestMoves.Clear();
+        bestMoveArrows.Clear();
         moveHistory.Clear();
         ClearPieceMoveOptions();
         LoadStartingPosition();
@@ -204,7 +198,7 @@ public partial class Form1
             LoadImportedGame(parsedGame);
             SaveImportedGameToStore(parsedGame);
 
-            if (importedMoves.Count == 0)
+            if (importedSession.Moves.Count == 0)
             {
                 MessageBox.Show("No SAN moves were found in the pasted PGN.", "Paste PGN", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
@@ -242,13 +236,13 @@ public partial class Form1
 
     private void ApplyNextImportedMove()
     {
-        if (importedMoveCursor >= importedMoves.Count)
+        if (importedSession.Cursor >= importedSession.Moves.Count)
         {
             SystemSounds.Beep.Play();
             return;
         }
 
-        ApplyImportedMove(importedMoveCursor, showError: true);
+        ApplyImportedMove(importedSession.Cursor, showError: true);
     }
 
     private void ApplyImportedMovesThroughSelection(bool resetToStart = false)
@@ -264,15 +258,15 @@ public partial class Form1
             return;
         }
 
-        if (resetToStart || targetIndex < importedMoveCursor)
+        if (resetToStart || targetIndex < importedSession.Cursor)
         {
             ReplayImportedMovesThrough(targetIndex);
             return;
         }
 
-        while (importedMoveCursor <= targetIndex)
+        while (importedSession.Cursor <= targetIndex)
         {
-            if (!ApplyImportedMove(importedMoveCursor, showError: true))
+            if (!ApplyImportedMove(importedSession.Cursor, showError: true))
             {
                 break;
             }
@@ -281,7 +275,7 @@ public partial class Form1
 
     private void ReplayImportedMovesThrough(int targetIndex)
     {
-        if (targetIndex < 0 || targetIndex >= importedMoves.Count)
+        if (targetIndex < 0 || targetIndex >= importedSession.Moves.Count)
         {
             SystemSounds.Beep.Play();
             return;
@@ -293,7 +287,7 @@ public partial class Form1
         }
 
         ResetBoardState();
-        importedMoveCursor = 0;
+        importedSession.Cursor = 0;
         ClearSelection();
 
         bool replayFailed = false;
@@ -326,7 +320,7 @@ public partial class Form1
 
     private bool ApplyImportedMove(int index, bool showError)
     {
-        if (index < 0 || index >= importedMoves.Count)
+        if (index < 0 || index >= importedSession.Moves.Count)
         {
             return false;
         }
@@ -337,7 +331,7 @@ public partial class Form1
             return true;
         }
 
-        ImportedMove move = importedMoves[index];
+        ImportedMoveListItem move = importedSession.Moves[index];
         if (!TryBuildImportedMoveResult(index, out AppliedMoveInfo? appliedMove, out string? error)
             || appliedMove is null)
         {
@@ -365,7 +359,7 @@ public partial class Form1
 
     private bool TryJumpToImportedMove(int index, bool preserveUndoHistory)
     {
-        if (index < 0 || index >= importedReplay.Count)
+        if (index < 0 || index >= importedSession.Replay.Count)
         {
             return false;
         }
@@ -379,7 +373,7 @@ public partial class Form1
             undoStack.Clear();
         }
 
-        ReplayPly replayPly = importedReplay[index];
+        ReplayPly replayPly = importedSession.Replay[index];
         if (!TryApplyFen(replayPly.FenAfter, out _))
         {
             if (preserveUndoHistory && undoStack.Count > 0)
@@ -393,12 +387,12 @@ public partial class Form1
         analysisArrows.Clear();
         analysisTargetSquare = null;
         moveHistory.Clear();
-        foreach (ReplayPly appliedReplayPly in importedReplay.Take(index + 1))
+        foreach (ReplayPly appliedReplayPly in importedSession.Replay.Take(index + 1))
         {
             moveHistory.Add(appliedReplayPly.Uci);
         }
 
-        importedMoveCursor = index + 1;
+        importedSession.Cursor = index + 1;
         ClearSelection();
 
         if (!suppressEngineRefresh)
@@ -421,10 +415,10 @@ public partial class Form1
             ChessGame replayGame = new();
             for (int i = 0; i < index; i++)
             {
-                replayGame.ApplySan(importedMoves[i].San);
+                replayGame.ApplySan(importedSession.Moves[i].San);
             }
 
-            appliedMove = replayGame.ApplySanWithResult(importedMoves[index].San);
+            appliedMove = replayGame.ApplySanWithResult(importedSession.Moves[index].San);
             return true;
         }
         catch (Exception ex)
@@ -449,7 +443,7 @@ public partial class Form1
                 importedMovesList.SetSelected(i, false);
             }
 
-            int highlightIndex = importedMoveCursor == 0 ? -1 : importedMoveCursor - 1;
+            int highlightIndex = importedSession.HighlightIndex;
             if (highlightIndex >= 0 && highlightIndex < importedMovesList.Items.Count)
             {
                 importedMovesList.SelectedIndex = highlightIndex;
@@ -470,17 +464,17 @@ public partial class Form1
 
         if (applyNextImportedButton is not null)
         {
-            applyNextImportedButton.Enabled = importedMoveCursor < importedMoves.Count;
+            applyNextImportedButton.Enabled = importedSession.Cursor < importedSession.Moves.Count;
         }
 
         if (applySelectedImportedButton is not null)
         {
-            applySelectedImportedButton.Enabled = importedMoves.Count > 0;
+            applySelectedImportedButton.Enabled = importedSession.Moves.Count > 0;
         }
 
         if (analyzeImportedButton is not null)
         {
-            analyzeImportedButton.Enabled = importedGame?.SanMoves.Count > 0 && engine is not null;
+            analyzeImportedButton.Enabled = importedSession.Game?.SanMoves.Count > 0 && engine is not null;
             analyzeImportedButton.Text = BuildAnalyzeButtonText();
         }
 
@@ -502,19 +496,8 @@ public partial class Form1
         GameReplayService replayService = new();
         IReadOnlyList<ReplayPly> replay = replayService.Replay(parsedGame);
         ResetGameState();
-        importedGame = parsedGame;
-        importedReplay.AddRange(replay);
-        suppressImportedSelectionHandling = true;
-        for (int i = 0; i < replay.Count; i++)
-        {
-            ReplayPly replayPly = replay[i];
-            ImportedMove move = new(i + 1, replayPly.MoveNumber, replayPly.Side, replayPly.San);
-            importedMoves.Add(move);
-            importedMovesList?.Items.Add(move);
-        }
-
-        suppressImportedSelectionHandling = false;
-        importedMoveCursor = 0;
+        importedSession.LoadImportedGame(parsedGame, replay);
+        PopulateImportedMovesList();
         RefreshEngineSuggestions();
         UpdateExtendedControls();
     }
@@ -539,32 +522,12 @@ public partial class Form1
 
     private string BuildImportedGameSummaryText()
     {
-        if (importedMoves.Count == 0 || importedGame is null)
-        {
-            return "Imported moves: none";
-        }
-
-        string players = $"{importedGame.WhitePlayer ?? "White"} vs {importedGame.BlackPlayer ?? "Black"}";
-        string result = string.IsNullOrWhiteSpace(importedGame.Result) ? "Result: ?" : $"Result: {importedGame.Result}";
-        string date = string.IsNullOrWhiteSpace(importedGame.DateText) ? string.Empty : $" | {importedGame.DateText}";
-        string eco = string.IsNullOrWhiteSpace(importedGame.Eco) ? string.Empty : $" | {OpeningCatalog.Describe(importedGame.Eco)}";
-        string analysisStatus = HasSavedAnalysis(importedGame, out PlayerSide? savedSide)
-            ? $" | saved analysis: {savedSide}"
-            : string.Empty;
-
-        return $"Imported moves: {importedMoveCursor}/{importedMoves.Count} applied | {players}{Environment.NewLine}{result}{date}{eco}{analysisStatus}";
+        return importedSession.BuildSummaryText(GetSavedAnalysisSide);
     }
 
     private string BuildAnalyzeButtonText()
     {
-        if (importedGame is null)
-        {
-            return "Analyze Imported";
-        }
-
-        return HasSavedAnalysis(importedGame, out PlayerSide? savedSide)
-            ? $"Open Analysis ({savedSide})"
-            : "Analyze Imported";
+        return importedSession.BuildAnalyzeButtonText(GetSavedAnalysisSide);
     }
 
     private static bool HasSavedAnalysis(ImportedGame game, out PlayerSide? savedSide)
@@ -593,6 +556,11 @@ public partial class Form1
         }
 
         return false;
+    }
+
+    private static PlayerSide? GetSavedAnalysisSide(ImportedGame game)
+    {
+        return HasSavedAnalysis(game, out PlayerSide? savedSide) ? savedSide : null;
     }
 
     private void EnsureImportedMoveVisible(int index)
@@ -633,7 +601,7 @@ public partial class Form1
             enPassantTargetSquare,
             halfmoveClock,
             fullmoveNumber,
-            importedMoveCursor);
+            importedSession.Cursor);
     }
 
     private void RestoreState(GameStateSnapshot snapshot)
@@ -659,16 +627,24 @@ public partial class Form1
         enPassantTargetSquare = snapshot.EnPassantTargetSquare;
         halfmoveClock = snapshot.HalfmoveClock;
         fullmoveNumber = snapshot.FullmoveNumber;
-        importedMoveCursor = snapshot.ImportedMoveCursor;
+        importedSession.Cursor = snapshot.ImportedMoveCursor;
     }
 
-    private readonly record struct ImportedMove(int Ply, int MoveNumber, PlayerSide Side, string San)
+    private void PopulateImportedMovesList()
     {
-        public string DisplayText => Side == PlayerSide.White
-            ? $"{MoveNumber,3}. {San}"
-            : $"{MoveNumber,3}... {San}";
+        if (importedMovesList is null)
+        {
+            return;
+        }
 
-        public override string ToString() => DisplayText;
+        suppressImportedSelectionHandling = true;
+        importedMovesList.Items.Clear();
+        foreach (ImportedMoveListItem move in importedSession.Moves)
+        {
+            importedMovesList.Items.Add(move);
+        }
+
+        suppressImportedSelectionHandling = false;
     }
 
     private sealed record GameStateSnapshot(

@@ -394,6 +394,26 @@ Kxa2 62. Qb2# 1-0
     }
 
     [Fact]
+    public void MistakeSelector_DiversifiesInaccuraciesAcrossThemesBeforeRepeatingSameLabel()
+    {
+        MistakeSelector selector = new();
+        List<MoveAnalysisResult> analyses =
+        [
+            CreateMoveAnalysis(1, 1, MoveQualityBucket.Inaccuracy, "opening_principles", 145, GamePhase.Opening, evalBeforeCp: 20, evalAfterCp: -125),
+            CreateMoveAnalysis(3, 2, MoveQualityBucket.Inaccuracy, "opening_principles", 138, GamePhase.Opening, evalBeforeCp: 10, evalAfterCp: -128),
+            CreateMoveAnalysis(5, 3, MoveQualityBucket.Inaccuracy, "piece_activity", 132, GamePhase.Middlegame, evalBeforeCp: 5, evalAfterCp: -127),
+            CreateMoveAnalysis(7, 4, MoveQualityBucket.Inaccuracy, "endgame_technique", 126, GamePhase.Endgame, evalBeforeCp: 15, evalAfterCp: -111)
+        ];
+
+        IReadOnlyList<SelectedMistake> selected = selector.Select(analyses);
+
+        Assert.Equal(3, selected.Count);
+        Assert.Equal(
+            ["opening_principles", "piece_activity", "endgame_technique"],
+            selected.Select(item => item.Tag?.Label ?? string.Empty).ToArray());
+    }
+
+    [Fact]
     public void GameAnalysisService_AnalyzesGameWithFakeEngine()
     {
         ImportedGame game = PgnGameParser.Parse(MiniPgn);
@@ -573,9 +593,9 @@ Kxa2 62. Qb2# 1-0
     }
 
     [Fact]
-    public void ExplanationGenerator_ProducesDifferentTextsForEachLevel()
+    public void TemplateAdviceGenerator_ProducesDifferentTextsForEachLevel()
     {
-        ExplanationGenerator generator = new();
+        TemplateAdviceGenerator generator = new();
         ReplayPly replay = CreateReplay(
             GamePhase.Opening,
             "Q",
@@ -593,6 +613,61 @@ Kxa2 62. Qb2# 1-0
         Assert.NotEqual(intermediate.ShortText, advanced.ShortText);
         Assert.Contains("simple habit", beginner.TrainingHint, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("tempo", advanced.DetailedText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TemplateAdviceGenerator_RespectsConfiguredMaxLengths()
+    {
+        TemplateAdviceGenerator generator = new(new AdviceGenerationSettings(
+            AdviceGeneratorMode.Template,
+            MaxShortTextLength: 90,
+            MaxTrainingHintLength: 80,
+            MaxDetailedTextLength: 120));
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "h5",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/7Q/8/8/PPPPPPPP/RNB1KBNR b KQkq - 1 1");
+        MistakeTag tag = new("opening_principles", 0.82, ["early_queen_move"]);
+
+        MoveExplanation explanation = generator.Generate(replay, MoveQualityBucket.Inaccuracy, tag, "e2e4", 110, ExplanationLevel.Advanced);
+
+        Assert.True(explanation.ShortText.Length <= 90);
+        Assert.True(explanation.TrainingHint.Length <= 80);
+        Assert.True(explanation.DetailedText.Length <= 120);
+    }
+
+    [Fact]
+    public void LocalHeuristicAdviceGenerator_AddsLocalContextWithoutExternalDependency()
+    {
+        LocalHeuristicAdviceGenerator generator = new(new AdviceGenerationSettings(
+            AdviceGeneratorMode.Adaptive,
+            MaxShortTextLength: 220,
+            MaxTrainingHintLength: 220,
+            MaxDetailedTextLength: 320));
+        ReplayPly replay = CreateReplay(
+            GamePhase.Endgame,
+            "K",
+            "e2",
+            "e3",
+            "4k3/8/8/8/8/8/4K3/8 w - - 0 1",
+            "4k3/8/8/8/8/4K3/8/8 b - - 1 1");
+        MistakeTag tag = new("endgame_technique", 0.94, ["missed_king_centralization"]);
+
+        MoveExplanation explanation = generator.Generate(
+            replay,
+            MoveQualityBucket.Mistake,
+            tag,
+            "e2d3",
+            160,
+            ExplanationLevel.Intermediate,
+            new AdviceGenerationContext("test", "game-1", PlayerSide.White));
+
+        Assert.Contains("very consistent", explanation.ShortText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("endgame", explanation.DetailedText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("review set", explanation.TrainingHint, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ReplayPly CreateReplay(
@@ -624,7 +699,15 @@ Kxa2 62. Qb2# 1-0
             false);
     }
 
-    private static MoveAnalysisResult CreateMoveAnalysis(int ply, int moveNumber, MoveQualityBucket quality, string label, int cpl)
+    private static MoveAnalysisResult CreateMoveAnalysis(
+        int ply,
+        int moveNumber,
+        MoveQualityBucket quality,
+        string label,
+        int cpl,
+        GamePhase phase = GamePhase.Middlegame,
+        int evalBeforeCp = 0,
+        int? evalAfterCp = null)
     {
         ReplayPly replay = new(
             ply,
@@ -637,7 +720,7 @@ Kxa2 62. Qb2# 1-0
             "4k3/8/8/8/8/P7/8/4K3 b - - 0 1",
             string.Empty,
             string.Empty,
-            GamePhase.Middlegame,
+            phase,
             "P",
             null,
             "a2",
@@ -650,8 +733,8 @@ Kxa2 62. Qb2# 1-0
             replay,
             AnalysisFor(replay.FenBefore, "a2a3", 0, null, "a2a3"),
             AnalysisFor(replay.FenAfter, "a7a6", 0, null, "a7a6"),
-            0,
-            -cpl,
+            evalBeforeCp,
+            evalAfterCp ?? -cpl,
             null,
             null,
             cpl,

@@ -11,6 +11,7 @@ public class PgnPasteForm : Form
 
     public PgnPasteForm()
     {
+        UiTheme.ApplyFormChrome(this);
         Text = "Paste PGN";
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(700, 500);
@@ -23,6 +24,7 @@ public class PgnPasteForm : Form
             Padding = new Padding(12, 12, 12, 4),
             Text = "Paste PGN text below. Tags, comments, and move numbers are supported."
         };
+        UiTheme.StyleMutedLabel(helpLabel);
 
         pgnTextBox = new TextBox
         {
@@ -35,6 +37,7 @@ public class PgnPasteForm : Form
             Font = new Font("Consolas", 10),
             Margin = new Padding(12)
         };
+        UiTheme.StyleTextBox(pgnTextBox);
 
         FlowLayoutPanel buttonsPanel = new()
         {
@@ -52,6 +55,7 @@ public class PgnPasteForm : Form
             Width = 100,
             Height = 30
         };
+        UiTheme.StylePrimaryButton(importButton);
 
         Button cancelButton = new()
         {
@@ -60,6 +64,7 @@ public class PgnPasteForm : Form
             Width = 100,
             Height = 30
         };
+        UiTheme.StyleSecondaryButton(cancelButton);
 
         buttonsPanel.Controls.Add(importButton);
         buttonsPanel.Controls.Add(cancelButton);
