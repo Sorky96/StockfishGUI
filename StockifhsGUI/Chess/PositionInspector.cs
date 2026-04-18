@@ -113,6 +113,26 @@ public static class PositionInspector
         return false;
     }
 
+    public static bool IsMinorPieceOnStartingSquare(string fen, string square, PlayerSide side)
+    {
+        if (!TryParseSquare(square, out BoardPoint point)
+            || !FenPosition.TryParse(fen, out FenPosition? position, out _)
+            || position is null)
+        {
+            return false;
+        }
+
+        string? piece = position.Board[point.X, point.Y];
+        if (string.IsNullOrEmpty(piece)
+            || IsWhite(piece) != (side == PlayerSide.White)
+            || char.ToLowerInvariant(piece[0]) is not ('n' or 'b'))
+        {
+            return false;
+        }
+
+        return IsMinorPieceOnStartingSquare(piece, point.X, point.Y, side);
+    }
+
     public static MaterialSwingSummary? AnalyzeMaterialSwingAlongLine(
         string fen,
         PlayerSide perspective,

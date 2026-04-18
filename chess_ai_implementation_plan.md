@@ -59,6 +59,8 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] Rozszerzone heurystyki końcówkowe o centralizację króla i wykrywanie przegapionej aktywizacji króla.
 - [x] Szablonowy generator krótkich wyjaśnień.
 - [x] Wydzielony kontrakt `IAdviceGenerator` z implementacją `TemplateAdviceGenerator` jako przygotowanie pod przyszły mocniejszy generator lokalny.
+- [x] Rozszerzony `AdviceGenerationContext` i `AdvicePromptContextBuilder`, które budują ustrukturyzowany lokalny payload pod przyszły model on-device.
+- [x] Parser odpowiedzi lokalnego modelu (`LocalModelAdviceResponseParser`) dla `JSON` i formatu pól `short_text` / `detailed_text` / `training_hint`.
 - [x] Rozszerzony komentarz edukacyjny w oknie analizy.
 - [x] Integracja z UI: po imporcie PGN można uruchomić analizę importowanej partii.
 - [x] Integracja z UI: wybór błędu przenosi planszę do właściwej pozycji i pokazuje zagrany ruch oraz `best move`.
@@ -74,17 +76,27 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] Odchudzenie UI: analiza opcji ruchu wybranej figury wydzielona z `MainForm` do `PieceMoveOptionsCoordinator`.
 - [x] Odchudzenie UI: nawigacja po wynikach analizy i wspólne formatowanie ruchów wydzielone z `MainForm` do `AnalysisNavigationCoordinator` i `ChessMoveDisplayHelper`.
 - [x] Odchudzenie UI: ręczna interakcja z planszą i selekcja figur wydzielone z `MainForm` do `BoardInteractionCoordinator`.
+- [x] Odchudzenie UI: prezentacja planszy, oceny i sugestii silnika wydzielona z `MainForm` do `BoardPresentationCoordinator`.
 - [x] Podstawowy `PlayerProfileService` agregujący zapisane analizy wielu partii.
 - [x] Prosty widok profilu gracza z top kategoriami błędów, fazami, otwarciami i trendem miesięcznym.
 - [x] Podstawowe rekomendacje treningowe z priorytetami, checklistą i sugerowanymi ćwiczeniami.
 - [x] Testy jednostkowe, integracyjne i end-to-end dla MVP jednej partii.
 
 ### Co jest świadomie jeszcze poza MVP
-- [ ] zapis wyników analizy do SQLite,
+- [x] zapis wyników analizy do SQLite, w tym trwały cache pełnego `GameAnalysisResult` oraz strukturalny zapis `MoveAnalysis`,
 - [x] historia analiz i odczyt wcześniejszych partii,
-- [ ] bardziej zaawansowany profil gracza z wielu partii,
+- [x] bardziej zaawansowany profil gracza z wielu partii, oparty przede wszystkim o strukturalny zapis `analysis_moves` z fallbackiem do starszych zapisów pełnych wyników,
 - [x] bardziej adaptacyjne rekomendacje treningowe oparte o dane historyczne,
-- [ ] opcjonalny mocniejszy generator lokalny on-device,
+- [x] opcjonalny mocniejszy generator lokalny on-device,
+- [x] adapter uruchamiający lokalny model na bazie istniejącego `AdvicePromptContext`, z lokalnym fallbackiem heurystycznym (`LocalModelAdviceGenerator`),
+- [x] parser surowej odpowiedzi modelu lokalnego i walidacja kompletności pól przed fallbackiem,
+- [x] generyczny adapter procesowy uruchamiający lokalny model przez `stdin/stdout` (`LocalProcessAdviceModel`) konfigurowany lokalnie bez zależności od zewnętrznego API,
+- [x] oficjalnie wspierana ścieżka `llama.cpp` z wykrywaniem `llama-cli.exe` i kontrolowanym modelem `stockifhsgui-advice*.gguf`,
+- [x] ograniczenie odpowiedzi `llama.cpp` przez lokalną gramatykę JSON, żeby model zwracał pola `short_text`, `detailed_text`, `training_hint`,
+- [x] status gotowości lokalnego modelu i smoke test `llama.cpp` w oknie analizy, tak żeby użytkownik mógł sprawdzić runtime bez restartu aplikacji,
+- [x] trwały serwer `llama-server` startowany jako proces potomny aplikacji, z automatycznym portem i health checkiem — model ładowany raz, wiele zapytań HTTP na `127.0.0.1`,
+- [x] priorytet runtime: `llama-server` (najszybszy) > `llama-cli` (per-request) > heurystyki lokalne,
+- [x] analiza zbiorcza (`CreateBulkAnalysisGenerator`) korzysta z LLM gdy dostępny jest serwer, bo koszt per-request jest niski,
 - [ ] dalsze porządkowanie `MainForm`, ale bez lokalnej logiki legal moves / SAN jako źródła prawdy.
 
 ### Zasada na dalsze etapy
@@ -273,6 +285,7 @@ Przykład:
 Status w repo:
 - [x] wdrożone podstawowe etykiety `material_loss`, `hanging_piece`, `missed_tactic`, `king_safety`, `opening_principles`, `endgame_technique`
 - [x] wdrożone `confidence` i `evidence`
+- [x] rozszerzone heurystyki debiutowe o wykrywanie przegapionej roszady i przegapionego kroku rozwojowego, gdy najlepszy ruch poprawiał rozwój
 - [ ] rozszerzyć heurystyki o bogatsze cechy pozycji i lepszą separację etykiet
 
 ### Etap 2 - klasyfikacja hybrydowa
@@ -405,10 +418,10 @@ Odpowiedzialność:
 - w partiach hiszpańskich częściej tracisz tempo niż w włoskich.
 
 ### Zadania
-- [ ] Zbudować `PlayerProfileService`.
-- [ ] Wprowadzić miesięczne / kwartalne agregaty.
-- [ ] Wyliczać top 3 najczęstsze błędy.
-- [ ] Dodać rekomendacje treningowe na podstawie profilu.
+- [x] Zbudować `PlayerProfileService`.
+- [x] Wprowadzić miesięczne / kwartalne agregaty.
+- [x] Wyliczać top 3 najczęstsze błędy.
+- [x] Dodać rekomendacje treningowe na podstawie profilu.
 
 ---
 
@@ -918,13 +931,31 @@ Stan po bieżącej iteracji:
 - [x] przygotować osobną implementację `LocalHeuristicAdviceGenerator`,
 - [x] logować wejście/wyjście generatora porady do oceny jakości komentarzy.
 
+### Krok 7 - llama-server jako trwały serwer LLM
+- [x] `LlamaCppServerConfig` — konfiguracja serwera (port, timeouty, ścieżki),
+- [x] `LlamaCppServerResolver` — automatyczne wykrywanie `llama-server.exe` w standardowych lokalizacjach,
+- [x] `LlamaCppServerManager` — singleton zarządzający procesem serwera (lazy start, health check, shutdown przy zamknięciu aplikacji),
+- [x] `LlamaCppHttpAdviceModel` — implementacja `ILocalAdviceModel` przez HTTP POST `/completion`,
+- [x] priorytet w `AdviceRuntimeCatalog`: serwer > cli > custom > heurystyki,
+- [x] `AdviceGeneratorFactory.CreateBulkAnalysisGenerator()` korzysta z LLM gdy serwer jest dostępny,
+- [x] shutdown hook w `Program.cs` zapewniający zamknięcie procesu serwera razem z aplikacją,
+- [x] poprawiony parser (`LocalModelAdviceResponseParser`) radzący sobie z echowanymi promptami w stdout `llama-chat`.
+
+Stan po bieżącej iteracji:
+- serwer nasłuchuje wyłącznie na `127.0.0.1` — zero ekspozycji sieciowej,
+- port wybierany automatycznie (wolny TCP) lub konfigurowany zmienną `STOCKIFHSGUI_LLAMA_SERVER_PORT`,
+- model ładowany raz przy pierwszym zapytaniu, potem obsługuje wiele requestów bez restartu,
+- czas odpowiedzi per-request spada z ~10-30s (ładowanie modelu + inference w `llama-cli`) do ~0.5-2s (sam inference przez HTTP),
+- analiza zbiorcza wielu ruchów w partii korzysta z LLM automatycznie gdy serwer jest dostępny,
+- gdy `llama-server.exe` nie istnieje, system automatycznie fallbackuje na `llama-cli` lub heurystyki.
+
 ## Sprint 1
 - [x] Import PGN
 - [x] Generowanie FEN
 - [x] Integracja ze Stockfishem
 - [x] Eval before / after
 - [x] Best move
-- [ ] Zapis `MoveAnalysis`
+- [x] Zapis `MoveAnalysis`
 
 ## Sprint 2
 - [x] Centipawn loss
@@ -951,8 +982,32 @@ Stan po bieżącej iteracji:
 ## Sprint 6
 - [x] Lokalny wybór generatora porady
 - [x] Lokalny log diagnostyczny generatora
-- [ ] Poprawa jakości opisów
-- [ ] Lepsza personalizacja
+- [x] Poprawa jakości opisów (prompt tuning)
+- [x] Lepsza personalizacja (historia błędów gracza w prompcie)
+
+## Sprint 7
+- [x] `llama-server` jako trwały serwer LLM z lifecycle powiązanym z aplikacją
+- [x] HTTP POST `/completion` zamiast procesu per-request
+- [x] Priorytet runtime: server > cli > heurystyki
+- [x] Analiza zbiorcza z LLM gdy serwer dostępny
+- [x] Poprawka parsera dla echowanych promptów
+
+## Sprint 8
+- [x] Prompt tuning `AdvicePromptFormatter` pod Qwen 2.5 3B
+- [x] Osobny ton na każdy `ExplanationLevel` (Beginner / Intermediate / Advanced)
+- [x] FEN pozycji w prompcie — model widzi planszę
+- [x] Per-field word limits zamiast ogólnego "max 80 words"
+- [x] One-shot example dopasowany do `ExplanationLevel` + label błędu
+- [x] Ustrukturyzowane sekcje: Position, Played move, Engine verdict, Game context
+
+## Sprint 9
+- [x] `PlayerMistakeProfile` — lekki model profilu gracza na potrzeby promptu
+- [x] `PlayerMistakeProfileProvider` — buduje profil z historii analiz w store (min. 2 gry)
+- [x] `AdvicePromptContext.PlayerProfile` — nowe pole opcjonalne
+- [x] Sekcja "Player history" w prompcie z top 3 recurring patterns, avg CPL, weakest phase
+- [x] Instrukcja dla LLM: jeśli bieżący błąd pasuje do wzorca, wspomnieć o tym
+- [x] Profil ładowany raz per partia (nie per ruch) — zero overhead
+- [x] Graceful fallback gdy store niedostępny (catch w TryBuild)
 
 ---
 

@@ -29,12 +29,14 @@ public sealed class LoggedAdviceGenerator : IAdviceGenerator
         AdviceGenerationContext? context = null)
     {
         MoveExplanation explanation = inner.Generate(replay, quality, tag, bestMoveUci, centipawnLoss, level, context);
+        bool usedFallback = inner is IAdviceGeneratorDiagnostics diagnostics && diagnostics.UsedFallback;
+        string? fallbackReason = inner is IAdviceGeneratorDiagnostics diagnosticsWithReason ? diagnosticsWithReason.FallbackReason : null;
         logger?.Record(new AdviceGenerationTrace(
             DateTime.UtcNow,
             generatorName,
             mode,
-            UsedFallback: false,
-            FallbackReason: null,
+            UsedFallback: usedFallback,
+            FallbackReason: fallbackReason,
             context?.Source ?? "unknown",
             context?.GameFingerprint,
             context?.AnalyzedSide,

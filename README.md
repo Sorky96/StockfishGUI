@@ -37,6 +37,29 @@ After downloading:
    `StockifhsGUI\bin\Debug\net8.0-windows\`
 3. If the engine is missing, the app still starts, but analysis and evaluation stay disabled until `stockfish.exe` is available.
 
+## Local LLM advice setup
+
+The project now supports a fully local `llama.cpp` advice runtime for short coaching explanations.
+
+Recommended setup:
+
+- runtime: `llama-cli.exe`
+- model family: `Qwen2.5-3B-Instruct-GGUF`
+- recommended file: `qwen2.5-3b-instruct-q4_k_m.gguf`
+
+Supported locations:
+
+- `StockifhsGUI\bin\Debug\net8.0-windows\llama-cli.exe`
+- `StockifhsGUI\bin\Debug\net8.0-windows\Models\qwen2.5-3b-instruct-q4_k_m.gguf`
+- `.\llama.cpp\llama-cli.exe`
+- `.\llama.cpp\models\qwen2.5-3b-instruct-q4_k_m.gguf`
+- `.\tools\llama.cpp\llama-cli.exe`
+- `.\tools\llama.cpp\models\qwen2.5-3b-instruct-q4_k_m.gguf`
+
+The analysis window shows the current advice-runtime status and includes a `Test Advice Model` button for a smoke test.
+
+For the complete English setup guide, see [LOCAL_LLM_SETUP.md](LOCAL_LLM_SETUP.md).
+
 ## Run
 
 ```powershell

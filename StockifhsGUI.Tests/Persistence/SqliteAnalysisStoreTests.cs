@@ -150,6 +150,62 @@ public sealed class SqliteAnalysisStoreTests
     }
 
     [Fact]
+    public void SqliteAnalysisStore_SavesStructuredMoveAnalyses()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            ImportedGame game = PgnGameParser.Parse(GameOnePgn);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions(Depth: 16, MultiPv: 2));
+            MoveAnalysisResult move = CreateMoveAnalysis(
+                ply: 3,
+                moveNumber: 2,
+                phase: GamePhase.Opening,
+                quality: MoveQualityBucket.Mistake,
+                centipawnLoss: 145,
+                label: "opening_principles");
+            GameAnalysisResult result = new(
+                game,
+                PlayerSide.White,
+                [move.Replay],
+                [move],
+                [
+                    new SelectedMistake(
+                        [move],
+                        move.Quality,
+                        move.MistakeTag,
+                        move.Explanation ?? new MoveExplanation("Short", "Hint", "Detailed"))
+                ]);
+
+            store.SaveResult(key, result);
+
+            IReadOnlyList<StoredMoveAnalysis> storedMoves = store.ListMoveAnalyses("Alpha");
+
+            StoredMoveAnalysis storedMove = Assert.Single(storedMoves);
+            Assert.Equal(GameFingerprint.Compute(game.PgnText), storedMove.GameFingerprint);
+            Assert.Equal(PlayerSide.White, storedMove.AnalyzedSide);
+            Assert.Equal(16, storedMove.Depth);
+            Assert.Equal(2, storedMove.MultiPv);
+            Assert.Equal(3, storedMove.Ply);
+            Assert.Equal("Nf3", storedMove.San);
+            Assert.Equal("g1f3", storedMove.Uci);
+            Assert.Equal("opening_principles", storedMove.MistakeLabel);
+            Assert.Equal(145, storedMove.CentipawnLoss);
+            Assert.True(storedMove.IsHighlighted);
+            Assert.Equal("Short", storedMove.ShortExplanation);
+            Assert.Equal("Detailed", storedMove.DetailedExplanation);
+            Assert.Equal("Hint", storedMove.TrainingHint);
+            Assert.Contains("late_development", storedMove.Evidence);
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
     public void SqliteAnalysisStore_DeletesImportedGameTogetherWithAnalysisData()
     {
         string databasePath = CreateTempDatabasePath();
@@ -183,6 +239,7 @@ public sealed class SqliteAnalysisStoreTests
             Assert.False(store.TryLoadImportedGame(fingerprint, out _));
             Assert.False(store.TryLoadResult(key, out _));
             Assert.False(store.TryLoadWindowState(fingerprint, out _));
+            Assert.Empty(store.ListMoveAnalyses());
             Assert.Empty(store.ListImportedGames());
             Assert.Empty(store.ListResults());
         }
@@ -195,6 +252,49 @@ public sealed class SqliteAnalysisStoreTests
     private static string CreateTempDatabasePath()
     {
         return Path.Combine(Path.GetTempPath(), $"stockifhsgui-store-{Guid.NewGuid():N}.db");
+    }
+
+    private static MoveAnalysisResult CreateMoveAnalysis(
+        int ply,
+        int moveNumber,
+        GamePhase phase,
+        MoveQualityBucket quality,
+        int centipawnLoss,
+        string label)
+    {
+        ReplayPly replay = new(
+            ply,
+            moveNumber,
+            PlayerSide.White,
+            "Nf3",
+            "Nf3",
+            "g1f3",
+            "fen-before",
+            "fen-after",
+            "placement-before",
+            "placement-after",
+            phase,
+            "N",
+            null,
+            "g1",
+            "f3",
+            false,
+            false,
+            false);
+
+        return new MoveAnalysisResult(
+            replay,
+            new EngineAnalysis("fen-before", [new EngineLine("e2e4", 35, null, ["e2e4", "e7e5"])], "e2e4"),
+            new EngineAnalysis("fen-after", [new EngineLine("g1f3", -110, null, ["g1f3", "d7d5"])], "g1f3"),
+            35,
+            -110,
+            null,
+            null,
+            centipawnLoss,
+            quality,
+            -20,
+            new MistakeTag(label, 0.82, ["late_development", "king_uncastled"]),
+            new MoveExplanation("Short", "Hint", "Detailed"));
     }
 
     private static void DeleteTempDatabase(string databasePath)

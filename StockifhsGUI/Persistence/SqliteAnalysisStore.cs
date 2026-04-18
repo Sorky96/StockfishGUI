@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Globalization;
 
 namespace StockifhsGUI;
 
@@ -142,6 +143,12 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
 
             database.ExecuteNonQuery(
                 """
+                DELETE FROM analysis_moves
+                WHERE game_fingerprint = ?1;
+                """,
+                statement => statement.BindText(1, gameFingerprint));
+            database.ExecuteNonQuery(
+                """
                 DELETE FROM analysis_results
                 WHERE game_fingerprint = ?1;
                 """,
@@ -259,6 +266,113 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
         return items;
     }
 
+    public IReadOnlyList<StoredMoveAnalysis> ListMoveAnalyses(string? filterText = null, int limit = 5000)
+    {
+        string normalizedFilter = filterText?.Trim().ToLowerInvariant() ?? string.Empty;
+        int safeLimit = Math.Clamp(limit, 1, 20000);
+        List<StoredMoveAnalysis> items = new();
+
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            using SqliteStatement statement = database.Prepare($"""
+                SELECT
+                    analysis_moves.game_fingerprint,
+                    analysis_moves.analyzed_side,
+                    analysis_moves.depth,
+                    analysis_moves.multi_pv,
+                    analysis_moves.move_time_ms,
+                    analysis_results.updated_utc,
+                    imported_games.white_player,
+                    imported_games.black_player,
+                    imported_games.date_text,
+                    imported_games.result_text,
+                    imported_games.eco,
+                    imported_games.site,
+                    analysis_moves.ply,
+                    analysis_moves.move_number,
+                    analysis_moves.san,
+                    analysis_moves.move_uci,
+                    analysis_moves.fen_before,
+                    analysis_moves.fen_after,
+                    analysis_moves.phase,
+                    analysis_moves.eval_before_cp,
+                    analysis_moves.eval_after_cp,
+                    analysis_moves.best_mate_in,
+                    analysis_moves.played_mate_in,
+                    analysis_moves.centipawn_loss,
+                    analysis_moves.quality,
+                    analysis_moves.material_delta_cp,
+                    analysis_moves.best_move_uci,
+                    analysis_moves.mistake_label,
+                    analysis_moves.mistake_confidence,
+                    analysis_moves.evidence_json,
+                    analysis_moves.short_explanation,
+                    analysis_moves.detailed_explanation,
+                    analysis_moves.training_hint,
+                    analysis_moves.is_highlighted
+                FROM analysis_moves
+                LEFT JOIN analysis_results ON analysis_results.game_fingerprint = analysis_moves.game_fingerprint
+                    AND analysis_results.analyzed_side = analysis_moves.analyzed_side
+                    AND analysis_results.depth = analysis_moves.depth
+                    AND analysis_results.multi_pv = analysis_moves.multi_pv
+                    AND analysis_results.move_time_ms = analysis_moves.move_time_ms
+                LEFT JOIN imported_games ON imported_games.game_fingerprint = analysis_moves.game_fingerprint
+                {(string.IsNullOrWhiteSpace(normalizedFilter)
+                    ? string.Empty
+                    : "WHERE lower(coalesce(imported_games.white_player, '')) LIKE ?1 OR lower(coalesce(imported_games.black_player, '')) LIKE ?1 OR lower(coalesce(imported_games.date_text, '')) LIKE ?1 OR lower(coalesce(imported_games.result_text, '')) LIKE ?1 OR lower(coalesce(imported_games.eco, '')) LIKE ?1 OR lower(coalesce(imported_games.site, '')) LIKE ?1 OR lower(coalesce(analysis_moves.mistake_label, '')) LIKE ?1 OR lower(coalesce(analysis_moves.san, '')) LIKE ?1 OR lower(coalesce(analysis_moves.move_uci, '')) LIKE ?1")}
+                ORDER BY imported_games.updated_utc DESC, analysis_moves.ply ASC
+                LIMIT {safeLimit};
+                """);
+
+            if (!string.IsNullOrWhiteSpace(normalizedFilter))
+            {
+                statement.BindText(1, $"%{normalizedFilter}%");
+            }
+
+            while (statement.Step() == SqliteRow)
+            {
+                items.Add(new StoredMoveAnalysis(
+                    statement.GetText(0) ?? string.Empty,
+                    (PlayerSide)statement.GetInt(1),
+                    statement.GetInt(2),
+                    statement.GetInt(3),
+                    ReadMoveTime(statement.GetInt(4)),
+                    ParseUtc(statement.GetText(5)),
+                    statement.GetText(6),
+                    statement.GetText(7),
+                    statement.GetText(8),
+                    statement.GetText(9),
+                    statement.GetText(10),
+                    statement.GetText(11),
+                    statement.GetInt(12),
+                    statement.GetInt(13),
+                    statement.GetText(14) ?? string.Empty,
+                    statement.GetText(15) ?? string.Empty,
+                    statement.GetText(16) ?? string.Empty,
+                    statement.GetText(17) ?? string.Empty,
+                    (GamePhase)statement.GetInt(18),
+                    statement.GetNullableInt(19),
+                    statement.GetNullableInt(20),
+                    statement.GetNullableInt(21),
+                    statement.GetNullableInt(22),
+                    statement.GetNullableInt(23),
+                    (MoveQualityBucket)statement.GetInt(24),
+                    statement.GetInt(25),
+                    statement.GetText(26),
+                    statement.GetText(27),
+                    ParseNullableDouble(statement.GetText(28)),
+                    DeserializeEvidence(statement.GetText(29)),
+                    statement.GetText(30),
+                    statement.GetText(31),
+                    statement.GetText(32),
+                    statement.GetInt(33) != 0));
+            }
+        }
+
+        return items;
+    }
+
     public bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -341,6 +455,8 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
             statement.BindText(7, timestamp);
             statement.BindText(8, timestamp);
             statement.StepUntilDone();
+
+            ReplaceMoveAnalyses(database, key, result);
         }
     }
 
@@ -441,6 +557,38 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
                 );
                 """);
             database.ExecuteNonQuery("""
+                CREATE TABLE IF NOT EXISTS analysis_moves (
+                    game_fingerprint TEXT NOT NULL,
+                    analyzed_side INTEGER NOT NULL,
+                    depth INTEGER NOT NULL,
+                    multi_pv INTEGER NOT NULL,
+                    move_time_ms INTEGER NOT NULL,
+                    ply INTEGER NOT NULL,
+                    move_number INTEGER NOT NULL,
+                    san TEXT NOT NULL,
+                    move_uci TEXT NOT NULL,
+                    fen_before TEXT NOT NULL,
+                    fen_after TEXT NOT NULL,
+                    phase INTEGER NOT NULL,
+                    eval_before_cp INTEGER NULL,
+                    eval_after_cp INTEGER NULL,
+                    best_mate_in INTEGER NULL,
+                    played_mate_in INTEGER NULL,
+                    centipawn_loss INTEGER NULL,
+                    quality INTEGER NOT NULL,
+                    material_delta_cp INTEGER NOT NULL,
+                    best_move_uci TEXT NULL,
+                    mistake_label TEXT NULL,
+                    mistake_confidence TEXT NULL,
+                    evidence_json TEXT NULL,
+                    short_explanation TEXT NULL,
+                    detailed_explanation TEXT NULL,
+                    training_hint TEXT NULL,
+                    is_highlighted INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (game_fingerprint, analyzed_side, depth, multi_pv, move_time_ms, ply)
+                );
+                """);
+            database.ExecuteNonQuery("""
                 CREATE TABLE IF NOT EXISTS analysis_window_states (
                     game_fingerprint TEXT NOT NULL PRIMARY KEY,
                     selected_side INTEGER NOT NULL,
@@ -460,6 +608,168 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
     private SqliteDatabase OpenDatabase() => new(databasePath);
 
     private static int NormalizeMoveTime(int? moveTimeMs) => moveTimeMs ?? NoMoveTimeMs;
+
+    private static int? ReadMoveTime(int rawMoveTime) => rawMoveTime == NoMoveTimeMs ? null : rawMoveTime;
+
+    private static DateTime ParseUtc(string? value)
+    {
+        return DateTime.TryParse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+            out DateTime parsed)
+            ? parsed
+            : DateTime.MinValue;
+    }
+
+    private static IReadOnlyList<string> DeserializeEvidence(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<IReadOnlyList<string>>(payload, JsonOptions) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static double? ParseNullableDouble(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
+            ? parsed
+            : null;
+    }
+
+    private static string? FormatNullableDouble(double? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString("0.####", CultureInfo.InvariantCulture)
+            : null;
+    }
+
+    private static string SerializeEvidence(IReadOnlyList<string>? evidence)
+    {
+        return JsonSerializer.Serialize(evidence ?? [], JsonOptions);
+    }
+
+    private static bool IsHighlightedMove(MoveAnalysisResult move, HashSet<int> highlightedPlys)
+    {
+        return highlightedPlys.Contains(move.Replay.Ply);
+    }
+
+    private static void BindNullableInt(SqliteStatement statement, int index, int? value)
+    {
+        if (value.HasValue)
+        {
+            statement.BindInt(index, value.Value);
+            return;
+        }
+
+        statement.BindNull(index);
+    }
+
+    private static void ReplaceMoveAnalyses(SqliteDatabase database, GameAnalysisCacheKey key, GameAnalysisResult result)
+    {
+        database.ExecuteNonQuery(
+            """
+            DELETE FROM analysis_moves
+            WHERE game_fingerprint = ?1
+              AND analyzed_side = ?2
+              AND depth = ?3
+              AND multi_pv = ?4
+              AND move_time_ms = ?5;
+            """,
+            statement =>
+            {
+                statement.BindText(1, key.GameFingerprint);
+                statement.BindInt(2, (int)key.Side);
+                statement.BindInt(3, key.Depth);
+                statement.BindInt(4, key.MultiPv);
+                statement.BindInt(5, NormalizeMoveTime(key.MoveTimeMs));
+            });
+
+        HashSet<int> highlightedPlys = result.HighlightedMistakes
+            .SelectMany(mistake => mistake.Moves)
+            .Select(move => move.Replay.Ply)
+            .ToHashSet();
+
+        foreach (MoveAnalysisResult move in result.MoveAnalyses)
+        {
+            database.ExecuteNonQuery(
+                """
+                INSERT INTO analysis_moves (
+                    game_fingerprint,
+                    analyzed_side,
+                    depth,
+                    multi_pv,
+                    move_time_ms,
+                    ply,
+                    move_number,
+                    san,
+                    move_uci,
+                    fen_before,
+                    fen_after,
+                    phase,
+                    eval_before_cp,
+                    eval_after_cp,
+                    best_mate_in,
+                    played_mate_in,
+                    centipawn_loss,
+                    quality,
+                    material_delta_cp,
+                    best_move_uci,
+                    mistake_label,
+                    mistake_confidence,
+                    evidence_json,
+                    short_explanation,
+                    detailed_explanation,
+                    training_hint,
+                    is_highlighted)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27);
+                """,
+                statement =>
+                {
+                    statement.BindText(1, key.GameFingerprint);
+                    statement.BindInt(2, (int)key.Side);
+                    statement.BindInt(3, key.Depth);
+                    statement.BindInt(4, key.MultiPv);
+                    statement.BindInt(5, NormalizeMoveTime(key.MoveTimeMs));
+                    statement.BindInt(6, move.Replay.Ply);
+                    statement.BindInt(7, move.Replay.MoveNumber);
+                    statement.BindText(8, move.Replay.San);
+                    statement.BindText(9, move.Replay.Uci);
+                    statement.BindText(10, move.Replay.FenBefore);
+                    statement.BindText(11, move.Replay.FenAfter);
+                    statement.BindInt(12, (int)move.Replay.Phase);
+                    BindNullableInt(statement, 13, move.EvalBeforeCp);
+                    BindNullableInt(statement, 14, move.EvalAfterCp);
+                    BindNullableInt(statement, 15, move.BestMateIn);
+                    BindNullableInt(statement, 16, move.PlayedMateIn);
+                    BindNullableInt(statement, 17, move.CentipawnLoss);
+                    statement.BindInt(18, (int)move.Quality);
+                    statement.BindInt(19, move.MaterialDeltaCp);
+                    statement.BindNullableText(20, move.BeforeAnalysis.BestMoveUci);
+                    statement.BindNullableText(21, move.MistakeTag?.Label);
+                    statement.BindNullableText(22, FormatNullableDouble(move.MistakeTag?.Confidence));
+                    statement.BindText(23, SerializeEvidence(move.MistakeTag?.Evidence));
+                    statement.BindNullableText(24, move.Explanation?.ShortText);
+                    statement.BindNullableText(25, move.Explanation?.DetailedText);
+                    statement.BindNullableText(26, move.Explanation?.TrainingHint);
+                    statement.BindInt(27, IsHighlightedMove(move, highlightedPlys) ? 1 : 0);
+                });
+        }
+    }
 
     private static void EnsureColumnExists(SqliteDatabase database, string tableName, string columnName, string definition)
     {
@@ -551,12 +861,17 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
         {
             if (value is null)
             {
-                int bindNullResult = sqlite3_bind_null(Handle, index);
-                ThrowIfError(bindNullResult, database.Handle, $"bind null parameter {index}");
+                BindNull(index);
                 return;
             }
 
             BindText(index, value);
+        }
+
+        public void BindNull(int index)
+        {
+            int bindNullResult = sqlite3_bind_null(Handle, index);
+            ThrowIfError(bindNullResult, database.Handle, $"bind null parameter {index}");
         }
 
         public void BindInt(int index, int value)
@@ -589,6 +904,13 @@ public sealed class SqliteAnalysisStore : IAnalysisStore
         public int GetInt(int columnIndex)
         {
             return sqlite3_column_int(Handle, columnIndex);
+        }
+
+        public int? GetNullableInt(int columnIndex)
+        {
+            return sqlite3_column_type(Handle, columnIndex) == SqliteNull
+                ? null
+                : sqlite3_column_int(Handle, columnIndex);
         }
 
         public string? GetText(int columnIndex)

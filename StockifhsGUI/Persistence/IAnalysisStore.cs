@@ -7,6 +7,7 @@ public interface IAnalysisStore
     bool DeleteImportedGame(string gameFingerprint);
     IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText = null, int limit = 200);
     IReadOnlyList<GameAnalysisResult> ListResults(string? filterText = null, int limit = 500);
+    IReadOnlyList<StoredMoveAnalysis> ListMoveAnalyses(string? filterText = null, int limit = 5000);
     bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result);
     void SaveResult(GameAnalysisCacheKey key, GameAnalysisResult result);
     bool TryLoadWindowState(string gameFingerprint, out AnalysisWindowState? state);

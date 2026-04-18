@@ -110,6 +110,17 @@ public sealed class MistakeClassifier
             return true;
         }
 
+        if (context.BestMoveIsCastle && !context.CastledAfterMove && !context.CastledBeforeMove)
+        {
+            return true;
+        }
+
+        if (context.BestMoveDevelopsMinorPiece
+            && context.BestMoveDevelopedMinorPiecesAfter > context.DevelopedMinorPiecesAfter)
+        {
+            return true;
+        }
+
         if (context.EarlyQueenMove && context.DevelopedMinorPiecesBefore < 2)
         {
             return true;
@@ -273,10 +284,13 @@ public sealed class MistakeClassifier
             replay.Phase == GamePhase.Opening && movedPiece == 'k' && !replay.IsCastle,
             replay.Phase == GamePhase.Opening && movedPiece == 'p' && fromFile is 'a' or 'b' or 'g' or 'h',
             false,
+            false,
+            false,
             null,
             null,
             developedMinorPiecesBefore,
             developedMinorPiecesAfter,
+            developedMinorPiecesBefore,
             castledBeforeMove,
             castledAfterMove,
             kingCentralizedBeforeMove,
@@ -320,6 +334,17 @@ public sealed class MistakeClassifier
         if (context.EarlyQueenMove && context.DevelopedMinorPiecesBefore < 2)
         {
             return "early_queen_before_development";
+        }
+
+        if (context.BestMoveIsCastle && !context.CastledAfterMove && !context.CastledBeforeMove)
+        {
+            return "missed_castling_window";
+        }
+
+        if (context.BestMoveDevelopsMinorPiece
+            && context.BestMoveDevelopedMinorPiecesAfter > context.DevelopedMinorPiecesAfter)
+        {
+            return "missed_development_step";
         }
 
         if (context.EarlyRookMove && context.DevelopedMinorPiecesBefore < 2)

@@ -8,7 +8,7 @@ using System.Windows.Forms;
 
 namespace StockifhsGUI;
 
-public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkflowHost, IAnalysisNavigationHost, IBoardInteractionHost
+public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkflowHost, IAnalysisNavigationHost, IBoardInteractionHost, IBoardPresentationHost
 {
     private const int GridSize = 8;
     private const int DefaultTileSize = 64;
@@ -26,6 +26,7 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
     private readonly TrackingWorkflowCoordinator trackingWorkflow;
     private readonly AnalysisNavigationCoordinator analysisNavigation;
     private readonly BoardInteractionCoordinator boardInteraction;
+    private readonly BoardPresentationCoordinator boardPresentation;
     private StockfishEngine? engine;
     private readonly List<string> moveHistory = new();
     private readonly Label suggestionLabel;
@@ -68,6 +69,7 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
         trackingWorkflow = new TrackingWorkflowCoordinator(this);
         analysisNavigation = new AnalysisNavigationCoordinator(this);
         boardInteraction = new BoardInteractionCoordinator(this);
+        boardPresentation = new BoardPresentationCoordinator(this);
 
         boardSurface = new ChessBoardControl
         {
@@ -179,39 +181,7 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
     private void ClearSelection() => boardInteraction.ClearSelection();
 
     private void RefreshEngineSuggestions()
-    {
-        if (engine is null)
-        {
-            bestMoveArrows.Clear();
-            suggestionLabel.Text = MissingEngineMessage;
-            UpdateEvaluationDisplay(null);
-            UpdateExtendedControls();
-            InvalidateBoardSurface();
-            return;
-        }
-
-        engine.SetPositionFen(GetCurrentFen());
-
-        bestMoveArrows.Clear();
-        List<string> topMoves = engine.GetTopMoves(3);
-        topMoves.RemoveAll(move => !IsSuggestionLegal(move));
-
-        Color[] colors = { Color.Blue, Color.Green, Color.Orange };
-        foreach (string move in topMoves)
-        {
-            Point from = new(move[0] - 'a', 8 - (move[1] - '0'));
-            Point to = new(move[2] - 'a', 8 - (move[3] - '0'));
-            int colorIndex = Math.Min(bestMoveArrows.Count, colors.Length - 1);
-            bestMoveArrows.Add(new BoardArrow(from, to, colors[colorIndex]));
-        }
-
-        suggestionLabel.Text = topMoves.Count == 0
-            ? "Top moves: none"
-            : "Top moves: " + string.Join(", ", topMoves);
-        UpdateEvaluationDisplay(engine.GetEvaluationSummary());
-        UpdateExtendedControls();
-        InvalidateBoardSurface();
-    }
+        => boardPresentation.RefreshEngineSuggestions();
 
     private string BuildUciMove(Point from, Point to, string? promotionPiece)
     {
@@ -245,50 +215,7 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
     private static bool IsPieceWhite(string piece) => char.IsUpper(piece[0]);
 
     private void UpdateEvaluationDisplay(EvaluationSummary? evaluation)
-    {
-        currentEvaluation = evaluation;
-
-        if (evaluation is null)
-        {
-            evaluationLabel.Text = "Evaluation: unavailable";
-            evaluationBarFill.Width = evaluationBarBackground.ClientSize.Width / 2;
-            evaluationBarFill.BackColor = Color.Silver;
-            return;
-        }
-
-        if (evaluation.MateIn is int mateIn)
-        {
-            int signedMate = whiteToMove ? mateIn : -mateIn;
-            bool whiteWinning = signedMate > 0;
-            evaluationLabel.Text = whiteWinning
-                ? $"Evaluation: White mates in {Math.Abs(signedMate)}"
-                : $"Evaluation: Black mates in {Math.Abs(signedMate)}";
-            evaluationBarFill.Width = whiteWinning ? evaluationBarBackground.ClientSize.Width : 0;
-            evaluationBarFill.BackColor = whiteWinning ? Color.WhiteSmoke : Color.FromArgb(30, 30, 30);
-            return;
-        }
-
-        int cp = evaluation.Centipawns ?? 0;
-        int whitePerspectiveCp = whiteToMove ? cp : -cp;
-        double pawnAdvantage = whitePerspectiveCp / 100.0;
-        double normalized = Math.Clamp((pawnAdvantage + 5.0) / 10.0, 0.0, 1.0);
-
-        evaluationBarFill.Width = Math.Max(0, (int)Math.Round(evaluationBarBackground.ClientSize.Width * normalized));
-        evaluationBarFill.BackColor = whitePerspectiveCp >= 0 ? Color.WhiteSmoke : Color.FromArgb(30, 30, 30);
-
-        if (Math.Abs(pawnAdvantage) < 0.15)
-        {
-            evaluationLabel.Text = "Evaluation: even";
-        }
-        else if (pawnAdvantage > 0)
-        {
-            evaluationLabel.Text = $"Evaluation: White +{pawnAdvantage:F1}";
-        }
-        else
-        {
-            evaluationLabel.Text = $"Evaluation: Black +{Math.Abs(pawnAdvantage):F1}";
-        }
-    }
+        => boardPresentation.UpdateEvaluationDisplay(evaluation);
 
     private int BoardPixelSize => boardTileSize * GridSize;
 
@@ -344,7 +271,7 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
         int buttonRowY = boardBottom + 8;
         int undoWidth = 88;
         boardSurface.SetBounds(0, 0, BoardPixelSize, BoardPixelSize);
-        SyncBoardSurface();
+        boardPresentation.InvalidateBoardSurface();
         undoButton?.SetBounds(BoardPixelSize - LayoutMargin - undoWidth, buttonRowY, undoWidth, 30);
         rotateButton.SetBounds(
             BoardPixelSize - LayoutMargin - undoWidth - 12 - rotateButton.Width,
@@ -370,23 +297,7 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
     }
 
     private void InvalidateBoardSurface()
-    {
-        SyncBoardSurface();
-        boardSurface.Invalidate();
-    }
-
-    private void SyncBoardSurface()
-    {
-        boardSurface.TileSize = boardTileSize;
-        boardSurface.RotateBoard = rotateBoard;
-        boardSurface.Board = board;
-        boardSurface.SelectedSquare = selectedSquare;
-        boardSurface.AnalysisTargetSquare = analysisTargetSquare;
-        boardSurface.PreviewTargetSquare = pieceMoveOptionTargetSquare;
-        boardSurface.AvailableMoves = availableMoves;
-        boardSurface.Arrows = bestMoveArrows.Concat(analysisArrows).ToList();
-        boardSurface.PieceImages = pieceImages;
-    }
+        => boardPresentation.InvalidateBoardSurface();
 
     private void ApplyUiTheme()
     {
@@ -546,4 +457,52 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
     void IBoardInteractionHost.ClearPieceMoveOptions() => ClearPieceMoveOptions();
 
     void IBoardInteractionHost.InvalidateBoardSurface() => InvalidateBoardSurface();
+
+    ChessBoardControl IBoardPresentationHost.BoardSurface => boardSurface;
+
+    string?[,] IBoardPresentationHost.Board => board;
+
+    IDictionary<string, Image> IBoardPresentationHost.PieceImages => pieceImages;
+
+    IList<BoardArrow> IBoardPresentationHost.BestMoveArrows => bestMoveArrows;
+
+    IList<BoardArrow> IBoardPresentationHost.AnalysisArrows => analysisArrows;
+
+    IList<Point> IBoardPresentationHost.AvailableMoves => availableMoves;
+
+    Label IBoardPresentationHost.SuggestionLabel => suggestionLabel;
+
+    Label IBoardPresentationHost.EvaluationLabel => evaluationLabel;
+
+    Panel IBoardPresentationHost.EvaluationBarBackground => evaluationBarBackground;
+
+    Panel IBoardPresentationHost.EvaluationBarFill => evaluationBarFill;
+
+    StockfishEngine? IBoardPresentationHost.Engine => engine;
+
+    EvaluationSummary? IBoardPresentationHost.CurrentEvaluation
+    {
+        get => currentEvaluation;
+        set => currentEvaluation = value;
+    }
+
+    string IBoardPresentationHost.MissingEngineMessage => MissingEngineMessage;
+
+    int IBoardPresentationHost.BoardTileSize => boardTileSize;
+
+    bool IBoardPresentationHost.RotateBoard => rotateBoard;
+
+    bool IBoardPresentationHost.WhiteToMove => whiteToMove;
+
+    Point? IBoardPresentationHost.SelectedSquare => selectedSquare;
+
+    Point? IBoardPresentationHost.AnalysisTargetSquare => analysisTargetSquare;
+
+    Point? IBoardPresentationHost.PreviewTargetSquare => pieceMoveOptionTargetSquare;
+
+    string IBoardPresentationHost.GetCurrentFen() => GetCurrentFen();
+
+    bool IBoardPresentationHost.IsSuggestionLegal(string move) => IsSuggestionLegal(move);
+
+    void IBoardPresentationHost.UpdateExtendedControls() => UpdateExtendedControls();
 }

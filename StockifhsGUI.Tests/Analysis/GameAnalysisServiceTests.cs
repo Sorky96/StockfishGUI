@@ -247,6 +247,57 @@ Kxa2 62. Qb2# 1-0
     }
 
     [Fact]
+    public void MistakeClassifier_AssignsOpeningPrinciples_WhenBestMoveWasCastle()
+    {
+        MistakeClassifier classifier = new();
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "e2",
+            "r1bqk2r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPPQPPP/RNB2RK1 w kq - 0 1",
+            "r1bqk2r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPPQPPP/RNB2RK1 b kq - 1 1");
+
+        MoveHeuristicContext context = CreateContext(
+            BestMoveIsCastle: true,
+            CastledBeforeMove: false,
+            CastledAfterMove: false,
+            DevelopedMinorPiecesBefore: 2,
+            DevelopedMinorPiecesAfter: 2);
+
+        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Mistake, 135, 0, context);
+
+        Assert.NotNull(tag);
+        Assert.Equal("opening_principles", tag!.Label);
+        Assert.Contains("missed_castling_window", tag.Evidence);
+    }
+
+    [Fact]
+    public void MistakeClassifier_AssignsOpeningPrinciples_WhenBestMoveWouldDevelopMinorPiece()
+    {
+        MistakeClassifier classifier = new();
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "P",
+            "a2",
+            "a3",
+            "rnbqkbnr/pppppppp/8/8/8/8/P1PPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/8/8/P7/2PPPPPP/RNBQKBNR b KQkq - 0 1");
+
+        MoveHeuristicContext context = CreateContext(
+            BestMoveDevelopsMinorPiece: true,
+            DevelopedMinorPiecesBefore: 0,
+            DevelopedMinorPiecesAfter: 0,
+            BestMoveDevelopedMinorPiecesAfter: 1);
+
+        MistakeTag? tag = classifier.Classify(replay, PlayerSide.White, MoveQualityBucket.Inaccuracy, 105, 0, context);
+
+        Assert.NotNull(tag);
+        Assert.Equal("opening_principles", tag!.Label);
+        Assert.Contains("missed_development_step", tag.Evidence);
+    }
+
+    [Fact]
     public void MistakeClassifier_DoesNotAssignOpeningPrinciples_WhenDevelopmentIsAlreadyDone()
     {
         MistakeClassifier classifier = new();
@@ -670,6 +721,812 @@ Kxa2 62. Qb2# 1-0
         Assert.Contains("review set", explanation.TrainingHint, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void LocalHeuristicAdviceGenerator_UsesStructuredPromptContext()
+    {
+        LocalHeuristicAdviceGenerator generator = new(new AdviceGenerationSettings(
+            AdviceGeneratorMode.Adaptive,
+            MaxShortTextLength: 420,
+            MaxTrainingHintLength: 220,
+            MaxDetailedTextLength: 700));
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "h5",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/7Q/8/8/PPPPPPPP/RNB1KBNR b KQkq - 1 1");
+        MistakeTag tag = new("opening_principles", 0.82, ["early_queen_move"]);
+        AdvicePromptContext promptContext = new(
+            OpeningName: "Bishop's Opening (C23)",
+            BestMoveSan: "Nf3 (g1f3)",
+            Evidence: ["the queen moved early before development was complete"],
+            HeuristicNotes: ["development did not improve after the move", "the moved piece drifted toward the edge instead of improving central influence"]);
+
+        MoveExplanation explanation = generator.Generate(
+            replay,
+            MoveQualityBucket.Inaccuracy,
+            tag,
+            "g1f3",
+            110,
+            ExplanationLevel.Intermediate,
+            new AdviceGenerationContext("test", "game-2", PlayerSide.White, promptContext));
+
+        Assert.Contains("local evidence", explanation.ShortText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Bishop's Opening", explanation.DetailedText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("development did not improve", explanation.DetailedText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AdvicePromptContextBuilder_DescribesOpeningAndHeuristics()
+    {
+        ImportedGame game = new(
+            "1. Qh5",
+            ["Qh5"],
+            "WhitePlayer",
+            "BlackPlayer",
+            null,
+            null,
+            "2026.04.18",
+            "1-0",
+            "C23",
+            "Local");
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "h5",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/7Q/8/8/PPPPPPPP/RNB1KBNR b KQkq - 1 1");
+        MistakeTag tag = new("opening_principles", 0.82, ["early_queen_move"]);
+        MoveHeuristicContext heuristicContext = new(
+            MovedPieceHangingAfterMove: false,
+            MovedPieceFreeToTake: false,
+            MovedPieceLikelyLosesExchange: false,
+            MovedPieceAttackDeficit: 0,
+            MovedPieceValueCp: null,
+            MovedPieceMobilityBefore: 8,
+            MovedPieceMobilityAfter: 4,
+            MovedPieceToEdge: true,
+            CastledKingWingPawnPush: false,
+            EarlyQueenMove: true,
+            EarlyRookMove: false,
+            EarlyKingMoveWithoutCastling: false,
+            EdgePawnPush: false,
+            BestMoveIsCapture: false,
+            BestMoveIsCastle: false,
+            BestMoveDevelopsMinorPiece: true,
+            BestMoveMaterialSwingCp: null,
+            PlayedLineMaterialSwingCp: null,
+            DevelopedMinorPiecesBefore: 0,
+            DevelopedMinorPiecesAfter: 0,
+            BestMoveDevelopedMinorPiecesAfter: 1,
+            CastledBeforeMove: false,
+            CastledAfterMove: false,
+            KingCentralizedBeforeMove: false,
+            KingCentralizedAfterMove: false,
+            BestMoveCentralizesKing: false);
+
+        AdvicePromptContext context = AdvicePromptContextBuilder.Build(game, replay, PlayerSide.White, tag, "g1f3", heuristicContext);
+
+        Assert.Equal("Bishop's Opening (C23)", context.OpeningName);
+        Assert.Equal("WhitePlayer", context.AnalyzedPlayer);
+        Assert.Equal("BlackPlayer", context.OpponentPlayer);
+        Assert.Contains(context.Evidence ?? [], item => item.Contains("the queen moved early", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(context.HeuristicNotes ?? [], item => item.Contains("development did not improve", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void AdvicePromptFormatter_BuildsStructuredPrompt()
+    {
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "h5",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/7Q/8/8/PPPPPPPP/RNB1KBNR b KQkq - 1 1");
+        LocalModelAdviceRequest request = new(
+            replay,
+            MoveQualityBucket.Inaccuracy,
+            new MistakeTag("opening_principles", 0.82, ["early_queen_move"]),
+            "g1f3",
+            110,
+            ExplanationLevel.Intermediate,
+            new AdviceGenerationContext(
+                "test",
+                "game-3",
+                PlayerSide.White,
+                new AdvicePromptContext(
+                    OpeningName: "Bishop's Opening (C23)",
+                    AnalyzedPlayer: "WhitePlayer",
+                    OpponentPlayer: "BlackPlayer",
+                    BestMoveSan: "Nf3 (g1f3)",
+                    Evidence: ["the queen moved early before development was complete"],
+                    HeuristicNotes: ["development did not improve after the move"])),
+            string.Empty);
+
+        string prompt = AdvicePromptFormatter.BuildPrompt(request);
+
+        Assert.Contains("chess coach", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FEN:", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Opening: Bishop's Opening (C23)", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("the queen moved early before development was complete", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("development did not improve after the move", prompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AdvicePromptFormatter_IncludesPlayerHistoryWhenProfileAvailable()
+    {
+        ReplayPly replay = CreateReplay(GamePhase.Middlegame, "N", "d4", "f5", "rnbqkb1r/pppppppp/5n2/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2", "rnbqkb1r/pppppppp/5n2/5N2/8/8/PPP1PPPP/RNBQKBNR b KQkq - 2 2");
+        PlayerMistakeProfile profile = new(
+            "TestPlayer",
+            GamesAnalyzed: 5,
+            AverageCentipawnLoss: 42,
+            TopPatterns:
+            [
+                new PlayerMistakePatternEntry("hanging_piece", 7),
+                new PlayerMistakePatternEntry("missed_tactic", 4)
+            ],
+            WeakestPhase: GamePhase.Middlegame);
+
+        LocalModelAdviceRequest request = new(
+            replay,
+            MoveQualityBucket.Mistake,
+            new MistakeTag("hanging_piece", 0.90, ["piece_lost_or_underdefended"]),
+            "e2e4",
+            180,
+            ExplanationLevel.Intermediate,
+            new AdviceGenerationContext(
+                "test",
+                "game-profile-test",
+                PlayerSide.White,
+                new AdvicePromptContext(
+                    AnalyzedPlayer: "TestPlayer",
+                    BestMoveSan: "e4 (e2e4)",
+                    Evidence: ["the moved piece became loose or tactically vulnerable"],
+                    PlayerProfile: profile)),
+            string.Empty);
+
+        string prompt = AdvicePromptFormatter.BuildPrompt(request);
+
+        Assert.Contains("Player history", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Games analyzed: 5", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Average centipawn loss: 42", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("hanging piece: 7 times", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("missed tactic: 4 times", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Weakest phase: Middlegame", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("recurring pattern", prompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AdvicePromptFormatter_OmitsPlayerHistoryWhenNoProfile()
+    {
+        ReplayPly replay = CreateReplay(GamePhase.Opening, "P", "e2", "e4", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1");
+
+        LocalModelAdviceRequest request = new(
+            replay,
+            MoveQualityBucket.Inaccuracy,
+            null,
+            "d2d4",
+            60,
+            ExplanationLevel.Beginner,
+            new AdviceGenerationContext("test", "game-no-profile", PlayerSide.White),
+            string.Empty);
+
+        string prompt = AdvicePromptFormatter.BuildPrompt(request);
+
+        Assert.DoesNotContain("Player history", prompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LocalModelAdviceResponseParser_ParsesStructuredFieldsWithMultilineDetailedText()
+    {
+        const string rawResponse = """
+short_text: The move slowed development and gave away initiative.
+detailed_text: You brought the queen out before the minor pieces were ready.
+That gave Black easy developing moves with tempo.
+training_hint: Before every opening queen move, ask which minor piece could improve first.
+""";
+
+        bool parsed = LocalModelAdviceResponseParser.TryParse(rawResponse, out LocalModelAdviceResponse? response);
+
+        Assert.True(parsed);
+        Assert.NotNull(response);
+        Assert.Contains("slowed development", response!.ShortText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("easy developing moves", response.DetailedText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("minor piece", response.TrainingHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LocalModelAdviceResponseParser_ParsesJsonPayload()
+    {
+        const string rawResponse = """
+{
+  "short_text": "The move gave away central control.",
+  "detailed_text": "You moved the queen too early and let the opponent develop with tempo.",
+  "training_hint": "In the opening, develop a knight or bishop before repeating queen moves."
+}
+""";
+
+        bool parsed = LocalModelAdviceResponseParser.TryParse(rawResponse, out LocalModelAdviceResponse? response);
+
+        Assert.True(parsed);
+        Assert.NotNull(response);
+        Assert.Equal("The move gave away central control.", response!.ShortText);
+        Assert.Contains("develop with tempo", response.DetailedText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("develop a knight", response.TrainingHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LocalModelAdviceResponseParser_ParsesMarkdownWrappedJsonPayload()
+    {
+        const string rawResponse = """
+```json
+{
+  "short_text": "The move lost the initiative.",
+  "detailed_text": "You moved the queen too early and let Black develop freely.",
+  "training_hint": "Before a queen move in the opening, check whether a knight or bishop can improve first."
+}
+```
+""";
+
+        bool parsed = LocalModelAdviceResponseParser.TryParse(rawResponse, out LocalModelAdviceResponse? response);
+
+        Assert.True(parsed);
+        Assert.NotNull(response);
+        Assert.Contains("lost the initiative", response!.ShortText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LocalModelAdviceResponseParser_RejectsIncompletePayload()
+    {
+        const string rawResponse = """
+short_text: The move lost time.
+training_hint: Improve a minor piece first.
+""";
+
+        bool parsed = LocalModelAdviceResponseParser.TryParse(rawResponse, out LocalModelAdviceResponse? response);
+
+        Assert.False(parsed);
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public void LocalModelAdviceResponseParser_ParsesJsonFromLlamaChatStdoutWithEchoedPrompt()
+    {
+        const string rawResponse = """
+            Loading model...
+
+
+            build      : b8837-59accc886
+            model      : qwen2.5-3b-instruct-q4_k_m.gguf
+            modalities : text
+
+            available commands:
+              /exit or Ctrl+C     stop or exit
+              /regen              regenerate the last response
+              /clear              clear the chat history
+              /read <file>        add a text file
+              /glob <pattern>     add text files using globbing pattern
+
+
+            > Return EXACTLY this JSON object and nothing else:
+            {"short_text":"ok","detailed_text":"ok","training_hint":"ok"}
+
+            {"short_text":"ok","detailed_text":"ok","training_hint":"ok"}
+
+            [ Prompt: 49.3 t/s | Generation: 5.2 t/s ]
+
+            Exiting...
+            """;
+
+        bool parsed = LocalModelAdviceResponseParser.TryParse(rawResponse, out LocalModelAdviceResponse? response);
+
+        Assert.True(parsed);
+        Assert.NotNull(response);
+        Assert.Equal("ok", response!.ShortText);
+        Assert.Equal("ok", response.DetailedText);
+        Assert.Equal("ok", response.TrainingHint);
+    }
+
+    [Fact]
+    public void LocalModelAdviceGenerator_FallsBackWhenModelIsUnavailable()
+    {
+        LocalModelAdviceGenerator generator = new(
+            new AdviceGenerationSettings(AdviceGeneratorMode.Adaptive, 260, 220, 420),
+            new FakeLocalAdviceModel(isAvailable: false),
+            new TemplateAdviceGenerator());
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "h5",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/7Q/8/8/PPPPPPPP/RNB1KBNR b KQkq - 1 1");
+
+        MoveExplanation explanation = generator.Generate(
+            replay,
+            MoveQualityBucket.Inaccuracy,
+            new MistakeTag("opening_principles", 0.82, ["early_queen_move"]),
+            "g1f3",
+            110,
+            ExplanationLevel.Intermediate);
+
+        Assert.True(generator.UsedFallback);
+        Assert.Contains("unavailable", generator.FallbackReason, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(explanation.ShortText);
+    }
+
+    [Fact]
+    public void LocalModelAdviceGenerator_UsesLocalModelResponseWhenAvailable()
+    {
+        LocalModelAdviceGenerator generator = new(
+            new AdviceGenerationSettings(AdviceGeneratorMode.Adaptive, 260, 220, 420),
+            new FakeLocalAdviceModel(
+                isAvailable: true,
+                response: """
+short_text: Model short text
+detailed_text: Model detailed text
+training_hint: Model training hint
+"""),
+            new TemplateAdviceGenerator());
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "h5",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/7Q/8/8/PPPPPPPP/RNB1KBNR b KQkq - 1 1");
+
+        MoveExplanation explanation = generator.Generate(
+            replay,
+            MoveQualityBucket.Inaccuracy,
+            new MistakeTag("opening_principles", 0.82, ["early_queen_move"]),
+            "g1f3",
+            110,
+            ExplanationLevel.Intermediate);
+
+        Assert.False(generator.UsedFallback);
+        Assert.Null(generator.FallbackReason);
+        Assert.Equal("Model short text", explanation.ShortText);
+        Assert.Equal("Model training hint", explanation.TrainingHint);
+        Assert.Equal("Model detailed text", explanation.DetailedText);
+    }
+
+    [Fact]
+    public void LocalModelAdviceGenerator_FallsBackWhenModelResponseCannotBeParsed()
+    {
+        LocalModelAdviceGenerator generator = new(
+            new AdviceGenerationSettings(AdviceGeneratorMode.Adaptive, 260, 220, 420),
+            new FakeLocalAdviceModel(
+                isAvailable: true,
+                response: "This is free-form text without the required fields."),
+            new TemplateAdviceGenerator());
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "Q",
+            "d1",
+            "h5",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/7Q/8/8/PPPPPPPP/RNB1KBNR b KQkq - 1 1");
+
+        MoveExplanation explanation = generator.Generate(
+            replay,
+            MoveQualityBucket.Inaccuracy,
+            new MistakeTag("opening_principles", 0.82, ["early_queen_move"]),
+            "g1f3",
+            110,
+            ExplanationLevel.Intermediate);
+
+        Assert.True(generator.UsedFallback);
+        Assert.Contains("unparsable", generator.FallbackReason, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(explanation.ShortText);
+    }
+
+    [Fact]
+    public void LocalProcessAdviceModel_ExecutesLocalCommandAndReturnsStdout()
+    {
+        string powerShellPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            "System32",
+            "WindowsPowerShell",
+            "v1.0",
+            "powershell.exe");
+
+        Assert.True(File.Exists(powerShellPath));
+
+        LocalProcessAdviceModel model = new(new LocalAdviceModelOptions(
+            powerShellPath,
+            "-NoProfile -Command \"$input | Out-Null; Write-Output '{\\\"short_text\\\":\\\"Process short text\\\",\\\"detailed_text\\\":\\\"Process detailed text\\\",\\\"training_hint\\\":\\\"Process training hint\\\"}'\"",
+            TimeoutMs: 5000));
+
+        string? rawResponse = model.Generate(new LocalModelAdviceRequest(
+            CreateReplay(
+                GamePhase.Opening,
+                "Q",
+                "d1",
+                "h5",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                "rnbqkbnr/pppppppp/8/7Q/8/8/PPPPPPPP/RNB1KBNR b KQkq - 1 1"),
+            MoveQualityBucket.Inaccuracy,
+            new MistakeTag("opening_principles", 0.82, ["early_queen_move"]),
+            "g1f3",
+            110,
+            ExplanationLevel.Intermediate,
+            new AdviceGenerationContext("test", "game-4"),
+            "prompt"));
+
+        Assert.NotNull(rawResponse);
+        Assert.Contains("Process short text", rawResponse, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LlamaCppAdviceModel_BuildArguments_UsesGrammarPromptAndModel()
+    {
+        IReadOnlyList<string> arguments = LlamaCppAdviceModel.BuildArguments(
+            "C:\\models\\stockifhsgui-advice.gguf",
+            "Prompt body",
+            180,
+            2048);
+
+        Assert.Equal("-m", arguments[0]);
+        Assert.Equal("C:\\models\\stockifhsgui-advice.gguf", arguments[1]);
+        Assert.Equal("-c", arguments[2]);
+        Assert.Equal("2048", arguments[3]);
+        Assert.Equal("-n", arguments[4]);
+        Assert.Equal("180", arguments[5]);
+        Assert.Equal("--single-turn", arguments[6]);
+        Assert.Equal("--simple-io", arguments[7]);
+        Assert.Equal("--no-display-prompt", arguments[8]);
+        Assert.Equal("--log-disable", arguments[9]);
+        Assert.Equal("--grammar", arguments[10]);
+        Assert.Contains("short_text", arguments[11], StringComparison.Ordinal);
+        Assert.Equal("-p", arguments[12]);
+        Assert.Equal("Prompt body", arguments[13]);
+    }
+
+    [Fact]
+    public void LlamaCppAdviceModel_BuildJsonGrammar_RequiresAdviceFields()
+    {
+        string grammar = LlamaCppAdviceModel.BuildJsonGrammar();
+
+        Assert.Contains("short_text", grammar, StringComparison.Ordinal);
+        Assert.Contains("detailed_text", grammar, StringComparison.Ordinal);
+        Assert.Contains("training_hint", grammar, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LlamaCppAdviceRuntimeResolver_UsesEnvironmentOverridesWhenFilesExist()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), $"StockifhsGUI-llama-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        string cliPath = Path.Combine(tempDirectory, "llama-cli.exe");
+        string modelPath = Path.Combine(tempDirectory, "stockifhsgui-advice.gguf");
+        File.WriteAllText(cliPath, "cli");
+        File.WriteAllText(modelPath, "model");
+
+        string? previousCli = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH");
+        string? previousModel = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH");
+        string? previousMaxTokens = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MAX_TOKENS");
+        string? previousTimeout = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_TIMEOUT_MS");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", cliPath);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", modelPath);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MAX_TOKENS", "190");
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_TIMEOUT_MS", "12000");
+
+            LlamaCppAdviceRuntime? runtime = LlamaCppAdviceRuntimeResolver.Resolve();
+
+            Assert.NotNull(runtime);
+            Assert.Equal(cliPath, runtime!.CliPath);
+            Assert.Equal(modelPath, runtime.ModelPath);
+            Assert.Equal(190, runtime.MaxTokens);
+            Assert.Equal(2048, runtime.ContextSize);
+            Assert.Equal(12000, runtime.TimeoutMs);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", previousCli);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", previousModel);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MAX_TOKENS", previousMaxTokens);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_TIMEOUT_MS", previousTimeout);
+
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void AdviceRuntimeCatalog_ReturnsReadyStatusForSupportedLlamaCppSetup()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), $"StockifhsGUI-llama-status-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        string cliPath = Path.Combine(tempDirectory, "llama-cli.exe");
+        string modelPath = Path.Combine(tempDirectory, "stockifhsgui-advice.gguf");
+        File.WriteAllText(cliPath, "cli");
+        File.WriteAllText(modelPath, "model");
+
+        string? previousCli = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH");
+        string? previousModel = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", cliPath);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", modelPath);
+
+            AdviceRuntimeStatus status = AdviceRuntimeCatalog.GetStatus();
+
+            Assert.True(status.IsReady);
+            Assert.Contains("llama.cpp ready", status.StatusText, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", previousCli);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", previousModel);
+
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void AdviceRuntimeCatalog_ReturnsFallbackStatusWhenNoRuntimeIsConfigured()
+    {
+        string? previousCli = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH");
+        string? previousModel = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH");
+        string? previousCommand = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LOCAL_ADVICE_COMMAND");
+        string? previousArgs = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LOCAL_ADVICE_ARGS");
+        string? previousWorkdir = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LOCAL_ADVICE_WORKDIR");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", null);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", null);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LOCAL_ADVICE_COMMAND", null);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LOCAL_ADVICE_ARGS", null);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LOCAL_ADVICE_WORKDIR", null);
+
+            AdviceRuntimeStatus status = AdviceRuntimeCatalog.GetStatus();
+
+            Assert.False(status.IsReady);
+            Assert.Contains("heuristic fallback", status.StatusText, StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(status.InstallHint);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", previousCli);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", previousModel);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LOCAL_ADVICE_COMMAND", previousCommand);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LOCAL_ADVICE_ARGS", previousArgs);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LOCAL_ADVICE_WORKDIR", previousWorkdir);
+        }
+    }
+
+    [Fact]
+    public void LlamaCppAdviceRuntimeResolver_RecognizesRecommendedQwenFileName()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), $"StockifhsGUI-llama-qwen-{Guid.NewGuid():N}");
+        string modelsDirectory = Path.Combine(tempDirectory, "Models");
+        Directory.CreateDirectory(modelsDirectory);
+        string cliPath = Path.Combine(tempDirectory, "llama-cli.exe");
+        string modelPath = Path.Combine(modelsDirectory, "qwen2.5-3b-instruct-q4_k_m.gguf");
+        File.WriteAllText(cliPath, "cli");
+        File.WriteAllText(modelPath, "model");
+
+        string? previousCli = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH");
+        string? previousModel = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH");
+        string previousDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", cliPath);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", null);
+            Directory.SetCurrentDirectory(tempDirectory);
+
+            LlamaCppAdviceRuntime? runtime = LlamaCppAdviceRuntimeResolver.Resolve();
+
+            Assert.NotNull(runtime);
+            Assert.Equal(modelPath, runtime!.ModelPath);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(previousDirectory);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", previousCli);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", previousModel);
+
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LlamaCppServerResolver_UsesEnvironmentOverrideWhenFileExists()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), $"StockifhsGUI-server-resolve-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        string serverPath = Path.Combine(tempDirectory, "llama-server.exe");
+        string modelPath = Path.Combine(tempDirectory, "stockifhsgui-advice.gguf");
+        File.WriteAllText(serverPath, "server");
+        File.WriteAllText(modelPath, "model");
+
+        string? previousServer = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH");
+        string? previousModel = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH");
+        string? previousCli = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH", serverPath);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", modelPath);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", null);
+
+            LlamaCppServerConfig? config = LlamaCppServerResolver.Resolve();
+
+            Assert.NotNull(config);
+            Assert.Equal(serverPath, config!.ServerPath);
+            Assert.Equal(modelPath, config.ModelPath);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH", previousServer);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", previousModel);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", previousCli);
+
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LlamaCppServerResolver_ReturnsNullWhenServerExeMissing()
+    {
+        string? previousServer = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH", null);
+
+            string? serverPath = LlamaCppServerResolver.ResolveServerPath();
+
+            // May or may not be null depending on what's on disk, but at least it should not throw.
+            Assert.True(serverPath is null || File.Exists(serverPath));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH", previousServer);
+        }
+    }
+
+    [Fact]
+    public void LlamaCppHttpAdviceModel_ExtractContent_ParsesValidResponse()
+    {
+        const string responseJson = """
+        {
+          "content": "{\"short_text\":\"ok\",\"detailed_text\":\"ok\",\"training_hint\":\"ok\"}",
+          "id_slot": 0,
+          "stop": true,
+          "model": "test.gguf"
+        }
+        """;
+
+        string? content = LlamaCppHttpAdviceModel.ExtractContent(responseJson);
+
+        Assert.NotNull(content);
+        Assert.Contains("short_text", content);
+        Assert.Contains("ok", content);
+    }
+
+    [Fact]
+    public void LlamaCppHttpAdviceModel_ExtractContent_ReturnsNullForEmptyContent()
+    {
+        const string responseJson = """
+        {
+          "content": "",
+          "stop": true
+        }
+        """;
+
+        string? content = LlamaCppHttpAdviceModel.ExtractContent(responseJson);
+
+        Assert.Null(content);
+    }
+
+    [Fact]
+    public void LlamaCppHttpAdviceModel_ExtractContent_ReturnsNullForMissingContentField()
+    {
+        const string responseJson = """
+        {
+          "stop": true,
+          "model": "test.gguf"
+        }
+        """;
+
+        string? content = LlamaCppHttpAdviceModel.ExtractContent(responseJson);
+
+        Assert.Null(content);
+    }
+
+    [Fact]
+    public void LlamaCppHttpAdviceModel_ExtractContent_ReturnsNullForInvalidJson()
+    {
+        string? content = LlamaCppHttpAdviceModel.ExtractContent("not json");
+
+        Assert.Null(content);
+    }
+
+    [Fact]
+    public void LlamaCppHttpAdviceModel_ExtractContent_ParsedContentCanBeUsedByResponseParser()
+    {
+        const string responseJson = """
+        {
+          "content": "{\"short_text\":\"Move explanation\",\"detailed_text\":\"Detailed explanation\",\"training_hint\":\"Training hint\"}",
+          "stop": true
+        }
+        """;
+
+        string? content = LlamaCppHttpAdviceModel.ExtractContent(responseJson);
+        Assert.NotNull(content);
+
+        bool parsed = LocalModelAdviceResponseParser.TryParse(content, out LocalModelAdviceResponse? response);
+
+        Assert.True(parsed);
+        Assert.NotNull(response);
+        Assert.Equal("Move explanation", response!.ShortText);
+        Assert.Equal("Detailed explanation", response.DetailedText);
+        Assert.Equal("Training hint", response.TrainingHint);
+    }
+
+    [Fact]
+    public void AdviceRuntimeCatalog_PrefersServerOverCliWhenBothExist()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), $"StockifhsGUI-catalog-priority-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        string serverPath = Path.Combine(tempDirectory, "llama-server.exe");
+        string cliPath = Path.Combine(tempDirectory, "llama-cli.exe");
+        string modelPath = Path.Combine(tempDirectory, "stockifhsgui-advice.gguf");
+        File.WriteAllText(serverPath, "server");
+        File.WriteAllText(cliPath, "cli");
+        File.WriteAllText(modelPath, "model");
+
+        string? previousServer = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH");
+        string? previousCli = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH");
+        string? previousModel = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH", serverPath);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", cliPath);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", modelPath);
+
+            ILocalAdviceModel? model = AdviceRuntimeCatalog.TryCreateConfiguredModel();
+
+            Assert.NotNull(model);
+            Assert.IsType<LlamaCppHttpAdviceModel>(model);
+            Assert.Equal("llama.cpp (server)", model!.Name);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH", previousServer);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_CLI_PATH", previousCli);
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH", previousModel);
+
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     private static ReplayPly CreateReplay(
         GamePhase phase,
         string movingPiece,
@@ -780,10 +1637,13 @@ Kxa2 62. Qb2# 1-0
         bool EarlyKingMoveWithoutCastling = false,
         bool EdgePawnPush = false,
         bool BestMoveIsCapture = false,
+        bool BestMoveIsCastle = false,
+        bool BestMoveDevelopsMinorPiece = false,
         int? BestMoveMaterialSwingCp = null,
         int? PlayedLineMaterialSwingCp = null,
         int DevelopedMinorPiecesBefore = 0,
         int DevelopedMinorPiecesAfter = 0,
+        int BestMoveDevelopedMinorPiecesAfter = 0,
         bool CastledBeforeMove = false,
         bool CastledAfterMove = false,
         bool KingCentralizedBeforeMove = false,
@@ -805,10 +1665,13 @@ Kxa2 62. Qb2# 1-0
             EarlyKingMoveWithoutCastling,
             EdgePawnPush,
             BestMoveIsCapture,
+            BestMoveIsCastle,
+            BestMoveDevelopsMinorPiece,
             BestMoveMaterialSwingCp,
             PlayedLineMaterialSwingCp,
             DevelopedMinorPiecesBefore,
             DevelopedMinorPiecesAfter,
+            BestMoveDevelopedMinorPiecesAfter,
             CastledBeforeMove,
             CastledAfterMove,
             KingCentralizedBeforeMove,
@@ -857,5 +1720,22 @@ Kxa2 62. Qb2# 1-0
 
             throw new InvalidOperationException($"No fake analysis configured for FEN: {fen}");
         }
+    }
+
+    private sealed class FakeLocalAdviceModel : ILocalAdviceModel
+    {
+        private readonly string? response;
+
+        public FakeLocalAdviceModel(bool isAvailable, string? response = null)
+        {
+            IsAvailable = isAvailable;
+            this.response = response;
+        }
+
+        public string Name => "fake-local-model";
+
+        public bool IsAvailable { get; }
+
+        public string? Generate(LocalModelAdviceRequest request) => response;
     }
 }

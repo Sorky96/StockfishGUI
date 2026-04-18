@@ -186,6 +186,63 @@ public sealed class PlayerProfileServiceTests
             return filtered.Take(limit).ToList();
         }
 
+        public IReadOnlyList<StoredMoveAnalysis> ListMoveAnalyses(string? filterText = null, int limit = 5000)
+        {
+            IEnumerable<GameAnalysisResult> filtered = results;
+            if (!string.IsNullOrWhiteSpace(filterText))
+            {
+                filtered = filtered.Where(result =>
+                    (result.Game.WhitePlayer?.Contains(filterText, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (result.Game.BlackPlayer?.Contains(filterText, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+
+            return filtered
+                .SelectMany(result =>
+                {
+                    HashSet<string> highlightedLabels = result.HighlightedMistakes
+                        .Select(mistake => mistake.Tag?.Label ?? "unclassified")
+                        .ToHashSet(StringComparer.Ordinal);
+
+                    return result.MoveAnalyses.Select(move => new StoredMoveAnalysis(
+                        GameFingerprint.Compute(result.Game.PgnText),
+                        result.AnalyzedSide,
+                        14,
+                        3,
+                        null,
+                        DateTime.Parse("2026-04-18T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal),
+                        result.Game.WhitePlayer,
+                        result.Game.BlackPlayer,
+                        result.Game.DateText,
+                        result.Game.Result,
+                        result.Game.Eco,
+                        result.Game.Site,
+                        move.Replay.Ply,
+                        move.Replay.MoveNumber,
+                        move.Replay.San,
+                        move.Replay.Uci,
+                        move.Replay.FenBefore,
+                        move.Replay.FenAfter,
+                        move.Replay.Phase,
+                        move.EvalBeforeCp,
+                        move.EvalAfterCp,
+                        move.BestMateIn,
+                        move.PlayedMateIn,
+                        move.CentipawnLoss,
+                        move.Quality,
+                        move.MaterialDeltaCp,
+                        move.BeforeAnalysis.BestMoveUci,
+                        move.MistakeTag?.Label,
+                        move.MistakeTag?.Confidence,
+                        move.MistakeTag?.Evidence ?? [],
+                        move.Explanation?.ShortText,
+                        move.Explanation?.DetailedText,
+                        move.Explanation?.TrainingHint,
+                        highlightedLabels.Contains(move.MistakeTag?.Label ?? "unclassified")));
+                })
+                .Take(limit)
+                .ToList();
+        }
+
         public bool DeleteImportedGame(string gameFingerprint) => throw new NotSupportedException();
         public IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText = null, int limit = 200) => [];
         public void SaveImportedGame(ImportedGame game) => throw new NotSupportedException();

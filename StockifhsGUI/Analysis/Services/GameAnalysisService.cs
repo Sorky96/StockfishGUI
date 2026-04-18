@@ -18,7 +18,7 @@ public sealed class GameAnalysisService
         this.engineAnalyzer = engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer));
         this.replayService = replayService ?? new GameReplayService();
         this.mistakeClassifier = mistakeClassifier ?? new MistakeClassifier();
-        this.adviceGenerator = adviceGenerator ?? AdviceGeneratorFactory.CreateDefault();
+        this.adviceGenerator = adviceGenerator ?? AdviceGeneratorFactory.CreateBulkAnalysisGenerator();
         this.mistakeSelector = mistakeSelector ?? new MistakeSelector();
     }
 
@@ -30,6 +30,10 @@ public sealed class GameAnalysisService
         IReadOnlyList<ReplayPly> replay = replayService.Replay(game);
         List<MoveAnalysisResult> moveAnalyses = new();
         Dictionary<EngineCacheKey, EngineAnalysis> analysisCache = new();
+
+        // Load player profile once per game for prompt personalization.
+        string? analyzedPlayerName = analyzedSide == PlayerSide.White ? game.WhitePlayer : game.BlackPlayer;
+        PlayerMistakeProfile? playerProfile = PlayerMistakeProfileProvider.TryBuild(analyzedPlayerName);
 
         foreach (ReplayPly ply in replay.Where(item => item.Side == analyzedSide))
         {
@@ -50,6 +54,14 @@ public sealed class GameAnalysisService
             MoveHeuristicContext heuristicContext = BuildHeuristicContext(ply, analyzedSide, beforeAnalysis, afterAnalysis);
 
             MistakeTag? tag = mistakeClassifier.Classify(ply, analyzedSide, quality, centipawnLoss, materialDelta, heuristicContext);
+            AdvicePromptContext promptContext = AdvicePromptContextBuilder.Build(
+                game,
+                ply,
+                analyzedSide,
+                tag,
+                bestLine?.MoveUci,
+                heuristicContext,
+                playerProfile);
             MoveExplanation? explanation = quality == MoveQualityBucket.Good
                 ? null
                 : adviceGenerator.Generate(
@@ -61,7 +73,8 @@ public sealed class GameAnalysisService
                     context: new AdviceGenerationContext(
                         "game-analysis-service",
                         GameFingerprint.Compute(game.PgnText),
-                        analyzedSide));
+                        analyzedSide,
+                        promptContext));
 
             moveAnalyses.Add(new MoveAnalysisResult(
                 ply,
@@ -134,6 +147,13 @@ public sealed class GameAnalysisService
         bool castledAfterMove = PositionInspector.IsKingOnCastledWing(replay.FenAfter, analyzedSide);
         bool kingCentralizedBeforeMove = PositionInspector.IsKingCentralized(replay.FenBefore, analyzedSide);
         bool kingCentralizedAfterMove = PositionInspector.IsKingCentralized(replay.FenAfter, analyzedSide);
+        bool bestMoveIsCastle = bestMove?.IsCastle == true;
+        bool bestMoveDevelopsMinorPiece = bestMove is not null
+            && IsMinorPieceMove(bestMove.MovingPiece)
+            && !PositionInspector.IsMinorPieceOnStartingSquare(bestMove.FenAfter, bestMove.ToSquare, analyzedSide);
+        int bestMoveDevelopedMinorPiecesAfter = bestMove is null
+            ? developedMinorPiecesBefore
+            : PositionInspector.CountDevelopedMinorPieces(bestMove.FenAfter, analyzedSide);
         bool bestMoveCentralizesKing = bestMove is not null
             && PositionInspector.IsKingCentralized(bestMove.FenAfter, analyzedSide);
         PositionInspector.SquareSafetySummary? movedPieceSafety = PositionInspector.AnalyzeSquareSafety(replay.FenAfter, replay.ToSquare, analyzedSide);
@@ -155,15 +175,24 @@ public sealed class GameAnalysisService
             replay.Phase == GamePhase.Opening && movedPiece == 'k' && !replay.IsCastle,
             replay.Phase == GamePhase.Opening && movedPiece == 'p' && fromFile is 'a' or 'b' or 'g' or 'h',
             bestMove?.IsCapture == true,
+            bestMoveIsCastle,
+            bestMoveDevelopsMinorPiece,
             bestMoveMaterialSwing,
             playedLineSwing?.WorstDeltaCp,
             developedMinorPiecesBefore,
             developedMinorPiecesAfter,
+            bestMoveDevelopedMinorPiecesAfter,
             castledBeforeMove,
             castledAfterMove,
             kingCentralizedBeforeMove,
             kingCentralizedAfterMove,
             bestMoveCentralizesKing);
+    }
+
+    private static bool IsMinorPieceMove(string movingPiece)
+    {
+        return movingPiece.Equals("N", StringComparison.OrdinalIgnoreCase)
+            || movingPiece.Equals("B", StringComparison.OrdinalIgnoreCase);
     }
 
     private static AppliedMoveInfo? TryApplyBestMove(string fenBefore, string? bestMoveUci)

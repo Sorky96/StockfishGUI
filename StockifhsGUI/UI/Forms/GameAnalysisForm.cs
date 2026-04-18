@@ -9,21 +9,26 @@ public sealed class GameAnalysisForm : Form
     private static readonly EngineAnalysisOptions DefaultAnalysisOptions = new();
 
     private readonly ImportedGame importedGame;
-    private readonly GameAnalysisService analysisService;
-    private readonly IAdviceGenerator adviceGenerator = AdviceGeneratorFactory.CreateDefault();
+    private readonly IEngineAnalyzer engineAnalyzer;
     private readonly Action<MoveAnalysisResult>? navigateToMove;
     private readonly PlayerSide? preferredSide;
     private readonly ComboBox sideComboBox;
     private readonly ComboBox qualityFilterComboBox;
     private readonly ComboBox explanationLevelComboBox;
     private readonly Button analyzeButton;
+    private readonly Button testAdviceButton;
     private readonly Button showOnBoardButton;
+    private readonly Label adviceStatusLabel;
     private readonly Label summaryLabel;
     private readonly ListBox mistakesListBox;
     private readonly TextBox detailsTextBox;
+    private readonly Dictionary<string, MoveExplanation> explanationCache = new();
 
+    private GameAnalysisService analysisService;
+    private IAdviceGenerator adviceGenerator;
     private GameAnalysisResult? currentResult;
     private bool currentResultIsCached;
+    private int explanationRequestId;
 
     public GameAnalysisForm(
         ImportedGame importedGame,
@@ -34,7 +39,9 @@ public sealed class GameAnalysisForm : Form
         this.importedGame = importedGame ?? throw new ArgumentNullException(nameof(importedGame));
         this.navigateToMove = navigateToMove;
         this.preferredSide = preferredSide;
-        analysisService = new GameAnalysisService(engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer)));
+        this.engineAnalyzer = engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer));
+        adviceGenerator = AdviceGeneratorFactory.CreateDefault();
+        analysisService = new GameAnalysisService(this.engineAnalyzer, adviceGenerator: adviceGenerator);
         UiTheme.ApplyFormChrome(this);
 
         Text = "Imported Game Analysis";
@@ -153,10 +160,32 @@ public sealed class GameAnalysisForm : Form
         showOnBoardButton.Click += (_, _) => ShowSelectedMistakeOnBoard();
         Controls.Add(showOnBoardButton);
 
-        summaryLabel = new Label
+        adviceStatusLabel = new Label
         {
             AutoSize = false,
             Location = new Point(16, 92),
+            Size = new Size(712, 40),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            AutoEllipsis = true
+        };
+        UiTheme.StyleInfoLabel(adviceStatusLabel);
+        Controls.Add(adviceStatusLabel);
+
+        testAdviceButton = new Button
+        {
+            Location = new Point(744, 96),
+            Size = new Size(152, 32),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Text = "Test Advice Model"
+        };
+        UiTheme.StyleSecondaryButton(testAdviceButton);
+        testAdviceButton.Click += async (_, _) => await TestAdviceRuntimeAsync();
+        Controls.Add(testAdviceButton);
+
+        summaryLabel = new Label
+        {
+            AutoSize = false,
+            Location = new Point(16, 140),
             Size = new Size(880, 44),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             Text = "Choose a side and run the analysis."
@@ -167,7 +196,7 @@ public sealed class GameAnalysisForm : Form
         Label mistakesHeader = new()
         {
             AutoSize = true,
-            Location = new Point(16, 128),
+            Location = new Point(16, 184),
             Text = "Highlighted moments"
         };
         UiTheme.StyleSectionLabel(mistakesHeader);
@@ -176,7 +205,7 @@ public sealed class GameAnalysisForm : Form
         Label detailsHeader = new()
         {
             AutoSize = true,
-            Location = new Point(392, 128),
+            Location = new Point(392, 184),
             Text = "Details and guidance"
         };
         UiTheme.StyleSectionLabel(detailsHeader);
@@ -184,8 +213,8 @@ public sealed class GameAnalysisForm : Form
 
         mistakesListBox = new ListBox
         {
-            Location = new Point(16, 148),
-            Size = new Size(360, 452),
+            Location = new Point(16, 204),
+            Size = new Size(360, 396),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
             Font = new Font("Consolas", 10)
         };
@@ -200,8 +229,8 @@ public sealed class GameAnalysisForm : Form
 
         detailsTextBox = new TextBox
         {
-            Location = new Point(392, 148),
-            Size = new Size(504, 452),
+            Location = new Point(392, 204),
+            Size = new Size(504, 396),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
             Multiline = true,
             ReadOnly = true,
@@ -216,11 +245,14 @@ public sealed class GameAnalysisForm : Form
         {
             sideComboBox.SelectedIndex = this.preferredSide.Value == PlayerSide.Black ? 1 : 0;
         }
+        RefreshAdviceRuntimeState();
         TryLoadCachedResultForSelectedSide();
     }
 
     private async Task RunAnalysisAsync()
     {
+        RefreshAdviceRuntimeState();
+
         if (sideComboBox.SelectedItem is not SideOption selectedSide)
         {
             return;
@@ -269,6 +301,46 @@ public sealed class GameAnalysisForm : Form
         }
     }
 
+    private async Task TestAdviceRuntimeAsync()
+    {
+        RefreshAdviceRuntimeState();
+        AdviceRuntimeStatus status = AdviceRuntimeCatalog.GetStatus();
+
+        if (!status.IsReady)
+        {
+            MessageBox.Show(
+                this,
+                status.InstallHint is null ? status.StatusText : $"{status.StatusText}{Environment.NewLine}{Environment.NewLine}{status.InstallHint}",
+                "Advice Model Not Ready",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        testAdviceButton.Enabled = false;
+        analyzeButton.Enabled = false;
+        UseWaitCursor = true;
+        adviceStatusLabel.Text = $"Advice model: testing {status.RuntimeName ?? "local runtime"}...";
+
+        try
+        {
+            AdviceRuntimeSmokeTestResult result = await Task.Run(AdviceRuntimeSmokeTester.Run);
+            RefreshAdviceRuntimeState();
+            MessageBox.Show(
+                this,
+                result.Message,
+                result.Success ? "Advice Model Ready" : "Advice Model Test Failed",
+                MessageBoxButtons.OK,
+                result.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            UseWaitCursor = false;
+            analyzeButton.Enabled = true;
+            testAdviceButton.Enabled = true;
+        }
+    }
+
     private void ApplyFilter()
     {
         mistakesListBox.Items.Clear();
@@ -305,6 +377,7 @@ public sealed class GameAnalysisForm : Form
         {
             detailsTextBox.Clear();
             showOnBoardButton.Enabled = false;
+            explanationRequestId++;
             return;
         }
 
@@ -318,76 +391,23 @@ public sealed class GameAnalysisForm : Form
         ExplanationLevel explanationLevel = explanationLevelComboBox.SelectedItem is ExplanationLevelOption levelOption
             ? levelOption.Level
             : ExplanationLevel.Intermediate;
-        MoveExplanation explanation = adviceGenerator.Generate(
-            lead.Replay,
-            lead.Quality,
-            lead.MistakeTag,
-            lead.BeforeAnalysis.BestMoveUci,
-            lead.CentipawnLoss,
-            explanationLevel,
-            new AdviceGenerationContext(
-                "game-analysis-form",
-                GameFingerprint.Compute(importedGame.PgnText),
-                currentResult?.AnalyzedSide));
+        string cacheKey = BuildExplanationCacheKey(lead, explanationLevel);
+        MoveExplanation explanation = lead.Explanation
+            ?? new MoveExplanation("Explanation is loading...", "Training hint is loading...");
 
-        StringBuilder builder = new();
-        builder.AppendLine($"Moves: {BuildMoveRange(mistake)}");
-        builder.AppendLine($"Quality: {mistake.Quality}");
-        builder.AppendLine($"Label: {mistake.Tag?.Label ?? "unclassified"}");
-        builder.AppendLine($"Confidence: {(mistake.Tag?.Confidence ?? 0):0.00}");
-        builder.AppendLine($"Phase: {lead.Replay.Phase}");
-        builder.AppendLine($"Played move: {FormatSanAndUci(lead.Replay.San, lead.Replay.Uci)}");
-        builder.AppendLine($"Best move: {FormatMoveFromFen(lead.Replay.FenBefore, lead.BeforeAnalysis.BestMoveUci)}");
-        builder.AppendLine($"Eval before: {FormatScore(lead.EvalBeforeCp, lead.BestMateIn)}");
-        builder.AppendLine($"Eval after: {FormatScore(lead.EvalAfterCp, lead.PlayedMateIn)}");
-        builder.AppendLine($"Centipawn loss: {(lead.CentipawnLoss?.ToString() ?? "n/a")}");
-        builder.AppendLine($"Material delta: {lead.MaterialDeltaCp}");
-        builder.AppendLine();
-        builder.AppendLine($"Explanation ({explanationLevel}):");
-        builder.AppendLine(explanation.ShortText);
-
-        if (!string.IsNullOrWhiteSpace(explanation.DetailedText))
+        bool isCached = explanationCache.TryGetValue(cacheKey, out MoveExplanation? cachedExplanation);
+        if (isCached && cachedExplanation is not null)
         {
-            builder.AppendLine();
-            builder.AppendLine("Detailed explanation:");
-            builder.AppendLine(explanation.DetailedText);
+            explanation = cachedExplanation;
         }
 
-        builder.AppendLine();
-        builder.AppendLine("Training hint:");
-        builder.AppendLine(explanation.TrainingHint);
+        detailsTextBox.Text = BuildDetailsText(mistake, lead, explanationLevel, explanation, !isCached);
 
-        if (mistake.Tag?.Evidence.Count > 0)
+        if (!isCached)
         {
-            builder.AppendLine();
-            builder.AppendLine("Evidence:");
-            foreach (string evidence in mistake.Tag.Evidence)
-            {
-                builder.AppendLine($"- {evidence}");
-            }
+            int requestId = ++explanationRequestId;
+            _ = LoadExplanationAsync(item, lead, explanationLevel, cacheKey, requestId);
         }
-
-        if (lead.BeforeAnalysis.Lines.Count > 0)
-        {
-            builder.AppendLine();
-            builder.AppendLine("Engine candidates:");
-            builder.AppendLine(FormatEngineCandidates(lead.Replay.FenBefore, lead.BeforeAnalysis.Lines));
-        }
-
-        EngineLine? playedContinuation = lead.AfterAnalysis.Lines.FirstOrDefault();
-        if (playedContinuation is not null && playedContinuation.Pv.Count > 0)
-        {
-            builder.AppendLine();
-            builder.AppendLine("Likely continuation after played move:");
-            builder.AppendLine($"Score: {FormatEngineScore(lead.EvalAfterCp, lead.PlayedMateIn)}");
-            builder.AppendLine(FormatPrincipalVariation(lead.Replay.FenAfter, playedContinuation.Pv, maxHalfMoves: 8));
-        }
-
-        builder.AppendLine();
-        builder.AppendLine("Board navigation:");
-        builder.AppendLine("Use 'Show On Board' to jump to this position in the main window.");
-
-        detailsTextBox.Text = builder.ToString();
     }
 
     private void ShowSelectedMistakeOnBoard()
@@ -512,6 +532,138 @@ public sealed class GameAnalysisForm : Form
         currentResultIsCached = false;
         summaryLabel.Text = $"No cached analysis for {selectedSide.Side}. Run analysis to generate it.";
         return false;
+    }
+
+    private void RefreshAdviceRuntimeState()
+    {
+        AdviceRuntimeStatus status = AdviceRuntimeCatalog.GetStatus();
+        adviceGenerator = AdviceGeneratorFactory.CreateInteractiveGenerator();
+        analysisService = new GameAnalysisService(
+            engineAnalyzer,
+            adviceGenerator: AdviceGeneratorFactory.CreateBulkAnalysisGenerator());
+        adviceStatusLabel.Text = status.StatusText;
+    }
+
+    private async Task LoadExplanationAsync(
+        SelectedMistakeViewItem item,
+        MoveAnalysisResult lead,
+        ExplanationLevel explanationLevel,
+        string cacheKey,
+        int requestId)
+    {
+        MoveExplanation explanation;
+
+        try
+        {
+            explanation = await Task.Run(() => adviceGenerator.Generate(
+                lead.Replay,
+                lead.Quality,
+                lead.MistakeTag,
+                lead.BeforeAnalysis.BestMoveUci,
+                lead.CentipawnLoss,
+                explanationLevel,
+                new AdviceGenerationContext(
+                    "game-analysis-form",
+                    GameFingerprint.Compute(importedGame.PgnText),
+                    currentResult?.AnalyzedSide)));
+        }
+        catch (Exception ex)
+        {
+            explanation = new MoveExplanation(
+                "Local advice generation failed.",
+                "Use the heuristic explanation for now.",
+                ex.Message);
+        }
+
+        if (IsDisposed || requestId != explanationRequestId)
+        {
+            return;
+        }
+
+        explanationCache[cacheKey] = explanation;
+
+        if (mistakesListBox.SelectedItem is not SelectedMistakeViewItem currentItem
+            || !ReferenceEquals(currentItem, item))
+        {
+            return;
+        }
+
+        detailsTextBox.Text = BuildDetailsText(item.Mistake, lead, explanationLevel, explanation, false);
+    }
+
+    private static string BuildExplanationCacheKey(MoveAnalysisResult lead, ExplanationLevel explanationLevel)
+        => $"{lead.Replay.Ply}:{lead.Replay.Uci}:{explanationLevel}";
+
+    private static string BuildDetailsText(
+        SelectedMistake mistake,
+        MoveAnalysisResult lead,
+        ExplanationLevel explanationLevel,
+        MoveExplanation explanation,
+        bool isLoading)
+    {
+        StringBuilder builder = new();
+        builder.AppendLine($"Moves: {BuildMoveRange(mistake)}");
+        builder.AppendLine($"Quality: {mistake.Quality}");
+        builder.AppendLine($"Label: {mistake.Tag?.Label ?? "unclassified"}");
+        builder.AppendLine($"Confidence: {(mistake.Tag?.Confidence ?? 0):0.00}");
+        builder.AppendLine($"Phase: {lead.Replay.Phase}");
+        builder.AppendLine($"Played move: {FormatSanAndUci(lead.Replay.San, lead.Replay.Uci)}");
+        builder.AppendLine($"Best move: {FormatMoveFromFen(lead.Replay.FenBefore, lead.BeforeAnalysis.BestMoveUci)}");
+        builder.AppendLine($"Eval before: {FormatScore(lead.EvalBeforeCp, lead.BestMateIn)}");
+        builder.AppendLine($"Eval after: {FormatScore(lead.EvalAfterCp, lead.PlayedMateIn)}");
+        builder.AppendLine($"Centipawn loss: {(lead.CentipawnLoss?.ToString() ?? "n/a")}");
+        builder.AppendLine($"Material delta: {lead.MaterialDeltaCp}");
+        builder.AppendLine();
+        builder.AppendLine($"Explanation ({explanationLevel}):");
+        builder.AppendLine(explanation.ShortText);
+
+        if (isLoading)
+        {
+            builder.AppendLine();
+            builder.AppendLine("Local advice model is generating a richer explanation in the background...");
+        }
+
+        if (!string.IsNullOrWhiteSpace(explanation.DetailedText))
+        {
+            builder.AppendLine();
+            builder.AppendLine("Detailed explanation:");
+            builder.AppendLine(explanation.DetailedText);
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Training hint:");
+        builder.AppendLine(explanation.TrainingHint);
+
+        if (mistake.Tag?.Evidence.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("Evidence:");
+            foreach (string evidence in mistake.Tag.Evidence)
+            {
+                builder.AppendLine($"- {evidence}");
+            }
+        }
+
+        if (lead.BeforeAnalysis.Lines.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("Engine candidates:");
+            builder.AppendLine(FormatEngineCandidates(lead.Replay.FenBefore, lead.BeforeAnalysis.Lines));
+        }
+
+        EngineLine? playedContinuation = lead.AfterAnalysis.Lines.FirstOrDefault();
+        if (playedContinuation is not null && playedContinuation.Pv.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("Likely continuation after played move:");
+            builder.AppendLine($"Score: {FormatEngineScore(lead.EvalAfterCp, lead.PlayedMateIn)}");
+            builder.AppendLine(FormatPrincipalVariation(lead.Replay.FenAfter, playedContinuation.Pv, maxHalfMoves: 8));
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Board navigation:");
+        builder.AppendLine("Use 'Show On Board' to jump to this position in the main window.");
+        return builder.ToString();
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

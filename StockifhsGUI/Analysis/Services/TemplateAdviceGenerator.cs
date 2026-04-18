@@ -25,10 +25,13 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
         string lossText = centipawnLoss is int cp
             ? $"and lost about {cp} centipawns"
             : "and changed the evaluation sharply";
-        string bestMoveText = FormatMoveFromFen(replay.FenBefore, bestMoveUci);
+        string bestMoveText = context?.PromptContext?.BestMoveSan ?? FormatMoveFromFen(replay.FenBefore, bestMoveUci);
         string bestMoveSentence = string.IsNullOrWhiteSpace(bestMoveText)
             ? "A calmer alternative kept the position healthier."
             : $"A stronger option was {bestMoveText}.";
+        string openingSentence = replay.Phase == GamePhase.Opening && !string.IsNullOrWhiteSpace(context?.PromptContext?.OpeningName)
+            ? $"The opening context here was {context.PromptContext.OpeningName}."
+            : string.Empty;
 
         string patternHint = label switch
         {
@@ -42,7 +45,10 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
         };
 
         string shortText = Shorten(BuildShortText(replay, qualityText, lossText, label, bestMoveSentence, level), settings.MaxShortTextLength);
-        string detailedText = Shorten(BuildDetailedText(replay, qualityText, label, bestMoveSentence, centipawnLoss, level), settings.MaxDetailedTextLength);
+        string detailedText = Shorten(MergeSentences(
+            BuildDetailedText(replay, qualityText, label, bestMoveSentence, centipawnLoss, level),
+            openingSentence),
+            settings.MaxDetailedTextLength);
         string trainingHint = Shorten(BuildTrainingHint(patternHint, label, level), settings.MaxTrainingHintLength);
 
         return new MoveExplanation(shortText, trainingHint, detailedText);
@@ -267,6 +273,18 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
         }
 
         return FormatSanAndUci(appliedMove.San, appliedMove.Uci);
+    }
+
+    private static string MergeSentences(string primary, string secondary)
+    {
+        if (string.IsNullOrWhiteSpace(secondary))
+        {
+            return primary;
+        }
+
+        return string.IsNullOrWhiteSpace(primary)
+            ? secondary.Trim()
+            : $"{primary.Trim()} {secondary.Trim()}";
     }
 
     private static string FormatSanAndUci(string san, string uci)

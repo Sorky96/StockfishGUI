@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace StockifhsGUI;
 
-public sealed class PlayerProfileService
+public sealed partial class PlayerProfileService
 {
     private readonly IAnalysisStore analysisStore;
 
@@ -13,9 +13,9 @@ public sealed class PlayerProfileService
 
     public IReadOnlyList<PlayerProfileSummary> ListProfiles(string? filterText = null, int limit = 100)
     {
-        List<PlayerProfileRecord> records = LoadProfileRecords(filterText, Math.Max(limit * 8, 200));
-        return records
-            .GroupBy(record => record.PlayerKey)
+        List<PlayerProfileSnapshot> snapshots = LoadSnapshots(filterText, Math.Max(limit * 8, 200));
+        return snapshots
+            .GroupBy(snapshot => snapshot.PlayerKey)
             .Select(BuildSummary)
             .OrderByDescending(summary => summary.GamesAnalyzed)
             .ThenByDescending(summary => summary.HighlightedMistakes)
@@ -33,98 +33,129 @@ public sealed class PlayerProfileService
         }
 
         string normalized = NormalizePlayerKey(playerKeyOrName);
-        List<PlayerProfileRecord> records = LoadProfileRecords(null, 2000)
-            .Where(record => record.PlayerKey == normalized
-                || string.Equals(record.DisplayName, playerKeyOrName, StringComparison.OrdinalIgnoreCase))
+        List<PlayerProfileSnapshot> snapshots = LoadSnapshots(null, 2000)
+            .Where(snapshot => snapshot.PlayerKey == normalized
+                || string.Equals(snapshot.DisplayName, playerKeyOrName, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        if (records.Count == 0)
+        if (snapshots.Count == 0)
         {
             report = null;
             return false;
         }
 
-        report = BuildReport(records);
+        report = BuildReport(snapshots);
         return true;
     }
 
-    private List<PlayerProfileRecord> LoadProfileRecords(string? filterText, int limit)
+    private List<PlayerProfileSnapshot> LoadSnapshots(string? filterText, int limit)
     {
-        IReadOnlyList<GameAnalysisResult> results = analysisStore.ListResults(filterText, limit);
+        IReadOnlyList<StoredMoveAnalysis> storedMoves = analysisStore.ListMoveAnalyses(filterText, Math.Clamp(limit * 64, 500, 50000));
+        if (storedMoves.Count > 0)
+        {
+            return BuildSnapshotsFromMoves(storedMoves);
+        }
+
+        IReadOnlyList<GameAnalysisResult> results = analysisStore.ListResults(filterText, Math.Max(limit * 8, 200));
+        return BuildSnapshotsFromResults(results);
+    }
+
+    private static List<PlayerProfileSnapshot> BuildSnapshotsFromMoves(IReadOnlyList<StoredMoveAnalysis> storedMoves)
+    {
+        return storedMoves
+            .GroupBy(move => new AnalysisVariantKey(move.GameFingerprint, move.AnalyzedSide, move.Depth, move.MultiPv, move.MoveTimeMs))
+            .Select(CreateSnapshotFromMoves)
+            .Where(snapshot => snapshot is not null)
+            .Select(snapshot => snapshot!)
+            .GroupBy(snapshot => new SnapshotSelectionKey(snapshot.GameFingerprint, snapshot.Side))
+            .Select(group => group
+                .OrderByDescending(snapshot => snapshot.AnalysisUpdatedUtc)
+                .ThenByDescending(snapshot => snapshot.Depth)
+                .ThenByDescending(snapshot => snapshot.MultiPv)
+                .ThenByDescending(snapshot => snapshot.MoveTimeMs ?? -1)
+                .First())
+            .ToList();
+    }
+
+    private static List<PlayerProfileSnapshot> BuildSnapshotsFromResults(IReadOnlyList<GameAnalysisResult> results)
+    {
         return results
-            .Select(CreateProfileRecord)
-            .Where(record => record is not null)
-            .Select(record => record!)
-            .GroupBy(record => $"{record.GameFingerprint}|{record.Side}")
+            .Select(CreateSnapshotFromResult)
+            .Where(snapshot => snapshot is not null)
+            .Select(snapshot => snapshot!)
+            .GroupBy(snapshot => new SnapshotSelectionKey(snapshot.GameFingerprint, snapshot.Side))
             .Select(group => group.First())
             .ToList();
     }
 
-    private static PlayerProfileSummary BuildSummary(IGrouping<string, PlayerProfileRecord> group)
+    private static PlayerProfileSummary BuildSummary(IGrouping<string, PlayerProfileSnapshot> group)
     {
         string displayName = group
-            .GroupBy(record => record.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(snapshot => snapshot.DisplayName, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(item => item.Count())
             .ThenBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
             .Select(item => item.Key)
             .First();
 
         IReadOnlyList<string> topLabels = group
-            .SelectMany(record => record.HighlightedMistakes)
-            .GroupBy(item => item.Tag?.Label ?? "unclassified")
+            .SelectMany(GetHighlightedGroups)
+            .GroupBy(item => item.Label)
             .OrderByDescending(item => item.Count())
             .ThenBy(item => item.Key, StringComparer.Ordinal)
             .Take(3)
             .Select(item => item.Key)
             .ToList();
 
-        int? averageCpl = TryAverage(group.SelectMany(record => record.Result.MoveAnalyses).Select(move => move.CentipawnLoss));
+        int? averageCpl = TryAverage(group.SelectMany(snapshot => snapshot.Moves).Select(move => move.CentipawnLoss));
 
         return new PlayerProfileSummary(
             group.Key,
             displayName,
             group.Count(),
-            group.Sum(record => record.HighlightedMistakes.Count),
+            group.Sum(snapshot => GetHighlightedGroups(snapshot).Count),
             averageCpl,
             topLabels);
     }
 
-    private static PlayerProfileReport BuildReport(IReadOnlyList<PlayerProfileRecord> records)
+    private static PlayerProfileReport BuildReport(IReadOnlyList<PlayerProfileSnapshot> snapshots)
     {
-        string playerKey = records[0].PlayerKey;
-        string displayName = records
-            .GroupBy(record => record.DisplayName, StringComparer.OrdinalIgnoreCase)
+        string playerKey = snapshots[0].PlayerKey;
+        string displayName = snapshots
+            .GroupBy(snapshot => snapshot.DisplayName, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(item => item.Count())
             .ThenBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
             .Select(item => item.Key)
             .First();
 
-        IReadOnlyList<ProfileLabelStat> topLabels = records
-            .SelectMany(record => record.HighlightedMistakes)
-            .GroupBy(item => item.Tag?.Label ?? "unclassified")
+        IReadOnlyList<HighlightedGroup> highlightedGroups = snapshots
+            .SelectMany(GetHighlightedGroups)
+            .ToList();
+
+        IReadOnlyList<ProfileLabelStat> topLabels = highlightedGroups
+            .GroupBy(item => item.Label)
             .Select(group => new ProfileLabelStat(
                 group.Key,
                 group.Count(),
-                group.Average(item => item.Tag?.Confidence ?? 0.0)))
+                group.Average(item => item.AverageConfidence)))
             .OrderByDescending(item => item.Count)
             .ThenByDescending(item => item.AverageConfidence)
             .ThenBy(item => item.Label, StringComparer.Ordinal)
-            .Take(5)
+            .Take(3)
             .ToList();
 
-        IReadOnlyList<ProfilePhaseStat> mistakesByPhase = records
-            .SelectMany(record => record.Result.MoveAnalyses)
+        IReadOnlyList<ProfilePhaseStat> mistakesByPhase = snapshots
+            .SelectMany(snapshot => snapshot.Moves)
             .Where(move => move.Quality != MoveQualityBucket.Good)
-            .GroupBy(move => move.Replay.Phase)
+            .GroupBy(move => move.Phase)
             .Select(group => new ProfilePhaseStat(group.Key, group.Count()))
             .OrderByDescending(item => item.Count)
             .ThenBy(item => item.Phase)
             .ToList();
 
-        IReadOnlyList<ProfileOpeningStat> mistakesByOpening = records
-            .SelectMany(record => record.Result.MoveAnalyses
+        IReadOnlyList<ProfileOpeningStat> mistakesByOpening = snapshots
+            .SelectMany(snapshot => snapshot.Moves
                 .Where(move => move.Quality != MoveQualityBucket.Good)
-                .Select(_ => string.IsNullOrWhiteSpace(record.Result.Game.Eco) ? "Unknown" : record.Result.Game.Eco!))
+                .Select(_ => snapshot.Eco))
             .GroupBy(eco => eco, StringComparer.OrdinalIgnoreCase)
             .Select(group => new ProfileOpeningStat(group.First(), group.Count()))
             .OrderByDescending(item => item.Count)
@@ -132,48 +163,48 @@ public sealed class PlayerProfileService
             .Take(5)
             .ToList();
 
-        IReadOnlyList<ProfileSideStat> gamesBySide = records
-            .GroupBy(record => record.Side)
+        IReadOnlyList<ProfileSideStat> gamesBySide = snapshots
+            .GroupBy(snapshot => snapshot.Side)
             .Select(group => new ProfileSideStat(
                 group.Key,
                 group.Count(),
-                group.Sum(item => item.HighlightedMistakes.Count)))
+                group.Sum(snapshot => GetHighlightedGroups(snapshot).Count)))
             .OrderBy(item => item.Side)
             .ToList();
 
-        IReadOnlyList<ProfileMonthlyTrend> monthlyTrend = records
-            .GroupBy(record => record.MonthKey ?? "Unknown")
+        IReadOnlyList<ProfileMonthlyTrend> monthlyTrend = snapshots
+            .GroupBy(snapshot => snapshot.MonthKey ?? "Unknown")
             .Select(group => new ProfileMonthlyTrend(
                 group.Key,
                 group.Count(),
-                group.Sum(item => item.HighlightedMistakes.Count),
-                TryAverage(group.SelectMany(item => item.Result.MoveAnalyses).Select(move => move.CentipawnLoss))))
+                group.Sum(snapshot => GetHighlightedGroups(snapshot).Count),
+                TryAverage(group.SelectMany(snapshot => snapshot.Moves).Select(move => move.CentipawnLoss))))
             .OrderBy(item => item.MonthKey, StringComparer.Ordinal)
             .ToList();
 
-        IReadOnlyList<ProfileQuarterlyTrend> quarterlyTrend = records
-            .GroupBy(record => record.QuarterKey ?? "Unknown")
+        IReadOnlyList<ProfileQuarterlyTrend> quarterlyTrend = snapshots
+            .GroupBy(snapshot => snapshot.QuarterKey ?? "Unknown")
             .Select(group => new ProfileQuarterlyTrend(
                 group.Key,
                 group.Count(),
-                group.Sum(item => item.HighlightedMistakes.Count),
-                TryAverage(group.SelectMany(item => item.Result.MoveAnalyses).Select(move => move.CentipawnLoss))))
+                group.Sum(snapshot => GetHighlightedGroups(snapshot).Count),
+                TryAverage(group.SelectMany(snapshot => snapshot.Moves).Select(move => move.CentipawnLoss))))
             .OrderBy(item => item.QuarterKey, StringComparer.Ordinal)
             .ToList();
 
         IReadOnlyList<TrainingRecommendation> recommendations = topLabels
             .Take(3)
-            .Select((labelStat, index) => CreateRecommendation(labelStat, BuildRecommendationContext(records, labelStat.Label), index + 1))
+            .Select((labelStat, index) => CreateRecommendation(labelStat, BuildRecommendationContext(snapshots, labelStat.Label), index + 1))
             .ToList();
         WeeklyTrainingPlan weeklyPlan = BuildWeeklyPlan(displayName, recommendations);
 
         return new PlayerProfileReport(
             playerKey,
             displayName,
-            records.Count,
-            records.Sum(record => record.Result.MoveAnalyses.Count),
-            records.Sum(record => record.HighlightedMistakes.Count),
-            TryAverage(records.SelectMany(record => record.Result.MoveAnalyses).Select(move => move.CentipawnLoss)),
+            snapshots.Count,
+            snapshots.Sum(snapshot => snapshot.Moves.Count),
+            highlightedGroups.Count,
+            TryAverage(snapshots.SelectMany(snapshot => snapshot.Moves).Select(move => move.CentipawnLoss)),
             topLabels,
             mistakesByPhase,
             mistakesByOpening,
@@ -183,7 +214,460 @@ public sealed class PlayerProfileService
             recommendations,
             weeklyPlan);
     }
+}
 
+public sealed partial class PlayerProfileService
+{
+    private static PlayerProfileSnapshot? CreateSnapshotFromMoves(IGrouping<AnalysisVariantKey, StoredMoveAnalysis> group)
+    {
+        List<StoredMoveAnalysis> moves = group
+            .OrderBy(move => move.Ply)
+            .ToList();
+
+        StoredMoveAnalysis first = moves[0];
+        string? playerName = first.AnalyzedSide == PlayerSide.White
+            ? first.WhitePlayer
+            : first.BlackPlayer;
+
+        if (string.IsNullOrWhiteSpace(playerName))
+        {
+            return null;
+        }
+
+        return new PlayerProfileSnapshot(
+            first.GameFingerprint,
+            NormalizePlayerKey(playerName),
+            playerName.Trim(),
+            first.AnalyzedSide,
+            ParseMonthKey(first.DateText),
+            ParseQuarterKey(first.DateText),
+            string.IsNullOrWhiteSpace(first.Eco) ? "Unknown" : first.Eco!,
+            first.Depth,
+            first.MultiPv,
+            first.MoveTimeMs,
+            first.AnalysisUpdatedUtc,
+            moves);
+    }
+
+    private static PlayerProfileSnapshot? CreateSnapshotFromResult(GameAnalysisResult result)
+    {
+        string? playerName = result.AnalyzedSide == PlayerSide.White
+            ? result.Game.WhitePlayer
+            : result.Game.BlackPlayer;
+
+        if (string.IsNullOrWhiteSpace(playerName))
+        {
+            return null;
+        }
+
+        HashSet<int> highlightedPlys = result.HighlightedMistakes
+            .SelectMany(mistake => mistake.Moves)
+            .Select(move => move.Replay.Ply)
+            .ToHashSet();
+
+        IReadOnlyList<StoredMoveAnalysis> moves = result.MoveAnalyses
+            .Select(move => new StoredMoveAnalysis(
+                GameFingerprint.Compute(result.Game.PgnText),
+                result.AnalyzedSide,
+                0,
+                0,
+                null,
+                DateTime.MinValue,
+                result.Game.WhitePlayer,
+                result.Game.BlackPlayer,
+                result.Game.DateText,
+                result.Game.Result,
+                result.Game.Eco,
+                result.Game.Site,
+                move.Replay.Ply,
+                move.Replay.MoveNumber,
+                move.Replay.San,
+                move.Replay.Uci,
+                move.Replay.FenBefore,
+                move.Replay.FenAfter,
+                move.Replay.Phase,
+                move.EvalBeforeCp,
+                move.EvalAfterCp,
+                move.BestMateIn,
+                move.PlayedMateIn,
+                move.CentipawnLoss,
+                move.Quality,
+                move.MaterialDeltaCp,
+                move.BeforeAnalysis.BestMoveUci,
+                move.MistakeTag?.Label,
+                move.MistakeTag?.Confidence,
+                move.MistakeTag?.Evidence ?? [],
+                move.Explanation?.ShortText,
+                move.Explanation?.DetailedText,
+                move.Explanation?.TrainingHint,
+                highlightedPlys.Contains(move.Replay.Ply)))
+            .ToList();
+
+        return new PlayerProfileSnapshot(
+            GameFingerprint.Compute(result.Game.PgnText),
+            NormalizePlayerKey(playerName),
+            playerName.Trim(),
+            result.AnalyzedSide,
+            ParseMonthKey(result.Game.DateText),
+            ParseQuarterKey(result.Game.DateText),
+            string.IsNullOrWhiteSpace(result.Game.Eco) ? "Unknown" : result.Game.Eco!,
+            0,
+            0,
+            null,
+            DateTime.MinValue,
+            moves);
+    }
+
+    private static int? TryAverage(IEnumerable<int?> values)
+    {
+        List<int> knownValues = values
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value)
+            .ToList();
+
+        return knownValues.Count == 0
+            ? null
+            : (int)Math.Round(knownValues.Average());
+    }
+
+    private static string NormalizePlayerKey(string playerName)
+    {
+        return playerName.Trim().ToLowerInvariant();
+    }
+
+    private static string? ParseMonthKey(string? dateText)
+    {
+        if (string.IsNullOrWhiteSpace(dateText))
+        {
+            return null;
+        }
+
+        string[] formats =
+        [
+            "yyyy.MM.dd",
+            "yyyy-MM-dd",
+            "yyyy/MM/dd",
+            "yyyy.MM",
+            "yyyy-MM",
+            "yyyy/MM"
+        ];
+
+        if (DateTime.TryParseExact(dateText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed))
+        {
+            return parsed.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+        }
+
+        return null;
+    }
+
+    private static string? ParseQuarterKey(string? dateText)
+    {
+        if (string.IsNullOrWhiteSpace(dateText))
+        {
+            return null;
+        }
+
+        string[] formats =
+        [
+            "yyyy.MM.dd",
+            "yyyy-MM-dd",
+            "yyyy/MM/dd",
+            "yyyy.MM",
+            "yyyy-MM",
+            "yyyy/MM"
+        ];
+
+        if (DateTime.TryParseExact(dateText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed))
+        {
+            int quarter = ((parsed.Month - 1) / 3) + 1;
+            return $"{parsed:yyyy}-Q{quarter}";
+        }
+
+        return null;
+    }
+
+    private readonly record struct AnalysisVariantKey(
+        string GameFingerprint,
+        PlayerSide Side,
+        int Depth,
+        int MultiPv,
+        int? MoveTimeMs);
+
+    private readonly record struct SnapshotSelectionKey(
+        string GameFingerprint,
+        PlayerSide Side);
+
+    private sealed record PlayerProfileSnapshot(
+        string GameFingerprint,
+        string PlayerKey,
+        string DisplayName,
+        PlayerSide Side,
+        string? MonthKey,
+        string? QuarterKey,
+        string Eco,
+        int Depth,
+        int MultiPv,
+        int? MoveTimeMs,
+        DateTime AnalysisUpdatedUtc,
+        IReadOnlyList<StoredMoveAnalysis> Moves);
+
+    private sealed record HighlightedGroup(
+        string Label,
+        double AverageConfidence,
+        GamePhase? DominantPhase,
+        MoveQualityBucket Quality);
+
+    private sealed record RecommendationContext(
+        GamePhase? DominantPhase,
+        PlayerSide? DominantSide,
+        IReadOnlyList<string> TopOpenings);
+
+    private sealed record RecommendationOccurrence(
+        PlayerSide Side,
+        GamePhase? Phase,
+        string Eco);
+}
+
+public sealed partial class PlayerProfileService
+{
+    private static TrainingRecommendation CreateFallbackRecommendation()
+    {
+        return new TrainingRecommendation(
+            1,
+            "General review",
+            "Review Critical Moments",
+            "No dominant error pattern has been identified yet, so the next best step is a short weekly cycle built around your biggest evaluation swings.",
+            null,
+            null,
+            [],
+            [
+                "Stop at every large evaluation swing and explain what should have been checked first.",
+                "Keep the review focused on one simple question per move."
+            ],
+            [
+                "Replay one recent game and pause before every critical decision.",
+                "Collect 5 positions that felt unclear and review them slowly."
+            ]);
+    }
+
+    private static IReadOnlyList<RecommendationOccurrence> BuildRecommendationOccurrences(PlayerProfileSnapshot snapshot, string label)
+    {
+        List<RecommendationOccurrence> highlightedOccurrences = GetHighlightedGroups(snapshot)
+            .Where(group => string.Equals(group.Label, label, StringComparison.Ordinal))
+            .Select(group => new RecommendationOccurrence(snapshot.Side, group.DominantPhase, snapshot.Eco))
+            .ToList();
+
+        if (highlightedOccurrences.Any(item => item.Phase.HasValue))
+        {
+            return highlightedOccurrences;
+        }
+
+        List<RecommendationOccurrence> moveOccurrences = snapshot.Moves
+            .Where(move => string.Equals(move.MistakeLabel ?? "unclassified", label, StringComparison.Ordinal))
+            .Select(move => new RecommendationOccurrence(snapshot.Side, move.Phase, snapshot.Eco))
+            .ToList();
+
+        return moveOccurrences.Count > 0
+            ? moveOccurrences
+            : highlightedOccurrences;
+    }
+
+    private static IReadOnlyList<HighlightedGroup> GetHighlightedGroups(PlayerProfileSnapshot snapshot)
+    {
+        List<StoredMoveAnalysis> highlightedMoves = snapshot.Moves
+            .Where(move => move.IsHighlighted)
+            .OrderBy(move => move.Ply)
+            .ToList();
+
+        if (highlightedMoves.Count == 0)
+        {
+            return [];
+        }
+
+        List<HighlightedGroup> groups = [];
+        List<StoredMoveAnalysis> currentGroup = [];
+
+        foreach (StoredMoveAnalysis move in highlightedMoves)
+        {
+            if (currentGroup.Count == 0 || CanMergeHighlightedMoves(currentGroup[^1], move))
+            {
+                currentGroup.Add(move);
+                continue;
+            }
+
+            groups.Add(BuildHighlightedGroup(currentGroup));
+            currentGroup = [move];
+        }
+
+        if (currentGroup.Count > 0)
+        {
+            groups.Add(BuildHighlightedGroup(currentGroup));
+        }
+
+        return groups;
+    }
+
+    private static bool CanMergeHighlightedMoves(StoredMoveAnalysis previous, StoredMoveAnalysis current)
+    {
+        return string.Equals(previous.MistakeLabel ?? "unclassified", current.MistakeLabel ?? "unclassified", StringComparison.Ordinal)
+            && previous.Quality == current.Quality
+            && previous.MoveNumber + 1 >= current.MoveNumber
+            && previous.Phase == current.Phase;
+    }
+
+    private static HighlightedGroup BuildHighlightedGroup(IReadOnlyList<StoredMoveAnalysis> moves)
+    {
+        StoredMoveAnalysis lead = moves
+            .OrderByDescending(move => SeverityWeight(move.Quality))
+            .ThenByDescending(move => move.CentipawnLoss ?? int.MinValue)
+            .ThenBy(move => move.Ply)
+            .First();
+
+        double averageConfidence = moves
+            .Where(move => move.MistakeConfidence.HasValue)
+            .Select(move => move.MistakeConfidence!.Value)
+            .DefaultIfEmpty(0.0)
+            .Average();
+
+        GamePhase? dominantPhase = moves
+            .GroupBy(move => move.Phase)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key)
+            .Select(group => (GamePhase?)group.Key)
+            .FirstOrDefault();
+
+        return new HighlightedGroup(
+            lead.MistakeLabel ?? "unclassified",
+            averageConfidence,
+            dominantPhase,
+            lead.Quality);
+    }
+
+    private static int SeverityWeight(MoveQualityBucket quality)
+    {
+        return quality switch
+        {
+            MoveQualityBucket.Blunder => 4,
+            MoveQualityBucket.Mistake => 3,
+            MoveQualityBucket.Inaccuracy => 2,
+            _ => 1
+        };
+    }
+
+    private static string BuildContextSummary(RecommendationContext context)
+    {
+        List<string> parts = [];
+
+        if (context.DominantPhase.HasValue)
+        {
+            parts.Add($"It shows up most often in {FormatPhaseText(context.DominantPhase.Value, fallback: "that phase")}");
+        }
+
+        if (context.DominantSide.HasValue)
+        {
+            parts.Add($"mostly when you analyze {context.DominantSide.Value}");
+        }
+
+        if (context.TopOpenings.Count > 0)
+        {
+            parts.Add($"and especially in {FormatOpeningsList(context.TopOpenings, "these openings")}");
+        }
+
+        return parts.Count == 0
+            ? "This is one of the most repeated patterns in your saved analyses."
+            : string.Join(" ", parts) + ".";
+    }
+
+    private static string BuildOpeningSummary(IReadOnlyList<string> openings)
+    {
+        return openings.Count == 0
+            ? "Build a small custom drill set from the openings where your own mistakes recur most."
+            : $"Build a mini review pack from positions coming out of {FormatOpeningsList(openings, "your most relevant openings")}.";
+    }
+
+    private static string FormatOpeningsList(IReadOnlyList<string> openings, string fallback)
+    {
+        if (openings.Count == 0)
+        {
+            return fallback;
+        }
+
+        IReadOnlyList<string> formattedOpenings = openings
+            .Select(OpeningCatalog.Describe)
+            .ToList();
+
+        return formattedOpenings.Count == 1
+            ? formattedOpenings[0]
+            : string.Join(" and ", formattedOpenings);
+    }
+
+    private static string FormatPhaseText(GamePhase? phase, string fallback)
+    {
+        return phase switch
+        {
+            GamePhase.Opening => "the opening",
+            GamePhase.Middlegame => "the middlegame",
+            GamePhase.Endgame => "the endgame",
+            _ => fallback
+        };
+    }
+
+    private static string BuildSideSuffix(PlayerSide? side)
+    {
+        return side switch
+        {
+            PlayerSide.White => " as White",
+            PlayerSide.Black => " as Black",
+            _ => string.Empty
+        };
+    }
+
+    private static TrainingRecommendation GetRecommendation(IReadOnlyList<TrainingRecommendation> recommendations, int index)
+    {
+        return recommendations[Math.Min(index, recommendations.Count - 1)];
+    }
+
+    private static string PickOrFallback(IReadOnlyList<string> values, int index, string fallback)
+    {
+        return values.Count > index && !string.IsNullOrWhiteSpace(values[index])
+            ? values[index]
+            : fallback;
+    }
+
+    private static string BuildOpeningTask(TrainingRecommendation recommendation)
+    {
+        return recommendation.RelatedOpenings.Count == 0
+            ? "Review one structure from your own recent games where this theme appeared."
+            : $"Review two example positions from {string.Join(" / ", recommendation.RelatedOpenings.Select(OpeningCatalog.Describe))} and connect them to this theme.";
+    }
+
+    private static string FormatRecommendationContext(TrainingRecommendation recommendation)
+    {
+        List<string> parts = [];
+
+        if (recommendation.EmphasisPhase.HasValue)
+        {
+            parts.Add(FormatPhaseText(recommendation.EmphasisPhase.Value, recommendation.EmphasisPhase.Value.ToString()));
+        }
+
+        if (recommendation.EmphasisSide.HasValue)
+        {
+            parts.Add(recommendation.EmphasisSide.Value.ToString());
+        }
+
+        if (recommendation.RelatedOpenings.Count > 0)
+        {
+            parts.Add(string.Join(", ", recommendation.RelatedOpenings.Select(OpeningCatalog.Describe)));
+        }
+
+        return parts.Count == 0
+            ? "your current profile context"
+            : string.Join(" | ", parts);
+    }
+}
+
+public sealed partial class PlayerProfileService
+{
     private static TrainingRecommendation CreateRecommendation(ProfileLabelStat labelStat, RecommendationContext context, int priority)
     {
         string contextSummary = BuildContextSummary(context);
@@ -354,10 +838,10 @@ public sealed class PlayerProfileService
         };
     }
 
-    private static RecommendationContext BuildRecommendationContext(IReadOnlyList<PlayerProfileRecord> records, string label)
+    private static RecommendationContext BuildRecommendationContext(IReadOnlyList<PlayerProfileSnapshot> snapshots, string label)
     {
-        List<RecommendationOccurrence> occurrences = records
-            .SelectMany(record => BuildRecommendationOccurrences(record, label))
+        List<RecommendationOccurrence> occurrences = snapshots
+            .SelectMany(snapshot => BuildRecommendationOccurrences(snapshot, label))
             .ToList();
 
         if (occurrences.Count == 0)
@@ -498,287 +982,4 @@ public sealed class PlayerProfileService
             summary,
             days);
     }
-
-    private static TrainingRecommendation CreateFallbackRecommendation()
-    {
-        return new TrainingRecommendation(
-            1,
-            "General review",
-            "Review Critical Moments",
-            "No dominant error pattern has been identified yet, so the next best step is a short weekly cycle built around your biggest evaluation swings.",
-            null,
-            null,
-            [],
-            [
-                "Stop at every large evaluation swing and explain what should have been checked first.",
-                "Keep the review focused on one simple question per move."
-            ],
-            [
-                "Replay one recent game and pause before every critical decision.",
-                "Collect 5 positions that felt unclear and review them slowly."
-            ]);
-    }
-
-    private static GamePhase? GuessMistakePhase(SelectedMistake mistake)
-    {
-        return mistake.Moves.Count == 0
-            ? null
-            : mistake.Moves
-                .GroupBy(move => move.Replay.Phase)
-                .OrderByDescending(group => group.Count())
-                .ThenBy(group => group.Key)
-                .Select(group => (GamePhase?)group.Key)
-                .FirstOrDefault();
-    }
-
-    private static IReadOnlyList<RecommendationOccurrence> BuildRecommendationOccurrences(PlayerProfileRecord record, string label)
-    {
-        string eco = string.IsNullOrWhiteSpace(record.Result.Game.Eco) ? "Unknown" : record.Result.Game.Eco!;
-
-        List<RecommendationOccurrence> fromHighlightedMistakes = record.HighlightedMistakes
-            .Where(mistake => string.Equals(mistake.Tag?.Label ?? "unclassified", label, StringComparison.Ordinal))
-            .Select(mistake => new RecommendationOccurrence(
-                record.Side,
-                GuessMistakePhase(mistake),
-                eco))
-            .ToList();
-
-        if (fromHighlightedMistakes.Any(item => item.Phase.HasValue))
-        {
-            return fromHighlightedMistakes;
-        }
-
-        List<RecommendationOccurrence> fromMoveAnalyses = record.Result.MoveAnalyses
-            .Where(move => string.Equals(move.MistakeTag?.Label ?? "unclassified", label, StringComparison.Ordinal))
-            .Select(move => new RecommendationOccurrence(
-                record.Side,
-                move.Replay.Phase,
-                eco))
-            .ToList();
-
-        return fromMoveAnalyses.Count > 0
-            ? fromMoveAnalyses
-            : fromHighlightedMistakes;
-    }
-
-    private static string BuildContextSummary(RecommendationContext context)
-    {
-        List<string> parts = [];
-
-        if (context.DominantPhase.HasValue)
-        {
-            parts.Add($"It shows up most often in {FormatPhaseText(context.DominantPhase.Value, fallback: "that phase")}");
-        }
-
-        if (context.DominantSide.HasValue)
-        {
-            parts.Add($"mostly when you analyze {context.DominantSide.Value}");
-        }
-
-        if (context.TopOpenings.Count > 0)
-        {
-            parts.Add($"and especially in {FormatOpeningsList(context.TopOpenings, "these openings")}");
-        }
-
-        return parts.Count == 0
-            ? "This is one of the most repeated patterns in your saved analyses."
-            : string.Join(" ", parts) + ".";
-    }
-
-    private static string BuildOpeningSummary(IReadOnlyList<string> openings)
-    {
-        return openings.Count == 0
-            ? "Build a small custom drill set from the openings where your own mistakes recur most."
-            : $"Build a mini review pack from positions coming out of {FormatOpeningsList(openings, "your most relevant openings")}.";
-    }
-
-    private static string FormatOpeningsList(IReadOnlyList<string> openings, string fallback)
-    {
-        if (openings.Count == 0)
-        {
-            return fallback;
-        }
-
-        IReadOnlyList<string> formattedOpenings = openings
-            .Select(OpeningCatalog.Describe)
-            .ToList();
-
-        return formattedOpenings.Count == 1
-            ? formattedOpenings[0]
-            : string.Join(" and ", formattedOpenings);
-    }
-
-    private static string FormatPhaseText(GamePhase? phase, string fallback)
-    {
-        return phase switch
-        {
-            GamePhase.Opening => "the opening",
-            GamePhase.Middlegame => "the middlegame",
-            GamePhase.Endgame => "the endgame",
-            _ => fallback
-        };
-    }
-
-    private static string BuildSideSuffix(PlayerSide? side)
-    {
-        return side switch
-        {
-            PlayerSide.White => " as White",
-            PlayerSide.Black => " as Black",
-            _ => string.Empty
-        };
-    }
-
-    private static TrainingRecommendation GetRecommendation(IReadOnlyList<TrainingRecommendation> recommendations, int index)
-    {
-        return recommendations[Math.Min(index, recommendations.Count - 1)];
-    }
-
-    private static string PickOrFallback(IReadOnlyList<string> values, int index, string fallback)
-    {
-        return values.Count > index && !string.IsNullOrWhiteSpace(values[index])
-            ? values[index]
-            : fallback;
-    }
-
-    private static string BuildOpeningTask(TrainingRecommendation recommendation)
-    {
-        return recommendation.RelatedOpenings.Count == 0
-            ? "Review one structure from your own recent games where this theme appeared."
-            : $"Review two example positions from {string.Join(" / ", recommendation.RelatedOpenings.Select(OpeningCatalog.Describe))} and connect them to this theme.";
-    }
-
-    private static string FormatRecommendationContext(TrainingRecommendation recommendation)
-    {
-        List<string> parts = [];
-
-        if (recommendation.EmphasisPhase.HasValue)
-        {
-            parts.Add(FormatPhaseText(recommendation.EmphasisPhase.Value, recommendation.EmphasisPhase.Value.ToString()));
-        }
-
-        if (recommendation.EmphasisSide.HasValue)
-        {
-            parts.Add(recommendation.EmphasisSide.Value.ToString());
-        }
-
-        if (recommendation.RelatedOpenings.Count > 0)
-        {
-            parts.Add(string.Join(", ", recommendation.RelatedOpenings.Select(OpeningCatalog.Describe)));
-        }
-
-        return parts.Count == 0
-            ? "your current profile context"
-            : string.Join(" | ", parts);
-    }
-
-    private static PlayerProfileRecord? CreateProfileRecord(GameAnalysisResult result)
-    {
-        string? playerName = result.AnalyzedSide == PlayerSide.White
-            ? result.Game.WhitePlayer
-            : result.Game.BlackPlayer;
-
-        if (string.IsNullOrWhiteSpace(playerName))
-        {
-            return null;
-        }
-
-        return new PlayerProfileRecord(
-            GameFingerprint.Compute(result.Game.PgnText),
-            NormalizePlayerKey(playerName),
-            playerName.Trim(),
-            result.AnalyzedSide,
-            result.HighlightedMistakes,
-            ParseMonthKey(result.Game.DateText),
-            ParseQuarterKey(result.Game.DateText),
-            result);
-    }
-
-    private static int? TryAverage(IEnumerable<int?> values)
-    {
-        List<int> knownValues = values
-            .Where(value => value.HasValue)
-            .Select(value => value!.Value)
-            .ToList();
-
-        return knownValues.Count == 0
-            ? null
-            : (int)Math.Round(knownValues.Average());
-    }
-
-    private static string NormalizePlayerKey(string playerName)
-    {
-        return playerName.Trim().ToLowerInvariant();
-    }
-
-    private static string? ParseMonthKey(string? dateText)
-    {
-        if (string.IsNullOrWhiteSpace(dateText))
-        {
-            return null;
-        }
-
-        string[] formats =
-        [
-            "yyyy.MM.dd",
-            "yyyy-MM-dd",
-            "yyyy/MM/dd",
-            "yyyy.MM",
-            "yyyy-MM",
-            "yyyy/MM"
-        ];
-
-        if (DateTime.TryParseExact(dateText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed))
-        {
-            return parsed.ToString("yyyy-MM", CultureInfo.InvariantCulture);
-        }
-
-        return null;
-    }
-
-    private static string? ParseQuarterKey(string? dateText)
-    {
-        if (string.IsNullOrWhiteSpace(dateText))
-        {
-            return null;
-        }
-
-        string[] formats =
-        [
-            "yyyy.MM.dd",
-            "yyyy-MM-dd",
-            "yyyy/MM/dd",
-            "yyyy.MM",
-            "yyyy-MM",
-            "yyyy/MM"
-        ];
-
-        if (DateTime.TryParseExact(dateText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed))
-        {
-            int quarter = ((parsed.Month - 1) / 3) + 1;
-            return $"{parsed:yyyy}-Q{quarter}";
-        }
-
-        return null;
-    }
-
-    private sealed record PlayerProfileRecord(
-        string GameFingerprint,
-        string PlayerKey,
-        string DisplayName,
-        PlayerSide Side,
-        IReadOnlyList<SelectedMistake> HighlightedMistakes,
-        string? MonthKey,
-        string? QuarterKey,
-        GameAnalysisResult Result);
-
-    private sealed record RecommendationContext(
-        GamePhase? DominantPhase,
-        PlayerSide? DominantSide,
-        IReadOnlyList<string> TopOpenings);
-
-    private sealed record RecommendationOccurrence(
-        PlayerSide Side,
-        GamePhase? Phase,
-        string Eco);
 }
