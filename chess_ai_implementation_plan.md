@@ -69,6 +69,11 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] Zapamiętywanie wybranego poziomu wyjaśnień w stanie okna analizy.
 - [x] Biblioteka zapisanych partii z filtrowaniem i ponownym wczytaniem do głównej planszy.
 - [x] Odchudzenie UI: `Form1` przemianowany na `MainForm`, plansza wydzielona do `ChessBoardControl`, a stan zaimportowanej partii do osobnej sesji `ImportedGameSession`.
+- [x] Odchudzenie UI: replay i nawigacja po zaimportowanej partii wydzielone z `MainForm` do koordynatora `ImportedGamePlaybackCoordinator`.
+- [x] Odchudzenie UI: runtime trackingu wydzielony z `MainForm` do koordynatora `TrackingWorkflowCoordinator`.
+- [x] Odchudzenie UI: analiza opcji ruchu wybranej figury wydzielona z `MainForm` do `PieceMoveOptionsCoordinator`.
+- [x] Odchudzenie UI: nawigacja po wynikach analizy i wspólne formatowanie ruchów wydzielone z `MainForm` do `AnalysisNavigationCoordinator` i `ChessMoveDisplayHelper`.
+- [x] Odchudzenie UI: ręczna interakcja z planszą i selekcja figur wydzielone z `MainForm` do `BoardInteractionCoordinator`.
 - [x] Podstawowy `PlayerProfileService` agregujący zapisane analizy wielu partii.
 - [x] Prosty widok profilu gracza z top kategoriami błędów, fazami, otwarciami i trendem miesięcznym.
 - [x] Podstawowe rekomendacje treningowe z priorytetami, checklistą i sugerowanymi ćwiczeniami.

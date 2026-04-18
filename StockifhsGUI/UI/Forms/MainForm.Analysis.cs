@@ -76,113 +76,22 @@ public partial class MainForm
 
     private void NavigateToAnalysisMistake(MoveAnalysisResult moveAnalysis)
     {
-        if (importedSession.Game is null || importedSession.Moves.Count == 0)
-        {
-            return;
-        }
-
-        int targetIndex = moveAnalysis.Replay.Ply - 1;
-        if (targetIndex < 0 || targetIndex >= importedSession.Moves.Count)
-        {
-            return;
-        }
-
-        ReplayImportedMovesThrough(targetIndex);
-
-        analysisArrows.Clear();
-        analysisTargetSquare = null;
-        AddAnalysisArrow(moveAnalysis.Replay.Uci, Color.Crimson);
-        if (!string.IsNullOrWhiteSpace(moveAnalysis.BeforeAnalysis.BestMoveUci))
-        {
-            AddAnalysisArrow(moveAnalysis.BeforeAnalysis.BestMoveUci, Color.DeepSkyBlue);
-        }
-        SetAnalysisTargetSquare(moveAnalysis.Replay.Uci);
-
-        suggestionLabel.Text = $"Analysis focus: {FormatSanAndUci(moveAnalysis.Replay.San, moveAnalysis.Replay.Uci)} | best {FormatBestMoveLabel(moveAnalysis)}";
-        InvalidateBoardSurface();
+        analysisNavigation.NavigateToMistake(moveAnalysis);
     }
 
-    private void AddAnalysisArrow(string uciMove, Color color)
+    ImportedGameSession IAnalysisNavigationHost.ImportedSession => importedSession;
+
+    IList<BoardArrow> IAnalysisNavigationHost.AnalysisArrows => analysisArrows;
+
+    Point? IAnalysisNavigationHost.AnalysisTargetSquare
     {
-        if (!TryParseUciMove(uciMove, out Point from, out Point to))
-        {
-            return;
-        }
-
-        analysisArrows.Add(new BoardArrow(from, to, color));
+        get => analysisTargetSquare;
+        set => analysisTargetSquare = value;
     }
 
-    private void SetAnalysisTargetSquare(string uciMove)
-    {
-        if (!TryParseUciMove(uciMove, out _, out Point to))
-        {
-            analysisTargetSquare = null;
-            return;
-        }
+    void IAnalysisNavigationHost.ReplayImportedMovesThrough(int targetIndex) => ReplayImportedMovesThrough(targetIndex);
 
-        analysisTargetSquare = to;
-    }
+    void IAnalysisNavigationHost.SetSuggestionText(string text) => suggestionLabel.Text = text;
 
-    private static bool TryParseUciMove(string? uciMove, out Point from, out Point to)
-    {
-        from = default;
-        to = default;
-
-        if (string.IsNullOrWhiteSpace(uciMove) || uciMove.Length < 4)
-        {
-            return false;
-        }
-
-        if (!TryParseUciSquare(uciMove[..2], out from) || !TryParseUciSquare(uciMove.Substring(2, 2), out to))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool TryParseUciSquare(string square, out Point point)
-    {
-        point = default;
-        if (square.Length != 2)
-        {
-            return false;
-        }
-
-        char file = char.ToLowerInvariant(square[0]);
-        char rank = square[1];
-        if (file < 'a' || file > 'h' || rank < '1' || rank > '8')
-        {
-            return false;
-        }
-
-        point = new Point(file - 'a', 8 - (rank - '0'));
-        return true;
-    }
-
-    private static string FormatBestMoveLabel(MoveAnalysisResult moveAnalysis)
-    {
-        string? bestMoveUci = moveAnalysis.BeforeAnalysis.BestMoveUci;
-        if (string.IsNullOrWhiteSpace(bestMoveUci))
-        {
-            return "(unknown)";
-        }
-
-        ChessGame game = new();
-        if (!game.TryLoadFen(moveAnalysis.Replay.FenBefore, out _)
-            || !game.TryApplyUci(bestMoveUci, out AppliedMoveInfo? appliedMove, out _)
-            || appliedMove is null)
-        {
-            return bestMoveUci;
-        }
-
-        return FormatSanAndUci(appliedMove.San, appliedMove.Uci);
-    }
-
-    private static string FormatSanAndUci(string san, string uci)
-    {
-        return string.Equals(san, uci, StringComparison.OrdinalIgnoreCase)
-            ? san
-            : $"{san} ({uci})";
-    }
+    void IAnalysisNavigationHost.InvalidateBoardSurface() => InvalidateBoardSurface();
 }

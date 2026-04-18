@@ -5,7 +5,7 @@ namespace StockifhsGUI;
 
 public partial class MainForm
 {
-    private readonly Dictionary<string, IReadOnlyList<PieceMoveOption>> pieceMoveOptionsCache = new();
+    private readonly PieceMoveOptionsCoordinator pieceMoveOptionsCoordinator = new();
     private Label? pieceMoveOptionsLabel;
     private ListBox? pieceMoveOptionsList;
     private int pieceMoveOptionsRequestId;
@@ -45,24 +45,24 @@ public partial class MainForm
         string pieceName = board[selectedPoint.X, selectedPoint.Y] ?? "?";
         pieceMoveOptionsLabel.Text = $"Selected piece: {pieceName} from {fromSquare} | legal moves: {movesForPiece.Count}";
         pieceMoveOptionTargetSquare = null;
-        pieceMoveOptionsList.Items.Clear();
 
         if (movesForPiece.Count == 0)
         {
+            pieceMoveOptionsList.Items.Clear();
             pieceMoveOptionsList.Items.Add("No legal moves for this piece.");
             InvalidateBoardSurface();
             return;
         }
 
-        foreach (LegalMoveInfo move in movesForPiece.OrderBy(item => item.San, StringComparer.Ordinal))
-        {
-            pieceMoveOptionsList.Items.Add(new PieceMoveOptionListItem(
-                new PieceMoveOption(move.San, move.Uci, null, null, false),
-                $"{FormatSanAndUci(move.San, move.Uci),-18} | analyzing..."));
-        }
+        ApplyPieceMoveOptions(
+            pieceMoveOptionsCoordinator.CreatePendingOptions(movesForPiece),
+            movesForPiece.Count,
+            pieceName,
+            fromSquare,
+            appendCachedMarker: false);
 
-        string cacheKey = BuildPieceMoveOptionsCacheKey(currentFen, fromSquare);
-        if (pieceMoveOptionsCache.TryGetValue(cacheKey, out IReadOnlyList<PieceMoveOption>? cachedOptions))
+        if (pieceMoveOptionsCoordinator.TryGetCachedOptions(currentFen, fromSquare, out IReadOnlyList<PieceMoveOption>? cachedOptions)
+            && cachedOptions is not null)
         {
             ApplyPieceMoveOptions(cachedOptions, movesForPiece.Count, pieceName, fromSquare, appendCachedMarker: true);
             return;
@@ -71,7 +71,7 @@ public partial class MainForm
         if (engine is null)
         {
             ApplyPieceMoveOptions(
-                movesForPiece.Select(move => new PieceMoveOption(move.San, move.Uci, null, null, false)).ToList(),
+                pieceMoveOptionsCoordinator.CreateFallbackOptions(movesForPiece),
                 movesForPiece.Count,
                 pieceName,
                 fromSquare,
@@ -93,7 +93,14 @@ public partial class MainForm
         IReadOnlyList<PieceMoveOption> analyzedOptions;
         try
         {
-            analyzedOptions = await Task.Run(() => BuildPieceMoveOptions(currentFen, movesForPiece));
+            if (engine is null)
+            {
+                analyzedOptions = pieceMoveOptionsCoordinator.CreateFallbackOptions(movesForPiece);
+            }
+            else
+            {
+                analyzedOptions = await pieceMoveOptionsCoordinator.AnalyzeAsync(currentFen, movesForPiece, engine);
+            }
         }
         catch (Exception ex)
         {
@@ -108,8 +115,7 @@ public partial class MainForm
             return;
         }
 
-        string cacheKey = BuildPieceMoveOptionsCacheKey(currentFen, fromSquare);
-        pieceMoveOptionsCache[cacheKey] = analyzedOptions;
+        pieceMoveOptionsCoordinator.StoreOptions(currentFen, fromSquare, analyzedOptions);
         if (!IsHandleCreated)
         {
             return;
@@ -126,59 +132,6 @@ public partial class MainForm
         }));
     }
 
-    private IReadOnlyList<PieceMoveOption> BuildPieceMoveOptions(string currentFen, IReadOnlyList<LegalMoveInfo> movesForPiece)
-    {
-        if (engine is null)
-        {
-            return movesForPiece
-                .Select(move => new PieceMoveOption(move.San, move.Uci, null, null, false))
-                .ToList();
-        }
-
-        ChessGame baselineGame = new();
-        if (!baselineGame.TryLoadFen(currentFen, out _))
-        {
-            return movesForPiece
-                .Select(move => new PieceMoveOption(move.San, move.Uci, null, null, false))
-                .ToList();
-        }
-
-        EngineAnalysisOptions options = new(Depth: 10, MultiPv: 1, MoveTimeMs: 90);
-        PlayerSide perspective = baselineGame.WhiteToMove ? PlayerSide.White : PlayerSide.Black;
-        EngineAnalysis currentAnalysis = engine.AnalyzePosition(currentFen, options);
-        EvaluatedScore baseline = NormalizeScore(currentAnalysis.Lines.FirstOrDefault(), perspective, perspective);
-        string? bestMoveUci = currentAnalysis.BestMoveUci;
-
-        List<PieceMoveOption> optionsForPiece = new();
-        foreach (LegalMoveInfo move in movesForPiece)
-        {
-            ChessGame analysisGame = new();
-            if (!analysisGame.TryLoadFen(currentFen, out _)
-                || !analysisGame.TryApplyUci(move.Uci, out AppliedMoveInfo? appliedMove, out _)
-                || appliedMove is null)
-            {
-                optionsForPiece.Add(new PieceMoveOption(move.San, move.Uci, null, null, string.Equals(move.Uci, bestMoveUci, StringComparison.OrdinalIgnoreCase)));
-                continue;
-            }
-
-            EngineAnalysis moveAnalysis = engine.AnalyzePosition(appliedMove.FenAfter, options);
-            EvaluatedScore moveScore = NormalizeScore(moveAnalysis.Lines.FirstOrDefault(), perspective, Opponent(perspective));
-            optionsForPiece.Add(new PieceMoveOption(
-                move.San,
-                move.Uci,
-                moveScore,
-                ComputeDelta(baseline, moveScore),
-                string.Equals(move.Uci, bestMoveUci, StringComparison.OrdinalIgnoreCase)));
-        }
-
-        engine.SetPositionFen(currentFen);
-
-        return optionsForPiece
-            .OrderByDescending(option => ScoreForSorting(option.Score))
-            .ThenBy(option => option.San, StringComparer.Ordinal)
-            .ToList();
-    }
-
     private void ApplyPieceMoveOptions(
         IReadOnlyList<PieceMoveOption> options,
         int moveCount,
@@ -191,29 +144,22 @@ public partial class MainForm
             return;
         }
 
-        string cachedSuffix = appendCachedMarker ? " | cached" : string.Empty;
         string? selectedUci = pieceMoveOptionsList.SelectedItem is PieceMoveOptionListItem selectedItem
             ? selectedItem.Option.Uci
             : null;
-        pieceMoveOptionsLabel.Text = $"Selected piece: {pieceName} from {fromSquare} | legal moves: {moveCount}{cachedSuffix}";
+        pieceMoveOptionsLabel.Text = pieceMoveOptionsCoordinator.BuildHeaderText(pieceName, fromSquare, moveCount, appendCachedMarker);
         pieceMoveOptionsList.Items.Clear();
 
-        foreach (PieceMoveOption option in options)
+        IReadOnlyList<PieceMoveOptionListItem> displayItems = pieceMoveOptionsCoordinator.BuildDisplayItems(options);
+        foreach (PieceMoveOptionListItem item in displayItems)
         {
-            pieceMoveOptionsList.Items.Add(new PieceMoveOptionListItem(option, FormatPieceMoveOption(option)));
+            pieceMoveOptionsList.Items.Add(item);
         }
 
-        if (!string.IsNullOrWhiteSpace(selectedUci))
+        int selectedIndex = pieceMoveOptionsCoordinator.FindSelectionIndex(displayItems, selectedUci);
+        if (selectedIndex >= 0)
         {
-            for (int i = 0; i < pieceMoveOptionsList.Items.Count; i++)
-            {
-                if (pieceMoveOptionsList.Items[i] is PieceMoveOptionListItem optionItem
-                    && string.Equals(optionItem.Option.Uci, selectedUci, StringComparison.OrdinalIgnoreCase))
-                {
-                    pieceMoveOptionsList.SelectedIndex = i;
-                    break;
-                }
-            }
+            pieceMoveOptionsList.SelectedIndex = selectedIndex;
         }
 
         UpdatePieceMoveOptionPreview();
@@ -240,7 +186,7 @@ public partial class MainForm
     private void UpdatePieceMoveOptionPreview()
     {
         if (pieceMoveOptionsList?.SelectedItem is PieceMoveOptionListItem optionItem
-            && TryParseUciMove(optionItem.Option.Uci, out _, out Point to))
+            && ChessMoveDisplayHelper.TryParseUciMove(optionItem.Option.Uci, out _, out Point to))
         {
             pieceMoveOptionTargetSquare = to;
         }
@@ -251,93 +197,4 @@ public partial class MainForm
 
         InvalidateBoardSurface();
     }
-
-    private static string BuildPieceMoveOptionsCacheKey(string fen, string fromSquare)
-    {
-        return $"{fen}|{fromSquare}";
-    }
-
-    private static EvaluatedScore NormalizeScore(EngineLine? line, PlayerSide perspective, PlayerSide sideToMove)
-    {
-        if (line is null)
-        {
-            return new EvaluatedScore(null, null);
-        }
-
-        int sign = perspective == sideToMove ? 1 : -1;
-        return new EvaluatedScore(
-            line.Centipawns is int cp ? cp * sign : null,
-            line.MateIn is int mate ? mate * sign : null);
-    }
-
-    private static int? ComputeDelta(EvaluatedScore baseline, EvaluatedScore moveScore)
-    {
-        if (baseline.Centipawns is not int baselineCp || moveScore.Centipawns is not int moveCp)
-        {
-            return null;
-        }
-
-        return moveCp - baselineCp;
-    }
-
-    private static int ScoreForSorting(EvaluatedScore? score)
-    {
-        if (score?.MateIn is int mate)
-        {
-            return mate > 0
-                ? 100000 - (Math.Abs(mate) * 1000)
-                : -100000 + (Math.Abs(mate) * 1000);
-        }
-
-        return score?.Centipawns ?? int.MinValue / 2;
-    }
-
-    private static string FormatPieceMoveOption(PieceMoveOption option)
-    {
-        if (!string.IsNullOrWhiteSpace(option.ErrorText))
-        {
-            return option.ErrorText;
-        }
-
-        string bestMarker = option.IsBestMove ? "* " : "  ";
-        string scoreText = FormatEvaluatedScore(option.Score);
-        string deltaText = option.DeltaCp is int delta
-            ? (delta >= 0 ? $"+{delta}" : delta.ToString())
-            : "n/a";
-
-        return $"{bestMarker}{FormatSanAndUci(option.San, option.Uci),-18} | {scoreText,-10} | d {deltaText}";
-    }
-
-    private static string FormatEvaluatedScore(EvaluatedScore? score)
-    {
-        if (score?.MateIn is int mate)
-        {
-            return $"mate {mate}";
-        }
-
-        if (score?.Centipawns is int cp)
-        {
-            double pawns = cp / 100.0;
-            return pawns >= 0 ? $"+{pawns:0.0}" : $"{pawns:0.0}";
-        }
-
-        return "n/a";
-    }
-
-    private static PlayerSide Opponent(PlayerSide side) => side == PlayerSide.White ? PlayerSide.Black : PlayerSide.White;
-
-    private sealed record PieceMoveOption(
-        string San,
-        string Uci,
-        EvaluatedScore? Score,
-        int? DeltaCp,
-        bool IsBestMove,
-        string? ErrorText = null);
-
-    private sealed record PieceMoveOptionListItem(PieceMoveOption Option, string Label)
-    {
-        public override string ToString() => Label;
-    }
-
-    private sealed record EvaluatedScore(int? Centipawns, int? MateIn);
 }

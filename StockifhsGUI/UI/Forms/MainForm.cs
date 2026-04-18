@@ -8,7 +8,7 @@ using System.Windows.Forms;
 
 namespace StockifhsGUI;
 
-public partial class MainForm : Form
+public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkflowHost, IAnalysisNavigationHost, IBoardInteractionHost
 {
     private const int GridSize = 8;
     private const int DefaultTileSize = 64;
@@ -22,6 +22,10 @@ public partial class MainForm : Form
 
     private readonly string?[,] board = new string?[8, 8];
     private readonly ChessBoardControl boardSurface;
+    private readonly ImportedGamePlaybackCoordinator importedPlayback;
+    private readonly TrackingWorkflowCoordinator trackingWorkflow;
+    private readonly AnalysisNavigationCoordinator analysisNavigation;
+    private readonly BoardInteractionCoordinator boardInteraction;
     private StockfishEngine? engine;
     private readonly List<string> moveHistory = new();
     private readonly Label suggestionLabel;
@@ -60,6 +64,10 @@ public partial class MainForm : Form
         MinimumSize = SizeFromClientSize(new Size(MinTileSize * GridSize + MinimumSidePanelWidth + LayoutGap + LayoutMargin, MinTileSize * GridSize + 260));
         Text = "Manual Chess (Player vs Player)";
         rotateBoard = rotate;
+        importedPlayback = new ImportedGamePlaybackCoordinator(this);
+        trackingWorkflow = new TrackingWorkflowCoordinator(this);
+        analysisNavigation = new AnalysisNavigationCoordinator(this);
+        boardInteraction = new BoardInteractionCoordinator(this);
 
         boardSurface = new ChessBoardControl
         {
@@ -166,87 +174,9 @@ public partial class MainForm : Form
         }
     }
 
-    private void HandleBoardSquareClick(Point square)
-    {
-        int x = square.X;
-        int y = square.Y;
+    private void HandleBoardSquareClick(Point square) => boardInteraction.HandleBoardSquareClick(square);
 
-        if (!IsOnBoard(x, y))
-        {
-            return;
-        }
-
-        if (selectedSquare is null)
-        {
-            TrySelectPiece(x, y);
-            return;
-        }
-
-        Point from = selectedSquare.Value;
-        Point to = new(x, y);
-        string? piece = board[from.X, from.Y];
-
-        if (string.IsNullOrEmpty(piece))
-        {
-            ClearSelection();
-            return;
-        }
-
-        if (from == to)
-        {
-            ClearSelection();
-            return;
-        }
-
-        if (!TryExecuteMove(from, to, piece, advanceImportedCursor: false))
-        {
-            SystemSounds.Beep.Play();
-            ClearSelection();
-            return;
-        }
-
-        ClearSelection();
-    }
-
-    private void TrySelectPiece(int x, int y)
-    {
-        string? piece = board[x, y];
-        if (string.IsNullOrEmpty(piece) || IsPieceWhite(piece) != whiteToMove)
-        {
-            return;
-        }
-
-        if (!TryCreateGameFromCurrentPosition(out ChessGame? game, out _) || game is null)
-        {
-            return;
-        }
-
-        selectedSquare = new Point(x, y);
-        availableMoves.Clear();
-        string fromSquare = ToUCI(selectedSquare.Value);
-        List<LegalMoveInfo> movesForPiece = game.GetLegalMoves()
-            .Where(move => move.FromSquare == fromSquare)
-            .ToList();
-
-        foreach (LegalMoveInfo move in movesForPiece)
-        {
-            if (TryParseUciSquare(move.ToSquare, out Point targetSquare) && !availableMoves.Contains(targetSquare))
-            {
-                availableMoves.Add(targetSquare);
-            }
-        }
-
-        UpdateSelectedPieceMoveOptions(GetCurrentFen(), selectedSquare.Value, movesForPiece);
-        InvalidateBoardSurface();
-    }
-
-    private void ClearSelection()
-    {
-        selectedSquare = null;
-        availableMoves.Clear();
-        ClearPieceMoveOptions();
-        InvalidateBoardSurface();
-    }
+    private void ClearSelection() => boardInteraction.ClearSelection();
 
     private void RefreshEngineSuggestions()
     {
@@ -313,8 +243,6 @@ public partial class MainForm : Form
     }
 
     private static bool IsPieceWhite(string piece) => char.IsUpper(piece[0]);
-
-    private static bool IsOnBoard(int x, int y) => x >= 0 && x < GridSize && y >= 0 && y < GridSize;
 
     private void UpdateEvaluationDisplay(EvaluationSummary? evaluation)
     {
@@ -585,4 +513,37 @@ public partial class MainForm : Form
         pieceImages["n"] = Image.FromFile(Path.Combine(path, "bN.svg"));
         pieceImages["p"] = Image.FromFile(Path.Combine(path, "bP.svg"));
     }
+
+    int IBoardInteractionHost.GridSize => GridSize;
+
+    string?[,] IBoardInteractionHost.Board => board;
+
+    Point? IBoardInteractionHost.SelectedSquare
+    {
+        get => selectedSquare;
+        set => selectedSquare = value;
+    }
+
+    IList<Point> IBoardInteractionHost.AvailableMoves => availableMoves;
+
+    bool IBoardInteractionHost.WhiteToMove => whiteToMove;
+
+    bool IBoardInteractionHost.IsPieceWhite(string piece) => IsPieceWhite(piece);
+
+    string IBoardInteractionHost.GetCurrentFen() => GetCurrentFen();
+
+    string IBoardInteractionHost.ToUci(Point point) => ToUCI(point);
+
+    bool IBoardInteractionHost.TryCreateGameFromCurrentPosition(out ChessGame? game, out string? error)
+        => TryCreateGameFromCurrentPosition(out game, out error);
+
+    bool IBoardInteractionHost.TryExecuteMove(Point from, Point to, string piece, bool advanceImportedCursor)
+        => TryExecuteMove(from, to, piece, advanceImportedCursor);
+
+    void IBoardInteractionHost.UpdateSelectedPieceMoveOptions(string currentFen, Point selectedPoint, IReadOnlyList<LegalMoveInfo> movesForPiece)
+        => UpdateSelectedPieceMoveOptions(currentFen, selectedPoint, movesForPiece);
+
+    void IBoardInteractionHost.ClearPieceMoveOptions() => ClearPieceMoveOptions();
+
+    void IBoardInteractionHost.InvalidateBoardSurface() => InvalidateBoardSurface();
 }

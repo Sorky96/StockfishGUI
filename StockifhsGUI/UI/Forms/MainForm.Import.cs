@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Linq;
 using System.Media;
 using System.Windows.Forms;
 
@@ -236,13 +235,10 @@ public partial class MainForm
 
     private void ApplyNextImportedMove()
     {
-        if (importedSession.Cursor >= importedSession.Moves.Count)
+        if (!importedPlayback.TryApplyNextImportedMove(out ImportedPlaybackError? error))
         {
-            SystemSounds.Beep.Play();
-            return;
+            PresentImportedPlaybackError(error);
         }
-
-        ApplyImportedMove(importedSession.Cursor, showError: true);
     }
 
     private void ApplyImportedMovesThroughSelection(bool resetToStart = false)
@@ -253,178 +249,17 @@ public partial class MainForm
         }
 
         int targetIndex = importedMovesList.SelectedIndex;
-        if (TryJumpToImportedMove(targetIndex, preserveUndoHistory: false))
+        if (!importedPlayback.TryApplySelection(targetIndex, resetToStart, out ImportedPlaybackError? error))
         {
-            return;
-        }
-
-        if (resetToStart || targetIndex < importedSession.Cursor)
-        {
-            ReplayImportedMovesThrough(targetIndex);
-            return;
-        }
-
-        while (importedSession.Cursor <= targetIndex)
-        {
-            if (!ApplyImportedMove(importedSession.Cursor, showError: true))
-            {
-                break;
-            }
+            PresentImportedPlaybackError(error);
         }
     }
 
     private void ReplayImportedMovesThrough(int targetIndex)
     {
-        if (targetIndex < 0 || targetIndex >= importedSession.Moves.Count)
+        if (!importedPlayback.TryReplayThrough(targetIndex, out ImportedPlaybackError? error))
         {
-            SystemSounds.Beep.Play();
-            return;
-        }
-
-        if (TryJumpToImportedMove(targetIndex, preserveUndoHistory: false))
-        {
-            return;
-        }
-
-        ResetBoardState();
-        importedSession.Cursor = 0;
-        ClearSelection();
-
-        bool replayFailed = false;
-        suppressEngineRefresh = true;
-        try
-        {
-            for (int i = 0; i <= targetIndex; i++)
-            {
-                if (!ApplyImportedMove(i, showError: true))
-                {
-                    replayFailed = true;
-                    break;
-                }
-            }
-        }
-        finally
-        {
-            suppressEngineRefresh = false;
-        }
-
-        RefreshEngineSuggestions();
-        UpdateExtendedControls();
-        InvalidateBoardSurface();
-
-        if (replayFailed)
-        {
-            return;
-        }
-    }
-
-    private bool ApplyImportedMove(int index, bool showError)
-    {
-        if (index < 0 || index >= importedSession.Moves.Count)
-        {
-            return false;
-        }
-
-        if (TryJumpToImportedMove(index, preserveUndoHistory: true))
-        {
-            ClearSelection();
-            return true;
-        }
-
-        ImportedMoveListItem move = importedSession.Moves[index];
-        if (!TryBuildImportedMoveResult(index, out AppliedMoveInfo? appliedMove, out string? error)
-            || appliedMove is null)
-        {
-            if (showError)
-            {
-                MessageBox.Show($"Move {move.DisplayText} could not be applied.\n{error}", "Import PGN", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-
-            return false;
-        }
-
-        if (!TryApplyMoveResult(appliedMove, advanceImportedCursor: true, out error))
-        {
-            if (showError)
-            {
-                MessageBox.Show($"Move {move.DisplayText} could not be shown on the board.\n{error}", "Import PGN", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-
-            return false;
-        }
-
-        ClearSelection();
-        return true;
-    }
-
-    private bool TryJumpToImportedMove(int index, bool preserveUndoHistory)
-    {
-        if (index < 0 || index >= importedSession.Replay.Count)
-        {
-            return false;
-        }
-
-        if (preserveUndoHistory)
-        {
-            undoStack.Push(CaptureCurrentState());
-        }
-        else
-        {
-            undoStack.Clear();
-        }
-
-        ReplayPly replayPly = importedSession.Replay[index];
-        if (!TryApplyFen(replayPly.FenAfter, out _))
-        {
-            if (preserveUndoHistory && undoStack.Count > 0)
-            {
-                undoStack.Pop();
-            }
-
-            return false;
-        }
-
-        analysisArrows.Clear();
-        analysisTargetSquare = null;
-        moveHistory.Clear();
-        foreach (ReplayPly appliedReplayPly in importedSession.Replay.Take(index + 1))
-        {
-            moveHistory.Add(appliedReplayPly.Uci);
-        }
-
-        importedSession.Cursor = index + 1;
-        ClearSelection();
-
-        if (!suppressEngineRefresh)
-        {
-            RefreshEngineSuggestions();
-        }
-
-        UpdateExtendedControls();
-        InvalidateBoardSurface();
-        return true;
-    }
-
-    private bool TryBuildImportedMoveResult(int index, out AppliedMoveInfo? appliedMove, out string? error)
-    {
-        appliedMove = null;
-        error = null;
-
-        try
-        {
-            ChessGame replayGame = new();
-            for (int i = 0; i < index; i++)
-            {
-                replayGame.ApplySan(importedSession.Moves[i].San);
-            }
-
-            appliedMove = replayGame.ApplySanWithResult(importedSession.Moves[index].San);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-            return false;
+            PresentImportedPlaybackError(error);
         }
     }
 
@@ -493,13 +328,10 @@ public partial class MainForm
     {
         ArgumentNullException.ThrowIfNull(parsedGame);
 
-        GameReplayService replayService = new();
-        IReadOnlyList<ReplayPly> replay = replayService.Replay(parsedGame);
-        ResetGameState();
-        importedSession.LoadImportedGame(parsedGame, replay);
-        PopulateImportedMovesList();
-        RefreshEngineSuggestions();
-        UpdateExtendedControls();
+        if (!importedPlayback.TryLoadImportedGame(parsedGame, out string? error))
+        {
+            throw new InvalidOperationException(error);
+        }
     }
 
     private static void SaveImportedGameToStore(ImportedGame parsedGame)
@@ -647,19 +479,56 @@ public partial class MainForm
         suppressImportedSelectionHandling = false;
     }
 
-    private sealed record GameStateSnapshot(
-        string?[,] Board,
-        List<string> MoveHistory,
-        bool WhiteToMove,
-        bool RotateBoard,
-        bool WhiteKingMoved,
-        bool BlackKingMoved,
-        bool WhiteRookLeftMoved,
-        bool WhiteRookRightMoved,
-        bool BlackRookLeftMoved,
-        bool BlackRookRightMoved,
-        string? EnPassantTargetSquare,
-        int HalfmoveClock,
-        int FullmoveNumber,
-        int ImportedMoveCursor);
+    private void PresentImportedPlaybackError(ImportedPlaybackError? error)
+    {
+        if (error is null)
+        {
+            return;
+        }
+
+        if (error.BeepOnly)
+        {
+            SystemSounds.Beep.Play();
+            return;
+        }
+
+        MessageBox.Show(error.Message, error.Caption, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
+
+    ImportedGameSession IImportedGamePlaybackHost.ImportedSession => importedSession;
+
+    Stack<GameStateSnapshot> IImportedGamePlaybackHost.UndoStack => undoStack;
+
+    IList<string> IImportedGamePlaybackHost.MoveHistory => moveHistory;
+
+    bool IImportedGamePlaybackHost.SuppressEngineRefresh
+    {
+        get => suppressEngineRefresh;
+        set => suppressEngineRefresh = value;
+    }
+
+    void IImportedGamePlaybackHost.ResetBoardState() => ResetBoardState();
+
+    void IImportedGamePlaybackHost.ClearSelection() => ClearSelection();
+
+    void IImportedGamePlaybackHost.ClearAnalysisFocus()
+    {
+        analysisArrows.Clear();
+        analysisTargetSquare = null;
+    }
+
+    void IImportedGamePlaybackHost.RefreshEngineSuggestions() => RefreshEngineSuggestions();
+
+    void IImportedGamePlaybackHost.UpdateImportedControls() => UpdateExtendedControls();
+
+    void IImportedGamePlaybackHost.InvalidateBoardSurface() => InvalidateBoardSurface();
+
+    void IImportedGamePlaybackHost.PopulateImportedMovesList() => PopulateImportedMovesList();
+
+    GameStateSnapshot IImportedGamePlaybackHost.CaptureCurrentState() => CaptureCurrentState();
+
+    bool IImportedGamePlaybackHost.TryApplyFen(string fen, out string? error) => TryApplyFen(fen, out error);
+
+    bool IImportedGamePlaybackHost.TryApplyMoveResult(AppliedMoveInfo appliedMove, bool advanceImportedCursor, out string? error)
+        => TryApplyMoveResult(appliedMove, advanceImportedCursor, out error);
 }

@@ -1,6 +1,5 @@
 using System;
 using System.Drawing;
-using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -13,10 +12,6 @@ public partial class MainForm
     private Label? trackingStatusLabel;
     private CheckBox? alwaysOnTopCheckBox;
     private System.Windows.Forms.Timer? trackingTimer;
-    private Tracker? tracker;
-    private TrackingProfile? trackingProfile;
-    private bool trackingPollInProgress;
-    private string? lastTrackedFen;
 
     private void InitializeTrackingControls()
     {
@@ -76,103 +71,19 @@ public partial class MainForm
             return;
         }
 
-        trackingProfile = setupForm.TrackingProfile;
-
-        tracker ??= new Tracker(TesseractDataResolver.GetExpectedDataPath());
-        lastTrackedFen = null;
-
-        if (startTrackingButton is not null)
-        {
-            startTrackingButton.Enabled = false;
-        }
-
-        if (stopTrackingButton is not null)
-        {
-            stopTrackingButton.Enabled = true;
-        }
-
-        if (trackingProfile.BoardOnly)
-        {
-            TrackingUpdate initialBoardUpdate = tracker.InitializeBoardOnly(trackingProfile, GetCurrentFen());
-            if (initialBoardUpdate.Snapshot is not null)
-            {
-                ApplyTrackingUpdate(initialBoardUpdate);
-            }
-            else
-            {
-                SetTrackingStatus(initialBoardUpdate.Status.Message);
-            }
-        }
-
-        SetTrackingStatus($"Tracking: {trackingProfile.WindowTitle}");
         trackingTimer?.Start();
-        await PollTrackingAsync();
+        await trackingWorkflow.StartAsync(setupForm.TrackingProfile);
     }
 
     private void StopTracking(string message)
     {
         trackingTimer?.Stop();
-        trackingProfile = null;
-        trackingPollInProgress = false;
-        lastTrackedFen = null;
-
-        if (startTrackingButton is not null)
-        {
-            startTrackingButton.Enabled = true;
-        }
-
-        if (stopTrackingButton is not null)
-        {
-            stopTrackingButton.Enabled = false;
-        }
-
-        SetTrackingStatus(message);
+        trackingWorkflow.Stop(message);
     }
 
     private async Task PollTrackingAsync()
     {
-        if (trackingPollInProgress || tracker is null || trackingProfile is null)
-        {
-            return;
-        }
-
-        trackingPollInProgress = true;
-        try
-        {
-            TrackingProfile profile = trackingProfile;
-            TrackingUpdate update = await Task.Run(() => tracker.Poll(profile));
-            ApplyTrackingUpdate(update);
-        }
-        catch (Exception ex)
-        {
-            if (IsTransientTrackingException(ex))
-            {
-                SetTrackingStatus($"Tracking temporarily unavailable: {ex.Message}");
-                return;
-            }
-
-            StopTracking($"Tracking error: {ex.Message}");
-        }
-        finally
-        {
-            trackingPollInProgress = false;
-        }
-    }
-
-    private void ApplyTrackingUpdate(TrackingUpdate update)
-    {
-        if (update.Snapshot is not null && update.Snapshot.Fen != lastTrackedFen)
-        {
-            if (!TryLoadTrackedSnapshot(update.Snapshot, out string? error))
-            {
-                SetTrackingStatus($"Tracking import failed: {error}");
-                return;
-            }
-
-            lastTrackedFen = update.Snapshot.Fen;
-        }
-
-        SetTrackingStatus(update.Status.Message);
+        await trackingWorkflow.PollAsync();
     }
 
     private bool TryLoadTrackedSnapshot(TrackedPositionSnapshot snapshot, out string? error)
@@ -232,12 +143,27 @@ public partial class MainForm
         }
     }
 
-    private static bool IsTransientTrackingException(Exception ex)
+    private void SetTrackingControlsRunning(bool isRunning)
     {
-        return ex is ObjectDisposedException
-            || ex is InvalidOperationException
-            || ex.Message.Contains("zamykanie", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("closed", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("disposed", StringComparison.OrdinalIgnoreCase);
+        if (startTrackingButton is not null)
+        {
+            startTrackingButton.Enabled = !isRunning;
+        }
+
+        if (stopTrackingButton is not null)
+        {
+            stopTrackingButton.Enabled = isRunning;
+        }
     }
+
+    string ITrackingWorkflowHost.GetCurrentFen() => GetCurrentFen();
+
+    string ITrackingWorkflowHost.GetTesseractDataPath() => TesseractDataResolver.GetExpectedDataPath();
+
+    bool ITrackingWorkflowHost.TryLoadTrackedSnapshot(TrackedPositionSnapshot snapshot, out string? error)
+        => TryLoadTrackedSnapshot(snapshot, out error);
+
+    void ITrackingWorkflowHost.SetTrackingStatus(string message) => SetTrackingStatus(message);
+
+    void ITrackingWorkflowHost.SetTrackingControlsRunning(bool isRunning) => SetTrackingControlsRunning(isRunning);
 }
