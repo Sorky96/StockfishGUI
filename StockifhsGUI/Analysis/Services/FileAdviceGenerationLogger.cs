@@ -17,12 +17,16 @@ public sealed class FileAdviceGenerationLogger : IAdviceGenerationLogger
         }
 
         this.filePath = filePath;
+        FilePath = filePath;
         string? directory = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrWhiteSpace(directory))
         {
             Directory.CreateDirectory(directory);
         }
     }
+
+    /// <summary>Absolute path of the JSONL log file.</summary>
+    public string FilePath { get; }
 
     public static FileAdviceGenerationLogger CreateDefault()
     {

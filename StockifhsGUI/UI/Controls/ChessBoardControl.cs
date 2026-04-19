@@ -24,7 +24,7 @@ internal sealed class ChessBoardControl : DoubleBufferedPanel
 
         Graphics g = e.Graphics;
         using Font coordinateFont = new("Segoe UI", Math.Max(9, TileSize / 6f), FontStyle.Bold);
-        using Pen boardBorderPen = new(UiTheme.BorderColor, 2);
+        using Pen boardBorderPen = new(System.Drawing.Color.Transparent, 2);
         using SolidBrush boardBackgroundBrush = new(Color.FromArgb(234, 237, 241));
 
         g.FillRectangle(boardBackgroundBrush, ClientRectangle);

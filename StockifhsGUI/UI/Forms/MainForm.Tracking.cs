@@ -2,51 +2,62 @@ using System;
 using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
 public partial class MainForm
 {
-    private Button? startTrackingButton;
-    private Button? stopTrackingButton;
-    private Label? trackingStatusLabel;
-    private CheckBox? alwaysOnTopCheckBox;
+    private MaterialButton? startTrackingButton;
+    private MaterialButton? stopTrackingButton;
+    private MaterialLabel? trackingStatusLabel;
+    private MaterialCheckbox? alwaysOnTopCheckBox;
     private System.Windows.Forms.Timer? trackingTimer;
 
     private void InitializeTrackingControls()
     {
-        startTrackingButton = new Button
+        startTrackingButton = new MaterialButton
         {
             Text = "Start Tracking",
-            Size = new Size(120, 32)
+            AutoSize = false,
+            Size = new Size(120, 36)
         };
         startTrackingButton.Click += async (_, _) => await StartTrackingAsync();
-        Controls.Add(startTrackingButton);
+        sidebarLayout.Controls.Add(startTrackingButton, 0, 6);
+        startTrackingButton.Dock = DockStyle.Fill;
 
-        stopTrackingButton = new Button
+        stopTrackingButton = new MaterialButton
         {
             Text = "Stop Tracking",
-            Size = new Size(120, 32),
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Contained,
+            HighEmphasis = true,
+            Size = new Size(120, 36),
             Enabled = false
         };
         stopTrackingButton.Click += (_, _) => StopTracking("Tracking stopped.");
-        Controls.Add(stopTrackingButton);
+        sidebarLayout.Controls.Add(stopTrackingButton, 1, 6);
+        stopTrackingButton.Dock = DockStyle.Fill;
 
-        alwaysOnTopCheckBox = new CheckBox
+        alwaysOnTopCheckBox = new MaterialCheckbox
         {
             AutoSize = true,
             Text = "Always on top"
         };
         alwaysOnTopCheckBox.CheckedChanged += (_, _) => TopMost = alwaysOnTopCheckBox.Checked;
-        Controls.Add(alwaysOnTopCheckBox);
+        sidebarLayout.Controls.Add(alwaysOnTopCheckBox, 0, 7);
+        sidebarLayout.SetColumnSpan(alwaysOnTopCheckBox, 2);
+        alwaysOnTopCheckBox.Dock = DockStyle.Fill;
 
-        trackingStatusLabel = new Label
+        trackingStatusLabel = new MaterialLabel
         {
             AutoSize = false,
             Size = new Size(260, 72),
             Text = "Tracking: idle"
         };
-        Controls.Add(trackingStatusLabel);
+        sidebarLayout.Controls.Add(trackingStatusLabel, 0, 8);
+        sidebarLayout.SetColumnSpan(trackingStatusLabel, 2);
+        trackingStatusLabel.Dock = DockStyle.Fill;
 
         trackingTimer = new System.Windows.Forms.Timer
         {

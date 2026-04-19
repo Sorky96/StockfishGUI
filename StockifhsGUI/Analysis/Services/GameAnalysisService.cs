@@ -4,20 +4,20 @@ public sealed class GameAnalysisService
 {
     private readonly IEngineAnalyzer engineAnalyzer;
     private readonly GameReplayService replayService;
-    private readonly MistakeClassifier mistakeClassifier;
+    private readonly DiagnosticMistakeClassifier mistakeClassifier;
     private readonly IAdviceGenerator adviceGenerator;
     private readonly MistakeSelector mistakeSelector;
 
     public GameAnalysisService(
         IEngineAnalyzer engineAnalyzer,
         GameReplayService? replayService = null,
-        MistakeClassifier? mistakeClassifier = null,
+        DiagnosticMistakeClassifier? mistakeClassifier = null,
         IAdviceGenerator? adviceGenerator = null,
         MistakeSelector? mistakeSelector = null)
     {
         this.engineAnalyzer = engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer));
         this.replayService = replayService ?? new GameReplayService();
-        this.mistakeClassifier = mistakeClassifier ?? new MistakeClassifier();
+        this.mistakeClassifier = mistakeClassifier ?? DiagnosticMistakeClassifier.CreateDefault();
         this.adviceGenerator = adviceGenerator ?? AdviceGeneratorFactory.CreateBulkAnalysisGenerator();
         this.mistakeSelector = mistakeSelector ?? new MistakeSelector();
     }
@@ -53,7 +53,14 @@ public sealed class GameAnalysisService
             MoveQualityBucket quality = ClassifyQuality(bestScore, playedScore, centipawnLoss);
             MoveHeuristicContext heuristicContext = BuildHeuristicContext(ply, analyzedSide, beforeAnalysis, afterAnalysis);
 
-            MistakeTag? tag = mistakeClassifier.Classify(ply, analyzedSide, quality, centipawnLoss, materialDelta, heuristicContext);
+            MistakeTag? tag = mistakeClassifier.Classify(
+                ply,
+                GameFingerprint.Compute(game.PgnText),
+                analyzedSide,
+                quality,
+                centipawnLoss,
+                materialDelta,
+                heuristicContext);
             AdvicePromptContext promptContext = AdvicePromptContextBuilder.Build(
                 game,
                 ply,
@@ -145,17 +152,34 @@ public sealed class GameAnalysisService
         int developedMinorPiecesAfter = PositionInspector.CountDevelopedMinorPieces(replay.FenAfter, analyzedSide);
         bool castledBeforeMove = PositionInspector.IsKingOnCastledWing(replay.FenBefore, analyzedSide);
         bool castledAfterMove = PositionInspector.IsKingOnCastledWing(replay.FenAfter, analyzedSide);
+        bool kingLeftCastledShelter = replay.MovingPiece.Equals("K", StringComparison.OrdinalIgnoreCase)
+            && castledBeforeMove
+            && !castledAfterMove;
         bool kingCentralizedBeforeMove = PositionInspector.IsKingCentralized(replay.FenBefore, analyzedSide);
         bool kingCentralizedAfterMove = PositionInspector.IsKingCentralized(replay.FenAfter, analyzedSide);
+        string? kingSquareBefore = PositionInspector.GetKingSquare(replay.FenBefore, analyzedSide);
+        int? kingMobilityBefore = kingSquareBefore is null
+            ? null
+            : PositionInspector.CountPieceMobility(replay.FenBefore, kingSquareBefore, analyzedSide);
         bool bestMoveIsCastle = bestMove?.IsCastle == true;
         bool bestMoveDevelopsMinorPiece = bestMove is not null
             && IsMinorPieceMove(bestMove.MovingPiece)
             && !PositionInspector.IsMinorPieceOnStartingSquare(bestMove.FenAfter, bestMove.ToSquare, analyzedSide);
+        bool bestMoveImprovesPieceActivity = DoesBestMoveImprovePieceActivity(bestMove, analyzedSide);
         int bestMoveDevelopedMinorPiecesAfter = bestMove is null
             ? developedMinorPiecesBefore
             : PositionInspector.CountDevelopedMinorPieces(bestMove.FenAfter, analyzedSide);
         bool bestMoveCentralizesKing = bestMove is not null
             && PositionInspector.IsKingCentralized(bestMove.FenAfter, analyzedSide);
+        int? bestMoveKingMobilityAfter = bestMove is not null && bestMove.MovingPiece.Equals("K", StringComparison.OrdinalIgnoreCase)
+            ? PositionInspector.CountPieceMobility(bestMove.FenAfter, bestMove.ToSquare, analyzedSide)
+            : null;
+        bool bestMoveImprovesKingActivity = bestMove is not null
+            && bestMove.MovingPiece.Equals("K", StringComparison.OrdinalIgnoreCase)
+            && ((bestMoveCentralizesKing && !kingCentralizedBeforeMove)
+                || (kingMobilityBefore is int currentMobility
+                    && bestMoveKingMobilityAfter is int improvedMobility
+                    && improvedMobility >= currentMobility + 2));
         PositionInspector.SquareSafetySummary? movedPieceSafety = PositionInspector.AnalyzeSquareSafety(replay.FenAfter, replay.ToSquare, analyzedSide);
         int? movedPieceMobilityBefore = PositionInspector.CountPieceMobility(replay.FenBefore, replay.FromSquare, analyzedSide);
         int? movedPieceMobilityAfter = PositionInspector.CountPieceMobility(replay.FenAfter, replay.ToSquare, analyzedSide);
@@ -169,7 +193,7 @@ public sealed class GameAnalysisService
             movedPieceMobilityBefore,
             movedPieceMobilityAfter,
             PositionInspector.IsEdgeSquare(replay.ToSquare),
-            movedPiece == 'p' && fromFile is 'f' or 'g' or 'h' && castledBeforeMove,
+            movedPiece == 'p' && PositionInspector.IsCastledFlankPawnPush(replay.FenBefore, replay.FromSquare, analyzedSide),
             replay.Phase == GamePhase.Opening && movedPiece == 'q',
             replay.Phase == GamePhase.Opening && movedPiece == 'r',
             replay.Phase == GamePhase.Opening && movedPiece == 'k' && !replay.IsCastle,
@@ -177,6 +201,7 @@ public sealed class GameAnalysisService
             bestMove?.IsCapture == true,
             bestMoveIsCastle,
             bestMoveDevelopsMinorPiece,
+            bestMoveImprovesPieceActivity,
             bestMoveMaterialSwing,
             playedLineSwing?.WorstDeltaCp,
             developedMinorPiecesBefore,
@@ -184,9 +209,38 @@ public sealed class GameAnalysisService
             bestMoveDevelopedMinorPiecesAfter,
             castledBeforeMove,
             castledAfterMove,
+            kingLeftCastledShelter,
             kingCentralizedBeforeMove,
             kingCentralizedAfterMove,
-            bestMoveCentralizesKing);
+            bestMoveCentralizesKing,
+            bestMoveImprovesKingActivity);
+    }
+
+    private static bool DoesBestMoveImprovePieceActivity(AppliedMoveInfo? bestMove, PlayerSide analyzedSide)
+    {
+        if (bestMove is null
+            || bestMove.IsCapture
+            || bestMove.MovingPiece.Equals("P", StringComparison.OrdinalIgnoreCase)
+            || bestMove.MovingPiece.Equals("K", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        int? beforeMobility = PositionInspector.CountPieceMobility(bestMove.FenBefore, bestMove.FromSquare, analyzedSide);
+        int? afterMobility = PositionInspector.CountPieceMobility(bestMove.FenAfter, bestMove.ToSquare, analyzedSide);
+        if (beforeMobility is not int before || afterMobility is not int after)
+        {
+            return false;
+        }
+
+        if (after >= before + 3)
+        {
+            return true;
+        }
+
+        return PositionInspector.IsEdgeSquare(bestMove.FromSquare)
+            && !PositionInspector.IsEdgeSquare(bestMove.ToSquare)
+            && after > before;
     }
 
     private static bool IsMinorPieceMove(string movingPiece)

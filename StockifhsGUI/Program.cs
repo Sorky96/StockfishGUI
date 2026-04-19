@@ -16,6 +16,21 @@ namespace StockifhsGUI
                 return;
             }
 
+            // Analysis quality report: classifier confidence + advice fallback summary.
+            if (args.Length > 0 && args[0] == "--quality-report")
+            {
+                AnalysisQualityReporter.RunReport();
+                return;
+            }
+
+            // Dataset export: dump StoredMoveAnalysis to JSONL + CSV for offline experiments.
+            if (args.Length > 0 && args[0] == "--export-dataset")
+            {
+                IAnalysisStore store = SqliteAnalysisStore.CreateDefault();
+                DatasetExporter.RunExport(store);
+                return;
+            }
+
             // To customize application configuration such as set high DPI settings or default font,
             // see https://aka.ms/applicationconfiguration.
             ApplicationConfiguration.Initialize();

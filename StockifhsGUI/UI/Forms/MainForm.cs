@@ -5,10 +5,12 @@ using System.IO;
 using System.Linq;
 using System.Media;
 using System.Windows.Forms;
+using MaterialSkin;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
-public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkflowHost, IAnalysisNavigationHost, IBoardInteractionHost, IBoardPresentationHost
+public partial class MainForm : MaterialForm, IImportedGamePlaybackHost, ITrackingWorkflowHost, IAnalysisNavigationHost, IBoardInteractionHost, IBoardPresentationHost
 {
     private const int GridSize = 8;
     private const int DefaultTileSize = 64;
@@ -29,9 +31,9 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
     private readonly BoardPresentationCoordinator boardPresentation;
     private StockfishEngine? engine;
     private readonly List<string> moveHistory = new();
-    private readonly Label suggestionLabel;
-    private readonly Button rotateButton;
-    private readonly Label evaluationLabel;
+    private readonly MaterialLabel suggestionLabel;
+    private readonly MaterialButton rotateButton;
+    private readonly MaterialLabel evaluationLabel;
     private readonly Panel evaluationBarBackground;
     private readonly Panel evaluationBarFill;
     private readonly List<BoardArrow> bestMoveArrows = new();
@@ -41,6 +43,7 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
     private readonly Dictionary<string, Image> pieceImages = new();
     private EvaluationSummary? currentEvaluation;
 
+    private readonly TableLayoutPanel sidebarLayout;
     private Point? selectedSquare;
     private bool whiteToMove = true;
     private bool rotateBoard;
@@ -60,11 +63,18 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
     {
         DoubleBuffered = true;
         ResizeRedraw = true;
-        UiTheme.ApplyFormChrome(this);
         ClientSize = new Size(DefaultTileSize * GridSize + MinimumSidePanelWidth + LayoutGap + LayoutMargin, DefaultTileSize * GridSize + 260);
         MinimumSize = SizeFromClientSize(new Size(MinTileSize * GridSize + MinimumSidePanelWidth + LayoutGap + LayoutMargin, MinTileSize * GridSize + 260));
         Text = "Manual Chess (Player vs Player)";
         rotateBoard = rotate;
+
+        MaterialSkinManager materialSkinManager = MaterialSkinManager.Instance;
+        materialSkinManager.AddFormToManage(this);
+        materialSkinManager.Theme = MaterialSkinManager.Themes.DARK;
+        materialSkinManager.ColorScheme = new ColorScheme(
+            Primary.BlueGrey800, Primary.BlueGrey900,
+            Primary.BlueGrey500, Accent.LightBlue200, TextShade.WHITE);
+
         importedPlayback = new ImportedGamePlaybackCoordinator(this);
         trackingWorkflow = new TrackingWorkflowCoordinator(this);
         analysisNavigation = new AnalysisNavigationCoordinator(this);
@@ -75,13 +85,13 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
         {
             Location = Point.Empty,
             Size = new Size(DefaultTileSize * GridSize, DefaultTileSize * GridSize),
-            BackColor = UiTheme.AppBackground,
+            BackColor = System.Drawing.Color.Transparent,
             TabStop = false
         };
         boardSurface.SquareClicked += (_, args) => HandleBoardSquareClick(args.Square);
         Controls.Add(boardSurface);
 
-        suggestionLabel = new Label
+        suggestionLabel = new MaterialLabel
         {
             AutoSize = false,
             Font = new Font("Segoe UI", 12),
@@ -90,7 +100,7 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
         };
         Controls.Add(suggestionLabel);
 
-        evaluationLabel = new Label
+        evaluationLabel = new MaterialLabel
         {
             AutoSize = false,
             Font = new Font("Segoe UI", 10, FontStyle.Bold),
@@ -113,10 +123,11 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
         };
         evaluationBarBackground.Controls.Add(evaluationBarFill);
 
-        rotateButton = new Button
+        rotateButton = new MaterialButton
         {
             Text = "Rotate Board",
-            Size = new Size(120, 30)
+            AutoSize = false,
+            Size = new Size(120, 36)
         };
         rotateButton.Click += (_, _) =>
         {
@@ -124,8 +135,32 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
             InvalidateBoardSurface();
         };
         Controls.Add(rotateButton);
+
+        sidebarLayout = new TableLayoutPanel
+        {
+            ColumnCount = 2,
+            RowCount = 11,
+            Padding = new Padding(0),
+            BackColor = Color.Transparent
+        };
+        // Setup column styles
+        sidebarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        sidebarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        
+        // Setup row styles
+        for (int i = 0; i < 3; i++) sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42f)); // Buttons 1-3
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42f)); // Saved Analyses
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50f)); // Imported Label
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 45f));  // Imported List
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42f)); // Tracking Buttons
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f)); // Always on top
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60f)); // Status Label
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f)); // Piece Label
+        sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 55f));  // Piece List
+
+        Controls.Add(sidebarLayout);
+
         InitializeExtendedControls();
-        ApplyUiTheme();
         Resize += (_, _) => UpdateResponsiveLayout();
 
         ResetGameState();
@@ -226,47 +261,10 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
         int boardBottom = BoardPixelSize;
         int panelLeft = BoardPixelSize + LayoutGap;
         int panelWidth = Math.Max(MinimumSidePanelWidth, ClientSize.Width - panelLeft - LayoutMargin);
-        int buttonHeight = 32;
-        int buttonGap = 10;
-        int buttonWidth = Math.Max(140, (panelWidth - buttonGap) / 2);
-        int secondColumnLeft = panelLeft + buttonWidth + buttonGap;
 
-        importPgnButton?.SetBounds(panelLeft, 16, buttonWidth, buttonHeight);
-        loadSavedGamesButton?.SetBounds(secondColumnLeft, 16, buttonWidth, buttonHeight);
-        applyNextImportedButton?.SetBounds(panelLeft, 16 + buttonHeight + buttonGap, buttonWidth, buttonHeight);
-        applySelectedImportedButton?.SetBounds(secondColumnLeft, 16 + buttonHeight + buttonGap, buttonWidth, buttonHeight);
-        analyzeImportedButton?.SetBounds(panelLeft, 16 + ((buttonHeight + buttonGap) * 2), buttonWidth, buttonHeight);
-        playerProfilesButton?.SetBounds(secondColumnLeft, 16 + ((buttonHeight + buttonGap) * 2), buttonWidth, buttonHeight);
-
-        int buttonRow4Y = 16 + ((buttonHeight + buttonGap) * 3);
-        savedAnalysesButton?.SetBounds(panelLeft, buttonRow4Y, panelWidth, buttonHeight);
-
-        int rightColumnY = buttonRow4Y + buttonHeight + 10;
-        importedMovesLabel?.SetBounds(panelLeft, rightColumnY, panelWidth, 54);
-        rightColumnY += 60;
-
-        int trackingSectionHeight = 146;
-        int pieceOptionsLabelHeight = 42;
-        int minimumPieceOptionsListHeight = 150;
-        int importedListHeight = Math.Max(
-            170,
-            ClientSize.Height - rightColumnY - LayoutMargin - trackingSectionHeight - pieceOptionsLabelHeight - minimumPieceOptionsListHeight - 20);
-        importedMovesList?.SetBounds(panelLeft, rightColumnY, panelWidth, importedListHeight);
-        rightColumnY += importedListHeight + 16;
-
-        startTrackingButton?.SetBounds(panelLeft, rightColumnY, buttonWidth, buttonHeight);
-        stopTrackingButton?.SetBounds(secondColumnLeft, rightColumnY, buttonWidth, buttonHeight);
-        rightColumnY += buttonHeight + 10;
-
-        alwaysOnTopCheckBox?.SetBounds(panelLeft, rightColumnY, panelWidth, 24);
-        rightColumnY += 28;
-
-        trackingStatusLabel?.SetBounds(panelLeft, rightColumnY, panelWidth, 72);
-        rightColumnY += 84;
-
-        pieceMoveOptionsLabel?.SetBounds(panelLeft, rightColumnY, panelWidth, pieceOptionsLabelHeight);
-        rightColumnY += pieceOptionsLabelHeight + 6;
-        pieceMoveOptionsList?.SetBounds(panelLeft, rightColumnY, panelWidth, Math.Max(minimumPieceOptionsListHeight, ClientSize.Height - rightColumnY - LayoutMargin));
+        int sidebarTop = 16;
+        int sidebarHeight = ClientSize.Height - sidebarTop - LayoutMargin;
+        sidebarLayout.SetBounds(panelLeft, sidebarTop, panelWidth, sidebarHeight);
 
         int buttonRowY = boardBottom + 8;
         int undoWidth = 88;
@@ -278,6 +276,9 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
             buttonRowY,
             rotateButton.Width,
             rotateButton.Height);
+        
+        // Trigger layout update for sidebar
+        sidebarLayout.PerformLayout();
 
         int suggestionWidth = Math.Max(180, rotateButton.Left - LayoutMargin - 8);
         suggestionLabel.SetBounds(LayoutMargin, buttonRowY + 2, suggestionWidth, 24);
@@ -299,102 +300,7 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
     private void InvalidateBoardSurface()
         => boardPresentation.InvalidateBoardSurface();
 
-    private void ApplyUiTheme()
-    {
-        suggestionLabel.BackColor = UiTheme.CardBackground;
-        suggestionLabel.ForeColor = UiTheme.TextColor;
-        suggestionLabel.BorderStyle = BorderStyle.FixedSingle;
-        suggestionLabel.Padding = new Padding(10, 6, 10, 6);
 
-        evaluationLabel.BackColor = UiTheme.AppBackground;
-        evaluationLabel.ForeColor = UiTheme.TextColor;
-
-        evaluationBarBackground.BackColor = Color.FromArgb(49, 56, 64);
-        evaluationBarBackground.BorderStyle = BorderStyle.FixedSingle;
-        evaluationBarFill.BackColor = Color.WhiteSmoke;
-
-        UiTheme.StyleSecondaryButton(rotateButton);
-
-        if (undoButton is not null)
-        {
-            UiTheme.StyleSecondaryButton(undoButton);
-        }
-
-        if (importPgnButton is not null)
-        {
-            UiTheme.StylePrimaryButton(importPgnButton);
-        }
-
-        if (loadSavedGamesButton is not null)
-        {
-            UiTheme.StyleSecondaryButton(loadSavedGamesButton);
-        }
-
-        if (applyNextImportedButton is not null)
-        {
-            UiTheme.StyleSecondaryButton(applyNextImportedButton);
-        }
-
-        if (applySelectedImportedButton is not null)
-        {
-            UiTheme.StyleSecondaryButton(applySelectedImportedButton);
-        }
-
-        if (analyzeImportedButton is not null)
-        {
-            UiTheme.StylePrimaryButton(analyzeImportedButton);
-        }
-
-        if (playerProfilesButton is not null)
-        {
-            UiTheme.StyleSecondaryButton(playerProfilesButton);
-        }
-
-        if (savedAnalysesButton is not null)
-        {
-            UiTheme.StyleSecondaryButton(savedAnalysesButton);
-        }
-
-        if (startTrackingButton is not null)
-        {
-            UiTheme.StylePrimaryButton(startTrackingButton);
-        }
-
-        if (stopTrackingButton is not null)
-        {
-            UiTheme.StyleDangerButton(stopTrackingButton);
-        }
-
-        if (alwaysOnTopCheckBox is not null)
-        {
-            UiTheme.StyleCheckBox(alwaysOnTopCheckBox);
-        }
-
-        if (importedMovesLabel is not null)
-        {
-            UiTheme.StyleInfoLabel(importedMovesLabel);
-        }
-
-        if (trackingStatusLabel is not null)
-        {
-            UiTheme.StyleInfoLabel(trackingStatusLabel);
-        }
-
-        if (pieceMoveOptionsLabel is not null)
-        {
-            UiTheme.StyleInfoLabel(pieceMoveOptionsLabel);
-        }
-
-        if (importedMovesList is not null)
-        {
-            UiTheme.StyleListBox(importedMovesList);
-        }
-
-        if (pieceMoveOptionsList is not null)
-        {
-            UiTheme.StyleListBox(pieceMoveOptionsList);
-        }
-    }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
@@ -470,9 +376,9 @@ public partial class MainForm : Form, IImportedGamePlaybackHost, ITrackingWorkfl
 
     IList<Point> IBoardPresentationHost.AvailableMoves => availableMoves;
 
-    Label IBoardPresentationHost.SuggestionLabel => suggestionLabel;
+    MaterialLabel IBoardPresentationHost.SuggestionLabel => suggestionLabel;
 
-    Label IBoardPresentationHost.EvaluationLabel => evaluationLabel;
+    MaterialLabel IBoardPresentationHost.EvaluationLabel => evaluationLabel;
 
     Panel IBoardPresentationHost.EvaluationBarBackground => evaluationBarBackground;
 

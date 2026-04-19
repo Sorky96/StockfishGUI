@@ -2,17 +2,18 @@ using System;
 using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
-public sealed class TrackingSetupForm : Form
+public sealed class TrackingSetupForm : MaterialForm
 {
-    private readonly Label windowLabel;
-    private readonly Label boardRegionLabel;
-    private readonly Label moveRegionLabel;
-    private readonly CheckBox whiteAtBottomCheckBox;
-    private readonly CheckBox boardOnlyCheckBox;
-    private readonly Button okButton;
+    private readonly MaterialLabel windowLabel;
+    private readonly MaterialLabel boardRegionLabel;
+    private readonly MaterialLabel moveRegionLabel;
+    private readonly MaterialCheckbox whiteAtBottomCheckBox;
+    private readonly MaterialCheckbox boardOnlyCheckBox;
+    private readonly MaterialButton okButton;
     private bool captureInProgress;
 
     private WindowCaptureInfo? capturedWindow;
@@ -28,47 +29,49 @@ public sealed class TrackingSetupForm : Form
         MinimizeBox = false;
         ClientSize = new Size(470, 280);
 
-        Label introLabel = new()
+        MaterialLabel introLabel = new()
         {
             AutoSize = false,
-            Location = new Point(16, 12),
+            Location = new Point(16, 72),
             Size = new Size(438, 56),
             Text = "Capture the Chess.com window, then mark the board and move-list regions. The tracker will poll those areas every 500 ms. In Board only mode, the app will first detect the current piece layout directly from the board image."
         };
         Controls.Add(introLabel);
 
-        windowLabel = new Label
+        windowLabel = new MaterialLabel
         {
             AutoSize = false,
-            Location = new Point(16, 64),
+            Location = new Point(16, 128),
             Size = new Size(438, 22),
             Text = "Window: not captured"
         };
         Controls.Add(windowLabel);
 
-        Button captureWindowButton = new()
+        MaterialButton captureWindowButton = new()
         {
             Text = "Capture Active Window (3s)",
-            Location = new Point(16, 92),
-            Size = new Size(210, 32)
+            Location = new Point(16, 156),
+            AutoSize = false,
+            Size = new Size(210, 36)
         };
         captureWindowButton.Click += async (_, _) => await CaptureActiveWindowAsync();
         Controls.Add(captureWindowButton);
 
-        boardRegionLabel = new Label
+        boardRegionLabel = new MaterialLabel
         {
             AutoSize = false,
-            Location = new Point(16, 136),
+            Location = new Point(16, 200),
             Size = new Size(438, 22),
             Text = "Board region: not selected"
         };
         Controls.Add(boardRegionLabel);
 
-        Button boardRegionButton = new()
+        MaterialButton boardRegionButton = new()
         {
             Text = "Select Board Region",
-            Location = new Point(16, 164),
-            Size = new Size(180, 32)
+            Location = new Point(16, 228),
+            AutoSize = false,
+            Size = new Size(180, 36)
         };
         boardRegionButton.Click += (_, _) => SelectRegion(
             "Drag a rectangle around the Chess.com board. Release the mouse to confirm.",
@@ -80,20 +83,21 @@ public sealed class TrackingSetupForm : Form
             });
         Controls.Add(boardRegionButton);
 
-        moveRegionLabel = new Label
+        moveRegionLabel = new MaterialLabel
         {
             AutoSize = false,
-            Location = new Point(16, 204),
+            Location = new Point(16, 268),
             Size = new Size(438, 22),
             Text = "Move list region: not selected"
         };
         Controls.Add(moveRegionLabel);
 
-        Button moveRegionButton = new()
+        MaterialButton moveRegionButton = new()
         {
-            Text = "Select Move List Region",
-            Location = new Point(16, 232),
-            Size = new Size(180, 32)
+            Text = "Select Move List",
+            Location = new Point(16, 296),
+            AutoSize = false,
+            Size = new Size(180, 36)
         };
         moveRegionButton.Click += (_, _) => SelectRegion(
             "Drag a rectangle around the Chess.com move list. Release the mouse to confirm.",
@@ -105,20 +109,20 @@ public sealed class TrackingSetupForm : Form
             });
         Controls.Add(moveRegionButton);
 
-        whiteAtBottomCheckBox = new CheckBox
+        whiteAtBottomCheckBox = new MaterialCheckbox
         {
             AutoSize = true,
-            Location = new Point(220, 170),
-            Text = "White pieces are at the bottom",
+            Location = new Point(220, 234),
+            Text = "White pieces at bottom",
             Checked = true
         };
         Controls.Add(whiteAtBottomCheckBox);
 
-        boardOnlyCheckBox = new CheckBox
+        boardOnlyCheckBox = new MaterialCheckbox
         {
             AutoSize = true,
-            Location = new Point(220, 194),
-            Text = "Board only (ignore move list OCR)"
+            Location = new Point(220, 258),
+            Text = "Board only (ignore OCR)"
         };
         boardOnlyCheckBox.CheckedChanged += (_, _) =>
         {
@@ -128,11 +132,12 @@ public sealed class TrackingSetupForm : Form
         };
         Controls.Add(boardOnlyCheckBox);
 
-        okButton = new Button
+        okButton = new MaterialButton
         {
             Text = "Start Tracking",
-            Location = new Point(310, 232),
-            Size = new Size(144, 32),
+            Location = new Point(310, 296),
+            AutoSize = false,
+            Size = new Size(144, 36),
             Enabled = false
         };
         okButton.Click += (_, _) =>

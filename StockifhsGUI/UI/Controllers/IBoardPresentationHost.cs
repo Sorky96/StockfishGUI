@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
@@ -18,9 +19,9 @@ internal interface IBoardPresentationHost
 
     IList<Point> AvailableMoves { get; }
 
-    Label SuggestionLabel { get; }
+    MaterialLabel SuggestionLabel { get; }
 
-    Label EvaluationLabel { get; }
+    MaterialLabel EvaluationLabel { get; }
 
     Panel EvaluationBarBackground { get; }
 

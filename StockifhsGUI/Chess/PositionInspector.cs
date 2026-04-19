@@ -78,6 +78,50 @@ public static class PositionInspector
         return false;
     }
 
+    public static string? GetKingSquare(string fen, PlayerSide side)
+    {
+        if (!FenPosition.TryParse(fen, out FenPosition? position, out _)
+            || position is null)
+        {
+            return null;
+        }
+
+        string king = side == PlayerSide.White ? "K" : "k";
+        for (int x = 0; x < 8; x++)
+        {
+            for (int y = 0; y < 8; y++)
+            {
+                if (position.Board[x, y] == king)
+                {
+                    return ToSquare(x, y);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public static bool IsCastledFlankPawnPush(string fen, string fromSquare, PlayerSide side)
+    {
+        string? kingSquare = GetKingSquare(fen, side);
+        if (kingSquare is null
+            || string.IsNullOrWhiteSpace(fromSquare)
+            || fromSquare.Length != 2)
+        {
+            return false;
+        }
+
+        char file = char.ToLowerInvariant(fromSquare[0]);
+        return (side, kingSquare) switch
+        {
+            (PlayerSide.White, "g1") => file is 'f' or 'g' or 'h',
+            (PlayerSide.Black, "g8") => file is 'f' or 'g' or 'h',
+            (PlayerSide.White, "c1") => file is 'a' or 'b' or 'c',
+            (PlayerSide.Black, "c8") => file is 'a' or 'b' or 'c',
+            _ => false
+        };
+    }
+
     public static int CountDevelopedMinorPieces(string fen, PlayerSide side)
     {
         if (!FenPosition.TryParse(fen, out FenPosition? position, out _)
@@ -492,6 +536,17 @@ public static class PositionInspector
 
         point = new BoardPoint(file - 'a', 8 - (rank - '0'));
         return true;
+    }
+
+    private static string ToSquare(int x, int y)
+    {
+        char file = (char)('a' + x);
+        char rank = (char)('8' - y);
+        return string.Create(2, (file, rank), static (buffer, state) =>
+        {
+            buffer[0] = state.file;
+            buffer[1] = state.rank;
+        });
     }
 
     private static bool IsOnBoard(int y, int x) => x is >= 0 and < 8 && y is >= 0 and < 8;

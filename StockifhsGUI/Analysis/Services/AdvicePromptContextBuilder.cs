@@ -66,6 +66,11 @@ public static class AdvicePromptContextBuilder
                 "early_rook_move" => "a rook moved early without a concrete payoff",
                 "wing_pawn_before_development" => "a wing pawn move spent time before core development",
                 "missed_king_centralization" => "the king could have become more active",
+                "missed_king_activation" => "a more active king plan was available",
+                "king_left_castled_shelter" => "the king moved away from its castled shelter",
+                "king_retreated_to_edge" => "the king stepped toward the edge and became less active",
+                "reduced_king_activity" => "king activity dropped in an endgame where activity mattered",
+                "missed_piece_activation" => "a more active piece setup was available",
                 "king_stayed_passive" => "king activity remained too passive for the phase",
                 "piece_lost_or_underdefended" => "the moved piece became loose or tactically vulnerable",
                 "material_swing_detected" => "the line allowed a significant material swing",
@@ -109,9 +114,19 @@ public static class AdvicePromptContextBuilder
             notes.Add("the stronger line improved king activity");
         }
 
+        if (heuristicContext.BestMoveImprovesPieceActivity)
+        {
+            notes.Add("the stronger line improved piece activity instead of keeping the position static");
+        }
+
         if (heuristicContext.CastledBeforeMove && heuristicContext.CastledKingWingPawnPush)
         {
             notes.Add("the move loosened the pawn cover in front of a castled king");
+        }
+
+        if (heuristicContext.KingLeftCastledShelter)
+        {
+            notes.Add("the king moved away from its castled shelter and gave up safety");
         }
 
         if (heuristicContext.MovedPieceToEdge && replay.MovingPiece is "N" or "n" or "B" or "b" or "Q" or "q")

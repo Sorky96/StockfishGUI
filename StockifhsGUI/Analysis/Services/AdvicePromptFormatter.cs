@@ -137,6 +137,7 @@ public static class AdvicePromptFormatter
         builder.AppendLine("Reply with ONLY a JSON object. No markdown, no explanation outside the JSON.");
         builder.AppendLine("Keys: short_text, detailed_text, training_hint.");
         builder.AppendLine(BuildLengthInstruction(request.ExplanationLevel));
+        builder.AppendLine("For detailed_text, use exactly four short parts in this order: What:, Why:, Better:, Watch next time:.");
         builder.AppendLine();
         builder.AppendLine("IMPORTANT: You must write about THIS specific position. Generate NEW text.");
         builder.AppendLine($"Refer to the actual move ({request.Replay.San}), the actual best move ({request.Context?.PromptContext?.BestMoveSan ?? request.BestMoveUci ?? "unknown"}), and the actual pattern ({request.Tag?.Label ?? "general"}).");
@@ -145,7 +146,7 @@ public static class AdvicePromptFormatter
         builder.AppendLine("""
             {
               "short_text": "Write a brief summary of the mistake here.",
-              "detailed_text": "Explain the tactical or positional reasons why the played move is bad and why the best move is better.",
+              "detailed_text": "What: Briefly state what went wrong. Why: Briefly explain the core tactical or positional reason. Better: Name the better move and why it helped. Watch next time: Give one pattern to notice earlier.",
               "training_hint": "Provide a short, actionable rule for the player to remember."
             }
             """);

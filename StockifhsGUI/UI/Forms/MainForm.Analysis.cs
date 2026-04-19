@@ -70,8 +70,31 @@ public partial class MainForm
             return;
         }
 
-        using PlayerProfilesForm profilesForm = new(new PlayerProfileService(store));
+        using PlayerProfilesForm profilesForm = new(new PlayerProfileService(store), pieceImages, NavigateToProfileExample);
         profilesForm.ShowDialog(this);
+    }
+
+    private void NavigateToProfileExample(ProfileMistakeExample example)
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        if (store is null || !store.TryLoadImportedGame(example.GameFingerprint, out ImportedGame? game) || game is null)
+        {
+            MessageBox.Show("Could not find the game in the local store.", "Game Not Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (engine is null)
+        {
+            MessageBox.Show(MissingEngineMessage, "Analysis Unavailable", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        // We load the game into the main UI so they can see the PGN in the background
+        LoadImportedGame(game);
+
+        // Then we open the analysis form for that side
+        using GameAnalysisForm analysisForm = new(game, engine, NavigateToAnalysisMistake, example.Side);
+        analysisForm.ShowDialog(this);
     }
 
     private void NavigateToAnalysisMistake(MoveAnalysisResult moveAnalysis)

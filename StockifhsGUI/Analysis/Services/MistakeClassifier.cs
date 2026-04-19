@@ -21,9 +21,37 @@ public sealed class MistakeClassifier
         double qualityBoost = QualityBoost(quality);
         int bestMoveMaterialSwing = effectiveContext.BestMoveMaterialSwingCp ?? 0;
         int playedLineMaterialSwing = effectiveContext.PlayedLineMaterialSwingCp ?? 0;
+        bool hangingPieceMistake = IsHangingPieceMistake(replay, centipawnLoss, materialDeltaCp, playedLineMaterialSwing, effectiveContext)
+            && !replay.MovingPiece.Equals("P", StringComparison.OrdinalIgnoreCase);
+        bool preferMissedTactic = ShouldPreferMissedTacticLabel(bestMoveMaterialSwing, materialDeltaCp, playedLineMaterialSwing, effectiveContext);
+
+        if (hangingPieceMistake
+            && ShouldPreferHangingPieceLabel(materialDeltaCp, playedLineMaterialSwing, effectiveContext))
+        {
+            return Build(
+                "hanging_piece",
+                ClampConfidence(0.76 + qualityBoost + HangingPieceBoost(effectiveContext, materialDeltaCp, playedLineMaterialSwing)),
+                effectiveContext.MovedPieceFreeToTake ? "moved_piece_free_to_take" : "moved_piece_loses_exchange",
+                materialDeltaCp < 0 ? $"material_delta_{materialDeltaCp}" : null,
+                playedLineMaterialSwing < 0 ? $"played_line_material_swing_{playedLineMaterialSwing}" : null,
+                QualityEvidence(quality));
+        }
 
         if (materialDeltaCp <= -200 || playedLineMaterialSwing <= -200)
         {
+            if (preferMissedTactic)
+            {
+                return Build(
+                    "missed_tactic",
+                    ClampConfidence(0.70 + qualityBoost + Math.Min(0.14, bestMoveMaterialSwing / 1800.0)),
+                    effectiveContext.BestMoveIsCapture ? "best_move_is_forcing_capture" : null,
+                    bestMoveMaterialSwing >= 200 ? $"best_move_material_swing_{bestMoveMaterialSwing}" : null,
+                    materialDeltaCp <= -200 ? $"material_delta_{materialDeltaCp}" : null,
+                    playedLineMaterialSwing <= -200 ? $"played_line_material_swing_{playedLineMaterialSwing}" : null,
+                    "tactical_opportunity_outweighed_small_loss",
+                    QualityEvidence(quality));
+            }
+
             return Build(
                 "material_loss",
                 ClampConfidence(0.78 + qualityBoost + Math.Min(0.12, Math.Abs(Math.Min(materialDeltaCp, playedLineMaterialSwing)) / 2000.0)),
@@ -32,8 +60,7 @@ public sealed class MistakeClassifier
                 QualityEvidence(quality));
         }
 
-        if (IsHangingPieceMistake(replay, centipawnLoss, materialDeltaCp, playedLineMaterialSwing, effectiveContext)
-            && !replay.MovingPiece.Equals("P", StringComparison.OrdinalIgnoreCase))
+        if (hangingPieceMistake)
         {
             return Build(
                 "hanging_piece",
@@ -48,8 +75,8 @@ public sealed class MistakeClassifier
         {
             return Build(
                 "king_safety",
-                ClampConfidence(0.66 + qualityBoost + ((centipawnLoss ?? 0) >= 180 ? 0.05 : 0.0)),
-                "king_shield_weakened",
+                ClampConfidence(0.66 + qualityBoost + KingSafetyBoost(effectiveContext, centipawnLoss)),
+                KingSafetyEvidence(effectiveContext),
                 QualityEvidence(quality));
         }
 
@@ -171,6 +198,29 @@ public sealed class MistakeClassifier
             return true;
         }
 
+        if (context.BestMoveImprovesKingActivity && !context.KingCentralizedAfterMove)
+        {
+            return true;
+        }
+
+        if (replay.MovingPiece.Equals("K", StringComparison.OrdinalIgnoreCase)
+            && context.MovedPieceMobilityBefore is int beforeMobility
+            && context.MovedPieceMobilityAfter is int afterMobility)
+        {
+            int mobilityDrop = beforeMobility - afterMobility;
+            if (mobilityDrop >= 2)
+            {
+                return true;
+            }
+
+            if (context.MovedPieceToEdge
+                && afterMobility <= 3
+                && mobilityDrop >= 1)
+            {
+                return true;
+            }
+        }
+
         return replay.MovingPiece.Equals("K", StringComparison.OrdinalIgnoreCase)
             && context.KingCentralizedBeforeMove
             && !context.KingCentralizedAfterMove;
@@ -178,12 +228,16 @@ public sealed class MistakeClassifier
 
     private static bool IsKingSafetyMistake(ReplayPly replay, int? centipawnLoss, MoveHeuristicContext context)
     {
-        if ((centipawnLoss ?? 0) < 120 || !replay.MovingPiece.Equals("P", StringComparison.OrdinalIgnoreCase))
+        if (replay.MovingPiece.Equals("K", StringComparison.OrdinalIgnoreCase)
+            && context.KingLeftCastledShelter
+            && (centipawnLoss ?? 0) >= 140)
         {
-            return false;
+            return true;
         }
 
-        return context.CastledKingWingPawnPush;
+        return (centipawnLoss ?? 0) >= 120
+            && replay.MovingPiece.Equals("P", StringComparison.OrdinalIgnoreCase)
+            && context.CastledKingWingPawnPush;
     }
 
     private static bool IsPieceActivityMistake(ReplayPly replay, int? centipawnLoss, MoveHeuristicContext context)
@@ -207,6 +261,18 @@ public sealed class MistakeClassifier
 
         int mobilityDrop = beforeMobility - afterMobility;
         if (mobilityDrop >= 3)
+        {
+            return true;
+        }
+
+        if (context.BestMoveImprovesPieceActivity && mobilityDrop >= 1)
+        {
+            return true;
+        }
+
+        if (context.BestMoveImprovesPieceActivity
+            && !context.MovedPieceToEdge
+            && afterMobility <= beforeMobility)
         {
             return true;
         }
@@ -241,6 +307,53 @@ public sealed class MistakeClassifier
         }
 
         return false;
+    }
+
+    private static bool ShouldPreferHangingPieceLabel(
+        int materialDeltaCp,
+        int playedLineMaterialSwing,
+        MoveHeuristicContext context)
+    {
+        if (context.MovedPieceFreeToTake)
+        {
+            return true;
+        }
+
+        int movedPieceValue = context.MovedPieceValueCp ?? 0;
+        int worstLoss = Math.Abs(Math.Min(0, Math.Min(materialDeltaCp, playedLineMaterialSwing)));
+        if (worstLoss == 0)
+        {
+            return context.MovedPieceLikelyLosesExchange;
+        }
+
+        if (movedPieceValue <= 0)
+        {
+            return context.MovedPieceLikelyLosesExchange && worstLoss <= 650;
+        }
+
+        return worstLoss <= movedPieceValue + 120;
+    }
+
+    private static bool ShouldPreferMissedTacticLabel(
+        int bestMoveMaterialSwing,
+        int materialDeltaCp,
+        int playedLineMaterialSwing,
+        MoveHeuristicContext context)
+    {
+        if (bestMoveMaterialSwing < 400
+            || context.MovedPieceFreeToTake
+            || context.MovedPieceLikelyLosesExchange)
+        {
+            return false;
+        }
+
+        int actualLoss = Math.Abs(Math.Min(0, Math.Min(materialDeltaCp, playedLineMaterialSwing)));
+        if (actualLoss == 0)
+        {
+            return false;
+        }
+
+        return actualLoss <= 350 && bestMoveMaterialSwing >= actualLoss + 300;
     }
 
     private static MistakeTag Build(string label, double confidence, params string?[] evidence)
@@ -278,11 +391,12 @@ public sealed class MistakeClassifier
             PositionInspector.CountPieceMobility(replay.FenBefore, replay.FromSquare, analyzedSide),
             PositionInspector.CountPieceMobility(replay.FenAfter, replay.ToSquare, analyzedSide),
             PositionInspector.IsEdgeSquare(replay.ToSquare),
-            movedPiece == 'p' && fromFile is 'f' or 'g' or 'h' && castledBeforeMove,
+            movedPiece == 'p' && PositionInspector.IsCastledFlankPawnPush(replay.FenBefore, replay.FromSquare, analyzedSide),
             replay.Phase == GamePhase.Opening && movedPiece == 'q',
             replay.Phase == GamePhase.Opening && movedPiece == 'r',
             replay.Phase == GamePhase.Opening && movedPiece == 'k' && !replay.IsCastle,
             replay.Phase == GamePhase.Opening && movedPiece == 'p' && fromFile is 'a' or 'b' or 'g' or 'h',
+            false,
             false,
             false,
             false,
@@ -293,8 +407,10 @@ public sealed class MistakeClassifier
             developedMinorPiecesBefore,
             castledBeforeMove,
             castledAfterMove,
+            movedPiece == 'k' && castledBeforeMove && !castledAfterMove,
             kingCentralizedBeforeMove,
             kingCentralizedAfterMove,
+            false,
             false);
     }
 
@@ -367,9 +483,32 @@ public sealed class MistakeClassifier
 
     private static string EndgameEvidence(MoveHeuristicContext context)
     {
-        return context.BestMoveCentralizesKing && !context.KingCentralizedAfterMove
-            ? "missed_king_centralization"
-            : "king_moved_away_from_center";
+        if (context.BestMoveCentralizesKing && !context.KingCentralizedAfterMove)
+        {
+            return "missed_king_centralization";
+        }
+
+        if (context.BestMoveImprovesKingActivity && !context.KingCentralizedAfterMove)
+        {
+            return "missed_king_activation";
+        }
+
+        if (context.MovedPieceToEdge
+            && context.MovedPieceMobilityBefore is int beforeMobility
+            && context.MovedPieceMobilityAfter is int afterMobility
+            && beforeMobility > afterMobility)
+        {
+            return "king_retreated_to_edge";
+        }
+
+        if (context.MovedPieceMobilityBefore is int previousMobility
+            && context.MovedPieceMobilityAfter is int currentMobility
+            && previousMobility - currentMobility >= 2)
+        {
+            return "reduced_king_activity";
+        }
+
+        return "king_moved_away_from_center";
     }
 
     private static double EndgameTechniqueBoost(MoveHeuristicContext context)
@@ -379,7 +518,30 @@ public sealed class MistakeClassifier
             return 0.08;
         }
 
+        if (context.BestMoveImprovesKingActivity && !context.KingCentralizedAfterMove)
+        {
+            return 0.07;
+        }
+
+        if (context.MovedPieceMobilityBefore is int beforeMobility
+            && context.MovedPieceMobilityAfter is int afterMobility
+            && beforeMobility - afterMobility >= 2)
+        {
+            return 0.06;
+        }
+
         return context.KingCentralizedBeforeMove && !context.KingCentralizedAfterMove ? 0.05 : 0.0;
+    }
+
+    private static double KingSafetyBoost(MoveHeuristicContext context, int? centipawnLoss)
+    {
+        double boost = (centipawnLoss ?? 0) >= 180 ? 0.05 : 0.0;
+        if (context.KingLeftCastledShelter)
+        {
+            boost += 0.07;
+        }
+
+        return boost;
     }
 
     private static double HangingPieceBoost(MoveHeuristicContext context, int materialDeltaCp, int playedLineMaterialSwing)
@@ -426,6 +588,11 @@ public sealed class MistakeClassifier
             boost += 0.03;
         }
 
+        if (context.BestMoveImprovesPieceActivity)
+        {
+            boost += 0.04;
+        }
+
         return boost;
     }
 
@@ -437,7 +604,19 @@ public sealed class MistakeClassifier
             return "piece_retreated_to_edge";
         }
 
+        if (context.BestMoveImprovesPieceActivity)
+        {
+            return "missed_piece_activation";
+        }
+
         return "reduced_piece_activity";
+    }
+
+    private static string KingSafetyEvidence(MoveHeuristicContext context)
+    {
+        return context.KingLeftCastledShelter
+            ? "king_left_castled_shelter"
+            : "king_shield_weakened";
     }
 
     private static double ClampConfidence(double confidence)

@@ -1,9 +1,10 @@
 using System.Drawing;
 using System.Windows.Forms;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
-public class PgnPasteForm : Form
+public class PgnPasteForm : MaterialForm
 {
     private readonly TextBox pgnTextBox;
 
@@ -11,20 +12,18 @@ public class PgnPasteForm : Form
 
     public PgnPasteForm()
     {
-        UiTheme.ApplyFormChrome(this);
         Text = "Paste PGN";
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(700, 500);
         MinimumSize = new Size(500, 350);
 
-        Label helpLabel = new()
+        MaterialLabel helpLabel = new()
         {
             Dock = DockStyle.Top,
             Height = 40,
             Padding = new Padding(12, 12, 12, 4),
             Text = "Paste PGN text below. Tags, comments, and move numbers are supported."
         };
-        UiTheme.StyleMutedLabel(helpLabel);
 
         pgnTextBox = new TextBox
         {
@@ -37,7 +36,6 @@ public class PgnPasteForm : Form
             Font = new Font("Consolas", 10),
             Margin = new Padding(12)
         };
-        UiTheme.StyleTextBox(pgnTextBox);
 
         FlowLayoutPanel buttonsPanel = new()
         {
@@ -48,23 +46,24 @@ public class PgnPasteForm : Form
             WrapContents = false
         };
 
-        Button importButton = new()
+        MaterialButton importButton = new()
         {
             Text = "Import",
             DialogResult = DialogResult.OK,
+            AutoSize = false,
             Width = 100,
-            Height = 30
+            Height = 36
         };
-        UiTheme.StylePrimaryButton(importButton);
 
-        Button cancelButton = new()
+        MaterialButton cancelButton = new()
         {
             Text = "Cancel",
             DialogResult = DialogResult.Cancel,
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Outlined,
             Width = 100,
-            Height = 30
+            Height = 36
         };
-        UiTheme.StyleSecondaryButton(cancelButton);
 
         buttonsPanel.Controls.Add(importButton);
         buttonsPanel.Controls.Add(cancelButton);

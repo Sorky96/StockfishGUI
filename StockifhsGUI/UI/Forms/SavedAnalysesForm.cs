@@ -2,24 +2,24 @@ using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
-public sealed class SavedAnalysesForm : Form
+public sealed class SavedAnalysesForm : MaterialForm
 {
     private readonly IAnalysisStore analysisStore;
     private readonly bool canOpenAnalysis;
     private readonly TextBox filterTextBox;
     private readonly ListBox analysesListBox;
     private readonly TextBox detailsTextBox;
-    private readonly Button openAnalysisButton;
-    private readonly Button loadGameButton;
+    private readonly MaterialButton openAnalysisButton;
+    private readonly MaterialButton loadGameButton;
 
     public SavedAnalysesForm(IAnalysisStore analysisStore, bool canOpenAnalysis)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
         this.canOpenAnalysis = canOpenAnalysis;
-        UiTheme.ApplyFormChrome(this);
 
         Text = "Saved Analyses";
         StartPosition = FormStartPosition.CenterParent;
@@ -52,14 +52,13 @@ public sealed class SavedAnalysesForm : Form
         topBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         rootLayout.Controls.Add(topBar, 0, 0);
 
-        Label filterLabel = new()
+        MaterialLabel filterLabel = new()
         {
             AutoSize = true,
             Anchor = AnchorStyles.Left,
             Margin = new Padding(0, 6, 12, 0),
             Text = "Filter by player, opening, result or labels:"
         };
-        UiTheme.StyleSectionLabel(filterLabel);
         topBar.Controls.Add(filterLabel, 0, 0);
 
         filterTextBox = new TextBox
@@ -67,39 +66,40 @@ public sealed class SavedAnalysesForm : Form
             Anchor = AnchorStyles.Left | AnchorStyles.Right,
             Margin = new Padding(0, 2, 0, 0)
         };
-        UiTheme.StyleTextBox(filterTextBox);
         filterTextBox.TextChanged += (_, _) => RefreshList();
         topBar.Controls.Add(filterTextBox, 1, 0);
 
-        loadGameButton = new Button
+        loadGameButton = new MaterialButton
         {
             Text = "Load Game",
-            Size = new Size(120, 32),
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Outlined,
+            Size = new Size(120, 36),
             Enabled = false,
             Anchor = AnchorStyles.Right
         };
-        UiTheme.StyleSecondaryButton(loadGameButton);
         loadGameButton.Click += (_, _) => ConfirmSelection(SavedAnalysisAction.LoadGame);
         topBar.Controls.Add(loadGameButton, 3, 0);
 
-        openAnalysisButton = new Button
+        openAnalysisButton = new MaterialButton
         {
             Text = "Open Analysis",
-            Size = new Size(120, 32),
+            AutoSize = false,
+            Size = new Size(120, 36),
             Enabled = false,
             Anchor = AnchorStyles.Right
         };
-        UiTheme.StylePrimaryButton(openAnalysisButton);
         openAnalysisButton.Click += (_, _) => ConfirmSelection(SavedAnalysisAction.OpenAnalysis);
         topBar.Controls.Add(openAnalysisButton, 4, 0);
 
-        Button closeButton = new()
+        MaterialButton closeButton = new()
         {
             Text = "Close",
-            Size = new Size(120, 32),
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Outlined,
+            Size = new Size(120, 36),
             Anchor = AnchorStyles.Right
         };
-        UiTheme.StyleSecondaryButton(closeButton);
         closeButton.Click += (_, _) => DialogResult = DialogResult.Cancel;
         topBar.Controls.Add(closeButton, 5, 0);
 
@@ -110,7 +110,7 @@ public sealed class SavedAnalysesForm : Form
             FixedPanel = FixedPanel.None,
             SplitterDistance = 460
         };
-        splitContainer.BackColor = UiTheme.BorderColor;
+        splitContainer.BackColor = System.Drawing.Color.Transparent;
         rootLayout.Controls.Add(splitContainer, 0, 1);
 
         analysesListBox = new ListBox
@@ -120,10 +120,9 @@ public sealed class SavedAnalysesForm : Form
             HorizontalScrollbar = true,
             IntegralHeight = false
         };
-        UiTheme.StyleListBox(analysesListBox);
         analysesListBox.SelectedIndexChanged += (_, _) => UpdateDetails();
         analysesListBox.DoubleClick += (_, _) => ConfirmSelection(canOpenAnalysis ? SavedAnalysisAction.OpenAnalysis : SavedAnalysisAction.LoadGame);
-        splitContainer.Panel1.BackColor = UiTheme.CardBackground;
+        splitContainer.Panel1.BackColor = System.Drawing.Color.Transparent;
         splitContainer.Panel1.Controls.Add(analysesListBox);
 
         detailsTextBox = new TextBox
@@ -135,8 +134,7 @@ public sealed class SavedAnalysesForm : Form
             WordWrap = false,
             Font = new Font("Consolas", 10)
         };
-        UiTheme.StyleTextBox(detailsTextBox);
-        splitContainer.Panel2.BackColor = UiTheme.CardBackground;
+        splitContainer.Panel2.BackColor = System.Drawing.Color.Transparent;
         splitContainer.Panel2.Controls.Add(detailsTextBox);
 
         RefreshList();

@@ -41,7 +41,7 @@ public sealed class PlayerProfileServiceTests
                 "B01",
                 "2026.06.04",
                 [CreateSelectedMistake("hanging_piece", MoveQualityBucket.Mistake)],
-                [CreateMoveAnalysis(GamePhase.Endgame, 180, "hanging_piece")])
+                [CreateMoveAnalysis(GamePhase.Endgame, 80, "hanging_piece")])
         ]);
 
         PlayerProfileService service = new(store);
@@ -56,6 +56,7 @@ public sealed class PlayerProfileServiceTests
         Assert.Equal(4, report!.GamesAnalyzed);
         Assert.Equal("hanging_piece", report.TopMistakeLabels[0].Label);
         Assert.Equal(3, report.TopMistakeLabels[0].Count);
+        Assert.Equal("hanging_piece", report.CostliestMistakeLabels[0].Label);
         TrainingRecommendation topRecommendation = Assert.Single(
             report.Recommendations,
             item => item.Title.Contains("Protect Loose Pieces", StringComparison.OrdinalIgnoreCase));
@@ -69,12 +70,76 @@ public sealed class PlayerProfileServiceTests
         Assert.Contains(report.MonthlyTrend, item => item.MonthKey == "2026-05" && item.GamesAnalyzed == 2);
         Assert.Contains(report.QuarterlyTrend, item => item.QuarterKey == "2026-Q2" && item.GamesAnalyzed == 4);
         Assert.Contains("middlegame", topRecommendation.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("centipawns in total", topRecommendation.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(ProfileProgressDirection.Improving, report.ProgressSignal.Direction);
         Assert.Equal("Alpha Weekly Training Plan", report.WeeklyPlan.Title);
         Assert.Equal(7, report.WeeklyPlan.Days.Count);
         Assert.Equal("Board safety", report.WeeklyPlan.Days[0].PrimaryFocus);
         Assert.Contains("Protect Loose Pieces", report.WeeklyPlan.Summary, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(report.WeeklyPlan.Days, day => day.Theme.Contains("Applied game", StringComparison.OrdinalIgnoreCase));
         Assert.All(report.WeeklyPlan.Days, day => Assert.NotEmpty(day.Activities));
+    }
+
+    [Fact]
+    public void PlayerProfileService_DistinguishesFrequentVsCostlyLabels_AndDetectsRegression()
+    {
+        FakeAnalysisStore store = new(
+        [
+            CreateResult(
+                "Sigma",
+                "Beta",
+                PlayerSide.White,
+                "C20",
+                "2026.01.04",
+                [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
+                [CreateMoveAnalysis(GamePhase.Opening, 90, "opening_principles")]),
+            CreateResult(
+                "Sigma",
+                "Gamma",
+                PlayerSide.White,
+                "C20",
+                "2026.02.11",
+                [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
+                [CreateMoveAnalysis(GamePhase.Opening, 95, "opening_principles")]),
+            CreateResult(
+                "Sigma",
+                "Theta",
+                PlayerSide.White,
+                "C23",
+                "2026.02.22",
+                [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
+                [CreateMoveAnalysis(GamePhase.Opening, 88, "opening_principles")]),
+            CreateResult(
+                "Sigma",
+                "Delta",
+                PlayerSide.White,
+                "B01",
+                "2026.03.18",
+                [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 320, "material_loss")]),
+            CreateResult(
+                "Sigma",
+                "Omega",
+                PlayerSide.White,
+                "B01",
+                "2026.04.25",
+                [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 340, "material_loss")])
+        ]);
+
+        PlayerProfileService service = new(store);
+
+        bool found = service.TryBuildProfile("Sigma", out PlayerProfileReport? report);
+
+        Assert.True(found);
+        Assert.NotNull(report);
+        Assert.Equal("opening_principles", report!.TopMistakeLabels[0].Label);
+        Assert.Equal("material_loss", report.CostliestMistakeLabels[0].Label);
+        Assert.Equal("Material Discipline", report.Recommendations[0].Title);
+        Assert.Equal(ProfileProgressDirection.Regressing, report.ProgressSignal.Direction);
+        Assert.NotNull(report.ProgressSignal.Recent);
+        Assert.NotNull(report.ProgressSignal.Previous);
+        Assert.True((report.ProgressSignal.Recent!.AverageCentipawnLoss ?? 0) > (report.ProgressSignal.Previous!.AverageCentipawnLoss ?? 0));
     }
 
     [Fact]
@@ -92,6 +157,48 @@ public sealed class PlayerProfileServiceTests
 
         Assert.Single(summaries);
         Assert.Equal("Alpha", summaries[0].DisplayName);
+    }
+
+    [Fact]
+    public void PlayerProfileService_MergesStructuredMovesWithLegacyResults_WithoutDroppingGames()
+    {
+        GameAnalysisResult resultA = CreateResult(
+            "Alpha",
+            "Beta",
+            PlayerSide.White,
+            "C20",
+            "2026.04.01",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
+            [CreateMoveAnalysis(GamePhase.Opening, 90, "opening_principles")]);
+        GameAnalysisResult resultB = CreateResult(
+            "Alpha",
+            "Gamma",
+            PlayerSide.White,
+            "B01",
+            "2026.04.02",
+            [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
+            [CreateMoveAnalysis(GamePhase.Middlegame, 250, "material_loss")]);
+        GameAnalysisResult resultC = CreateResult(
+            "Delta",
+            "Alpha",
+            PlayerSide.Black,
+            "C23",
+            "2026.04.03",
+            [CreateSelectedMistake("missed_tactic", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Middlegame, 180, "missed_tactic")]);
+
+        FakeAnalysisStore store = new(
+            [resultA, resultB, resultC],
+            BuildStoredMoves([resultA]));
+
+        PlayerProfileService service = new(store);
+
+        bool found = service.TryBuildProfile("Alpha", out PlayerProfileReport? report);
+
+        Assert.True(found);
+        Assert.NotNull(report);
+        Assert.Equal(3, report!.GamesAnalyzed);
+        Assert.Equal(3, report.MonthlyTrend.Sum(item => item.GamesAnalyzed));
     }
 
     private static GameAnalysisResult CreateResult(
@@ -167,10 +274,12 @@ public sealed class PlayerProfileServiceTests
     private sealed class FakeAnalysisStore : IAnalysisStore
     {
         private readonly IReadOnlyList<GameAnalysisResult> results;
+        private readonly IReadOnlyList<StoredMoveAnalysis> moveAnalyses;
 
-        public FakeAnalysisStore(IReadOnlyList<GameAnalysisResult> results)
+        public FakeAnalysisStore(IReadOnlyList<GameAnalysisResult> results, IReadOnlyList<StoredMoveAnalysis>? moveAnalyses = null)
         {
             this.results = results;
+            this.moveAnalyses = moveAnalyses ?? BuildStoredMoves(results);
         }
 
         public IReadOnlyList<GameAnalysisResult> ListResults(string? filterText = null, int limit = 500)
@@ -188,57 +297,15 @@ public sealed class PlayerProfileServiceTests
 
         public IReadOnlyList<StoredMoveAnalysis> ListMoveAnalyses(string? filterText = null, int limit = 5000)
         {
-            IEnumerable<GameAnalysisResult> filtered = results;
+            IEnumerable<StoredMoveAnalysis> filtered = moveAnalyses;
             if (!string.IsNullOrWhiteSpace(filterText))
             {
-                filtered = filtered.Where(result =>
-                    (result.Game.WhitePlayer?.Contains(filterText, StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (result.Game.BlackPlayer?.Contains(filterText, StringComparison.OrdinalIgnoreCase) ?? false));
+                filtered = filtered.Where(move =>
+                    (move.WhitePlayer?.Contains(filterText, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (move.BlackPlayer?.Contains(filterText, StringComparison.OrdinalIgnoreCase) ?? false));
             }
 
             return filtered
-                .SelectMany(result =>
-                {
-                    HashSet<string> highlightedLabels = result.HighlightedMistakes
-                        .Select(mistake => mistake.Tag?.Label ?? "unclassified")
-                        .ToHashSet(StringComparer.Ordinal);
-
-                    return result.MoveAnalyses.Select(move => new StoredMoveAnalysis(
-                        GameFingerprint.Compute(result.Game.PgnText),
-                        result.AnalyzedSide,
-                        14,
-                        3,
-                        null,
-                        DateTime.Parse("2026-04-18T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal),
-                        result.Game.WhitePlayer,
-                        result.Game.BlackPlayer,
-                        result.Game.DateText,
-                        result.Game.Result,
-                        result.Game.Eco,
-                        result.Game.Site,
-                        move.Replay.Ply,
-                        move.Replay.MoveNumber,
-                        move.Replay.San,
-                        move.Replay.Uci,
-                        move.Replay.FenBefore,
-                        move.Replay.FenAfter,
-                        move.Replay.Phase,
-                        move.EvalBeforeCp,
-                        move.EvalAfterCp,
-                        move.BestMateIn,
-                        move.PlayedMateIn,
-                        move.CentipawnLoss,
-                        move.Quality,
-                        move.MaterialDeltaCp,
-                        move.BeforeAnalysis.BestMoveUci,
-                        move.MistakeTag?.Label,
-                        move.MistakeTag?.Confidence,
-                        move.MistakeTag?.Evidence ?? [],
-                        move.Explanation?.ShortText,
-                        move.Explanation?.DetailedText,
-                        move.Explanation?.TrainingHint,
-                        highlightedLabels.Contains(move.MistakeTag?.Label ?? "unclassified")));
-                })
                 .Take(limit)
                 .ToList();
         }
@@ -251,5 +318,53 @@ public sealed class PlayerProfileServiceTests
         public void SaveResult(GameAnalysisCacheKey key, GameAnalysisResult result) => throw new NotSupportedException();
         public bool TryLoadWindowState(string gameFingerprint, out AnalysisWindowState? state) => throw new NotSupportedException();
         public void SaveWindowState(string gameFingerprint, AnalysisWindowState state) => throw new NotSupportedException();
+    }
+
+    private static IReadOnlyList<StoredMoveAnalysis> BuildStoredMoves(IReadOnlyList<GameAnalysisResult> results)
+    {
+        return results
+            .SelectMany(result =>
+            {
+                HashSet<string> highlightedLabels = result.HighlightedMistakes
+                    .Select(mistake => mistake.Tag?.Label ?? "unclassified")
+                    .ToHashSet(StringComparer.Ordinal);
+
+                return result.MoveAnalyses.Select(move => new StoredMoveAnalysis(
+                    GameFingerprint.Compute(result.Game.PgnText),
+                    result.AnalyzedSide,
+                    14,
+                    3,
+                    null,
+                    DateTime.Parse("2026-04-18T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal),
+                    result.Game.WhitePlayer,
+                    result.Game.BlackPlayer,
+                    result.Game.DateText,
+                    result.Game.Result,
+                    result.Game.Eco,
+                    result.Game.Site,
+                    move.Replay.Ply,
+                    move.Replay.MoveNumber,
+                    move.Replay.San,
+                    move.Replay.Uci,
+                    move.Replay.FenBefore,
+                    move.Replay.FenAfter,
+                    move.Replay.Phase,
+                    move.EvalBeforeCp,
+                    move.EvalAfterCp,
+                    move.BestMateIn,
+                    move.PlayedMateIn,
+                    move.CentipawnLoss,
+                    move.Quality,
+                    move.MaterialDeltaCp,
+                    move.BeforeAnalysis.BestMoveUci,
+                    move.MistakeTag?.Label,
+                    move.MistakeTag?.Confidence,
+                    move.MistakeTag?.Evidence ?? [],
+                    move.Explanation?.ShortText,
+                    move.Explanation?.DetailedText,
+                    move.Explanation?.TrainingHint,
+                    highlightedLabels.Contains(move.MistakeTag?.Label ?? "unclassified")));
+            })
+            .ToList();
     }
 }

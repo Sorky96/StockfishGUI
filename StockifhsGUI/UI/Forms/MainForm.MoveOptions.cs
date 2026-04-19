@@ -1,24 +1,27 @@
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
 public partial class MainForm
 {
     private readonly PieceMoveOptionsCoordinator pieceMoveOptionsCoordinator = new();
-    private Label? pieceMoveOptionsLabel;
+    private MaterialLabel? pieceMoveOptionsLabel;
     private ListBox? pieceMoveOptionsList;
     private int pieceMoveOptionsRequestId;
     private Point? pieceMoveOptionTargetSquare;
 
     private void InitializePieceMoveOptionsControls()
     {
-        pieceMoveOptionsLabel = new Label
+        pieceMoveOptionsLabel = new MaterialLabel
         {
             AutoSize = false,
             Text = "Selected piece: none"
         };
-        Controls.Add(pieceMoveOptionsLabel);
+        sidebarLayout.Controls.Add(pieceMoveOptionsLabel, 0, 9);
+        sidebarLayout.SetColumnSpan(pieceMoveOptionsLabel, 2);
+        pieceMoveOptionsLabel.Dock = DockStyle.Fill;
 
         pieceMoveOptionsList = new ListBox
         {
@@ -27,7 +30,9 @@ public partial class MainForm
             IntegralHeight = false
         };
         pieceMoveOptionsList.SelectedIndexChanged += (_, _) => UpdatePieceMoveOptionPreview();
-        Controls.Add(pieceMoveOptionsList);
+        sidebarLayout.Controls.Add(pieceMoveOptionsList, 0, 10);
+        sidebarLayout.SetColumnSpan(pieceMoveOptionsList, 2);
+        pieceMoveOptionsList.Dock = DockStyle.Fill;
         ClearPieceMoveOptions();
     }
 

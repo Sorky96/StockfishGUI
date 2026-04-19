@@ -1,10 +1,11 @@
 using System.Drawing;
 using System.Text;
 using System.Windows.Forms;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
-public sealed class GameAnalysisForm : Form
+public sealed class GameAnalysisForm : MaterialSkin.Controls.MaterialForm
 {
     private static readonly EngineAnalysisOptions DefaultAnalysisOptions = new();
 
@@ -12,14 +13,14 @@ public sealed class GameAnalysisForm : Form
     private readonly IEngineAnalyzer engineAnalyzer;
     private readonly Action<MoveAnalysisResult>? navigateToMove;
     private readonly PlayerSide? preferredSide;
-    private readonly ComboBox sideComboBox;
-    private readonly ComboBox qualityFilterComboBox;
-    private readonly ComboBox explanationLevelComboBox;
-    private readonly Button analyzeButton;
-    private readonly Button testAdviceButton;
-    private readonly Button showOnBoardButton;
-    private readonly Label adviceStatusLabel;
-    private readonly Label summaryLabel;
+    private readonly MaterialComboBox sideComboBox;
+    private readonly MaterialComboBox qualityFilterComboBox;
+    private readonly MaterialComboBox explanationLevelComboBox;
+    private readonly MaterialButton analyzeButton;
+    private readonly MaterialButton testAdviceButton;
+    private readonly MaterialButton showOnBoardButton;
+    private readonly MaterialLabel adviceStatusLabel;
+    private readonly MaterialLabel summaryLabel;
     private readonly ListBox mistakesListBox;
     private readonly TextBox detailsTextBox;
     private readonly Dictionary<string, MoveExplanation> explanationCache = new();
@@ -30,7 +31,7 @@ public sealed class GameAnalysisForm : Form
     private bool currentResultIsCached;
     private int explanationRequestId;
 
-    public GameAnalysisForm(
+        public GameAnalysisForm(
         ImportedGame importedGame,
         IEngineAnalyzer engineAnalyzer,
         Action<MoveAnalysisResult>? navigateToMove = null,
@@ -42,63 +43,54 @@ public sealed class GameAnalysisForm : Form
         this.engineAnalyzer = engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer));
         adviceGenerator = AdviceGeneratorFactory.CreateDefault();
         analysisService = new GameAnalysisService(this.engineAnalyzer, adviceGenerator: adviceGenerator);
-        UiTheme.ApplyFormChrome(this);
 
         Text = "Imported Game Analysis";
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(920, 620);
+        ClientSize = new Size(1100, 750);
         MinimumSize = new Size(920, 620);
 
-        Label headerLabel = new()
+        TableLayoutPanel rootLayout = new()
         {
-            AutoSize = true,
-            Font = new Font("Segoe UI", 12, FontStyle.Bold),
-            Location = new Point(16, 16),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left,
-            Text = $"{importedGame.WhitePlayer ?? "White"} vs {importedGame.BlackPlayer ?? "Black"}"
+            Dock = DockStyle.Fill,
+            Padding = new Padding(16),
+            ColumnCount = 1,
+            RowCount = 3
         };
-        Controls.Add(headerLabel);
+        rootLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        rootLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        Controls.Add(rootLayout);
 
-        Label sideLabel = new()
+        TableLayoutPanel topBar = new()
         {
+            Dock = DockStyle.Top,
+            ColumnCount = 5,
             AutoSize = true,
-            Location = new Point(16, 34),
-            Text = "Side"
+            Margin = new Padding(0, 0, 0, 8)
         };
-        UiTheme.StyleSectionLabel(sideLabel);
-        Controls.Add(sideLabel);
+        topBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 240f));
+        topBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160f));
+        topBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        topBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        topBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        rootLayout.Controls.Add(topBar, 0, 0);
 
-        sideComboBox = new ComboBox
+        sideComboBox = new MaterialSkin.Controls.MaterialComboBox
         {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Location = new Point(16, 52),
-            Size = new Size(220, 28),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            Hint = "Side to analyze"
         };
-        UiTheme.StyleComboBox(sideComboBox);
-        sideComboBox.Items.Add(new SideOption(PlayerSide.White, $"Analyze White ({importedGame.WhitePlayer ?? "White"})"));
-        sideComboBox.Items.Add(new SideOption(PlayerSide.Black, $"Analyze Black ({importedGame.BlackPlayer ?? "Black"})"));
+        sideComboBox.Items.Add(new SideOption(PlayerSide.White, $"Analyze White"));
+        sideComboBox.Items.Add(new SideOption(PlayerSide.Black, $"Analyze Black"));
         sideComboBox.SelectedIndex = 0;
         sideComboBox.SelectedIndexChanged += (_, _) => HandleSelectedSideChanged();
-        Controls.Add(sideComboBox);
+        topBar.Controls.Add(sideComboBox, 0, 0);
 
-        Label qualityLabel = new()
+        qualityFilterComboBox = new MaterialSkin.Controls.MaterialComboBox
         {
-            AutoSize = true,
-            Location = new Point(392, 34),
-            Text = "Highlight filter"
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            Hint = "Highlight filter"
         };
-        UiTheme.StyleSectionLabel(qualityLabel);
-        Controls.Add(qualityLabel);
-
-        qualityFilterComboBox = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Location = new Point(392, 52),
-            Size = new Size(180, 28),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left
-        };
-        UiTheme.StyleComboBox(qualityFilterComboBox);
         qualityFilterComboBox.Items.AddRange(
         [
             new FilterOption("All highlights", null),
@@ -108,25 +100,14 @@ public sealed class GameAnalysisForm : Form
         ]);
         qualityFilterComboBox.SelectedIndex = 0;
         qualityFilterComboBox.SelectedIndexChanged += (_, _) => ApplyFilter();
-        Controls.Add(qualityFilterComboBox);
+        topBar.Controls.Add(qualityFilterComboBox, 1, 0);
 
-        Label explanationLabel = new()
+        explanationLevelComboBox = new MaterialSkin.Controls.MaterialComboBox
         {
-            AutoSize = true,
-            Location = new Point(744, 34),
-            Text = "Explanation level"
+            Anchor = AnchorStyles.Right,
+            Hint = "Explanation level",
+            Width = 200
         };
-        UiTheme.StyleSectionLabel(explanationLabel);
-        Controls.Add(explanationLabel);
-
-        explanationLevelComboBox = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Location = new Point(744, 52),
-            Size = new Size(152, 28),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
-        };
-        UiTheme.StyleComboBox(explanationLevelComboBox);
         explanationLevelComboBox.Items.AddRange(
         [
             new ExplanationLevelOption(ExplanationLevel.Beginner, "Beginner"),
@@ -135,110 +116,115 @@ public sealed class GameAnalysisForm : Form
         ]);
         explanationLevelComboBox.SelectedIndex = 1;
         explanationLevelComboBox.SelectedIndexChanged += (_, _) => UpdateDetails();
-        Controls.Add(explanationLevelComboBox);
+        topBar.Controls.Add(explanationLevelComboBox, 2, 0);
 
-        analyzeButton = new Button
+        analyzeButton = new MaterialSkin.Controls.MaterialButton
         {
-            Location = new Point(252, 50),
-            Size = new Size(120, 32),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left,
-            Text = "Run Analysis"
+            Text = "Run Analysis",
+            AutoSize = false,
+            Size = new Size(140, 48),
+            Anchor = AnchorStyles.Right,
+            Margin = new Padding(16, 0, 8, 0)
         };
-        UiTheme.StylePrimaryButton(analyzeButton);
         analyzeButton.Click += async (_, _) => await RunAnalysisAsync();
-        Controls.Add(analyzeButton);
+        topBar.Controls.Add(analyzeButton, 3, 0);
 
-        showOnBoardButton = new Button
+        showOnBoardButton = new MaterialSkin.Controls.MaterialButton
         {
-            Location = new Point(588, 50),
-            Size = new Size(140, 32),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left,
             Text = "Show On Board",
+            AutoSize = false,
+            Size = new Size(140, 48),
+            Anchor = AnchorStyles.Right,
+            Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Outlined,
             Enabled = false
         };
-        UiTheme.StyleSecondaryButton(showOnBoardButton);
         showOnBoardButton.Click += (_, _) => ShowSelectedMistakeOnBoard();
-        Controls.Add(showOnBoardButton);
+        topBar.Controls.Add(showOnBoardButton, 4, 0);
 
-        adviceStatusLabel = new Label
+        TableLayoutPanel infoBar = new()
         {
-            AutoSize = false,
-            Location = new Point(16, 92),
-            Size = new Size(712, 40),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-            AutoEllipsis = true
+            Dock = DockStyle.Top,
+            ColumnCount = 2,
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 16)
         };
-        UiTheme.StyleInfoLabel(adviceStatusLabel);
-        Controls.Add(adviceStatusLabel);
+        infoBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        infoBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        rootLayout.Controls.Add(infoBar, 0, 1);
 
-        testAdviceButton = new Button
+        FlowLayoutPanel labelsPanel = new()
         {
-            Location = new Point(744, 96),
-            Size = new Size(152, 32),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Text = "Test Advice Model"
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.TopDown
         };
-        UiTheme.StyleSecondaryButton(testAdviceButton);
-        testAdviceButton.Click += async (_, _) => await TestAdviceRuntimeAsync();
-        Controls.Add(testAdviceButton);
+        infoBar.Controls.Add(labelsPanel, 0, 0);
 
-        summaryLabel = new Label
+        adviceStatusLabel = new MaterialSkin.Controls.MaterialLabel
         {
-            AutoSize = false,
-            Location = new Point(16, 140),
-            Size = new Size(880, 44),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            AutoSize = true,
+            Text = "Advice status: idle",
+            Margin = new Padding(0, 0, 0, 8)
+        };
+        labelsPanel.Controls.Add(adviceStatusLabel);
+
+        summaryLabel = new MaterialSkin.Controls.MaterialLabel
+        {
+            AutoSize = true,
             Text = "Choose a side and run the analysis."
         };
-        UiTheme.StyleInfoLabel(summaryLabel);
-        Controls.Add(summaryLabel);
+        labelsPanel.Controls.Add(summaryLabel);
 
-        Label mistakesHeader = new()
+        testAdviceButton = new MaterialSkin.Controls.MaterialButton
         {
-            AutoSize = true,
-            Location = new Point(16, 184),
-            Text = "Highlighted moments"
+            Text = "Test Advice Model",
+            AutoSize = false,
+            Size = new Size(160, 36),
+            Anchor = AnchorStyles.Right,
+            Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Outlined
         };
-        UiTheme.StyleSectionLabel(mistakesHeader);
-        Controls.Add(mistakesHeader);
+        testAdviceButton.Click += async (_, _) => await TestAdviceRuntimeAsync();
+        infoBar.Controls.Add(testAdviceButton, 1, 0);
 
-        Label detailsHeader = new()
+        SplitContainer splitContainer = new()
         {
-            AutoSize = true,
-            Location = new Point(392, 184),
-            Text = "Details and guidance"
+            Dock = DockStyle.Fill,
+            SplitterDistance = 360,
+            BackColor = System.Drawing.Color.Transparent,
+            Margin = Padding.Empty
         };
-        UiTheme.StyleSectionLabel(detailsHeader);
-        Controls.Add(detailsHeader);
+        rootLayout.Controls.Add(splitContainer, 0, 2);
 
         mistakesListBox = new ListBox
         {
-            Location = new Point(16, 204),
-            Size = new Size(360, 396),
-            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
-            Font = new Font("Consolas", 10)
+            Dock = DockStyle.Fill,
+            Font = new Font("Consolas", 10),
+            IntegralHeight = false,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 26
         };
-        UiTheme.StyleListBox(mistakesListBox);
         mistakesListBox.SelectedIndexChanged += (_, _) =>
         {
             UpdateDetails();
             ShowSelectedMistakeOnBoard();
         };
         mistakesListBox.DoubleClick += (_, _) => ShowSelectedMistakeOnBoard();
-        Controls.Add(mistakesListBox);
+        mistakesListBox.DrawItem += MistakesListBox_DrawItem;
+        
+        splitContainer.Panel1.BackColor = System.Drawing.Color.Transparent;
+        splitContainer.Panel1.Controls.Add(mistakesListBox);
 
         detailsTextBox = new TextBox
         {
-            Location = new Point(392, 204),
-            Size = new Size(504, 396),
-            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+            Dock = DockStyle.Fill,
             Multiline = true,
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
             Font = new Font("Consolas", 10)
         };
-        UiTheme.StyleTextBox(detailsTextBox);
-        Controls.Add(detailsTextBox);
+        
+        splitContainer.Panel2.BackColor = System.Drawing.Color.Transparent;
+        splitContainer.Panel2.Controls.Add(detailsTextBox);
 
         RestoreWindowState();
         if (this.preferredSide.HasValue)
@@ -247,6 +233,56 @@ public sealed class GameAnalysisForm : Form
         }
         RefreshAdviceRuntimeState();
         TryLoadCachedResultForSelectedSide();
+    }
+
+    private void MistakesListBox_DrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || mistakesListBox.Items[e.Index] is not SelectedMistakeViewItem item)
+        {
+            return;
+        }
+
+        e.DrawBackground();
+
+        Graphics g = e.Graphics;
+        Rectangle bounds = e.Bounds;
+
+        Color badgeColor = item.Mistake.Quality switch
+        {
+            MoveQualityBucket.Blunder => Color.FromArgb(211, 47, 47), // Red 700
+            MoveQualityBucket.Mistake => Color.FromArgb(245, 124, 0), // Orange 700
+            MoveQualityBucket.Inaccuracy => Color.FromArgb(251, 192, 45), // Yellow 700
+            _ => Color.Gray
+        };
+
+        string qualityText = item.Mistake.Quality.ToString();
+        using Font badgeFont = new Font("Segoe UI", 8, FontStyle.Bold);
+        SizeF badgeSize = g.MeasureString(qualityText, badgeFont);
+        
+        Rectangle badgeRect = new Rectangle(
+            bounds.X + 4,
+            bounds.Y + (bounds.Height - (int)badgeSize.Height - 4) / 2,
+            (int)badgeSize.Width + 8,
+            (int)badgeSize.Height + 4
+        );
+
+        using (Brush badgeBrush = new SolidBrush(badgeColor))
+        {
+            g.FillRectangle(badgeBrush, badgeRect);
+        }
+
+        using (Brush textBrush = new SolidBrush(Color.White))
+        {
+            g.DrawString(qualityText, badgeFont, textBrush, badgeRect.X + 4, badgeRect.Y + 2);
+        }
+
+        string moveText = item.Label.Substring(item.Label.IndexOf('|') + 1).Trim();
+        using Font textFont = new Font("Segoe UI", 10);
+        using Brush defaultTextBrush = new SolidBrush(e.ForeColor);
+        
+        g.DrawString(moveText, textFont, defaultTextBrush, badgeRect.Right + 8, bounds.Y + (bounds.Height - textFont.Height) / 2);
+
+        e.DrawFocusRectangle();
     }
 
     private async Task RunAnalysisAsync()

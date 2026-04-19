@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Media;
 using System.Windows.Forms;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
@@ -11,14 +12,14 @@ public partial class MainForm
     private readonly Stack<GameStateSnapshot> undoStack = new();
     private readonly ImportedGameSession importedSession = new();
 
-    private Button? undoButton;
-    private Button? importPgnButton;
-    private Button? loadSavedGamesButton;
-    private Button? applyNextImportedButton;
-    private Button? applySelectedImportedButton;
-    private Button? analyzeImportedButton;
-    private Button? playerProfilesButton;
-    private Button? savedAnalysesButton;
+    private MaterialButton? undoButton;
+    private MaterialButton? importPgnButton;
+    private MaterialButton? loadSavedGamesButton;
+    private MaterialButton? applyNextImportedButton;
+    private MaterialButton? applySelectedImportedButton;
+    private MaterialButton? analyzeImportedButton;
+    private MaterialButton? playerProfilesButton;
+    private MaterialButton? savedAnalysesButton;
     private Label? importedMovesLabel;
     private ListBox? importedMovesList;
     private bool suppressImportedSelectionHandling;
@@ -26,77 +27,101 @@ public partial class MainForm
 
     private void InitializeExtendedControls()
     {
-        undoButton = new Button
+        undoButton = new MaterialButton
         {
             Text = "Undo",
-            Size = new Size(80, 30)
+            AutoSize = false,
+            Size = new Size(80, 36)
         };
         undoButton.Click += (_, _) => UndoLastMove();
         Controls.Add(undoButton);
 
-        importPgnButton = new Button
+        importPgnButton = new MaterialButton
         {
             Text = "Paste PGN",
-            Size = new Size(120, 32)
+            AutoSize = false,
+            Size = new Size(120, 36)
         };
         importPgnButton.Click += (_, _) => ImportMovesFromPgn();
-        Controls.Add(importPgnButton);
+        sidebarLayout.Controls.Add(importPgnButton, 0, 0);
+        importPgnButton.Dock = DockStyle.Fill;
 
-        loadSavedGamesButton = new Button
+        loadSavedGamesButton = new MaterialButton
         {
             Text = "Load Saved",
-            Size = new Size(120, 32)
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Outlined,
+            Size = new Size(120, 36)
         };
         loadSavedGamesButton.Click += (_, _) => LoadSavedImportedGame();
-        Controls.Add(loadSavedGamesButton);
+        sidebarLayout.Controls.Add(loadSavedGamesButton, 1, 0);
+        loadSavedGamesButton.Dock = DockStyle.Fill;
 
-        applyNextImportedButton = new Button
+        applyNextImportedButton = new MaterialButton
         {
             Text = "Apply Next",
-            Size = new Size(120, 32)
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Outlined,
+            Size = new Size(120, 36)
         };
         applyNextImportedButton.Click += (_, _) => ApplyNextImportedMove();
-        Controls.Add(applyNextImportedButton);
+        sidebarLayout.Controls.Add(applyNextImportedButton, 0, 1);
+        applyNextImportedButton.Dock = DockStyle.Fill;
 
-        applySelectedImportedButton = new Button
+        applySelectedImportedButton = new MaterialButton
         {
             Text = "Apply Selected",
-            Size = new Size(120, 32)
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Outlined,
+            Size = new Size(120, 36)
         };
         applySelectedImportedButton.Click += (_, _) => ApplyImportedMovesThroughSelection();
-        Controls.Add(applySelectedImportedButton);
+        sidebarLayout.Controls.Add(applySelectedImportedButton, 1, 1);
+        applySelectedImportedButton.Dock = DockStyle.Fill;
 
-        analyzeImportedButton = new Button
+        analyzeImportedButton = new MaterialButton
         {
             Text = "Analyze Imported",
-            Size = new Size(120, 32)
+            AutoSize = false,
+            Size = new Size(120, 36)
         };
         analyzeImportedButton.Click += async (_, _) => await OpenImportedGameAnalysisAsync();
-        Controls.Add(analyzeImportedButton);
+        sidebarLayout.Controls.Add(analyzeImportedButton, 0, 2);
+        analyzeImportedButton.Dock = DockStyle.Fill;
 
-        playerProfilesButton = new Button
+        playerProfilesButton = new MaterialButton
         {
             Text = "Profiles",
-            Size = new Size(120, 32)
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Outlined,
+            Size = new Size(120, 36)
         };
         playerProfilesButton.Click += (_, _) => OpenPlayerProfiles();
-        Controls.Add(playerProfilesButton);
+        sidebarLayout.Controls.Add(playerProfilesButton, 1, 2);
+        playerProfilesButton.Dock = DockStyle.Fill;
 
-        savedAnalysesButton = new Button
+        savedAnalysesButton = new MaterialButton
         {
             Text = "Saved Analyses",
-            Size = new Size(120, 32)
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Outlined,
+            Size = new Size(120, 36)
         };
         savedAnalysesButton.Click += (_, _) => OpenSavedAnalyses();
-        Controls.Add(savedAnalysesButton);
+        sidebarLayout.Controls.Add(savedAnalysesButton, 0, 3);
+        sidebarLayout.SetColumnSpan(savedAnalysesButton, 2);
+        savedAnalysesButton.Dock = DockStyle.Fill;
 
         importedMovesLabel = new Label
         {
             AutoSize = false,
             Size = new Size(260, 52),
-            Text = "Imported moves: none"
+            Text = "Imported moves: none",
+            TextAlign = ContentAlignment.BottomLeft
         };
-        Controls.Add(importedMovesLabel);
+        sidebarLayout.Controls.Add(importedMovesLabel, 0, 4);
+        sidebarLayout.SetColumnSpan(importedMovesLabel, 2);
+        importedMovesLabel.Dock = DockStyle.Fill;
 
         importedMovesList = new ListBox
         {
@@ -106,7 +131,9 @@ public partial class MainForm
         };
         importedMovesList.SelectedIndexChanged += (_, _) => ApplyImportedMovesThroughSelection(resetToStart: true);
         importedMovesList.DoubleClick += (_, _) => ApplyImportedMovesThroughSelection();
-        Controls.Add(importedMovesList);
+        sidebarLayout.Controls.Add(importedMovesList, 0, 5);
+        sidebarLayout.SetColumnSpan(importedMovesList, 2);
+        importedMovesList.Dock = DockStyle.Fill;
 
         InitializePieceMoveOptionsControls();
         InitializeTrackingControls();

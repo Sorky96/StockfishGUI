@@ -13,6 +13,12 @@ public sealed record ProfileLabelStat(
     int Count,
     double AverageConfidence);
 
+public sealed record ProfileCostlyLabelStat(
+    string Label,
+    int Count,
+    int TotalCentipawnLoss,
+    int? AverageCentipawnLoss);
+
 public sealed record ProfilePhaseStat(
     GamePhase Phase,
     int Count);
@@ -38,6 +44,39 @@ public sealed record ProfileQuarterlyTrend(
     int HighlightedMistakes,
     int? AverageCentipawnLoss);
 
+public enum ProfileProgressDirection
+{
+    InsufficientData,
+    Improving,
+    Stable,
+    Regressing
+}
+
+public sealed record ProfileProgressPeriod(
+    string Label,
+    int GamesAnalyzed,
+    int? AverageCentipawnLoss,
+    double HighlightedMistakesPerGame);
+
+public sealed record ProfileProgressSignal(
+    ProfileProgressDirection Direction,
+    string Summary,
+    ProfileProgressPeriod? Recent,
+    ProfileProgressPeriod? Previous);
+
+public sealed record ProfileMistakeExample(
+    string GameFingerprint,
+    int MoveNumber,
+    PlayerSide Side,
+    string PlayedSan,
+    string? BestMoveUci,
+    string Label,
+    int? CentipawnLoss,
+    MoveQualityBucket Quality,
+    GamePhase Phase,
+    string Eco,
+    string FenBefore);
+
 public sealed record TrainingRecommendation(
     int Priority,
     string FocusArea,
@@ -47,7 +86,8 @@ public sealed record TrainingRecommendation(
     PlayerSide? EmphasisSide,
     IReadOnlyList<string> RelatedOpenings,
     IReadOnlyList<string> Checklist,
-    IReadOnlyList<string> SuggestedDrills);
+    IReadOnlyList<string> SuggestedDrills,
+    IReadOnlyList<ProfileMistakeExample>? Examples = null);
 
 public sealed record WeeklyTrainingDay(
     int DayNumber,
@@ -70,10 +110,13 @@ public sealed record PlayerProfileReport(
     int HighlightedMistakes,
     int? AverageCentipawnLoss,
     IReadOnlyList<ProfileLabelStat> TopMistakeLabels,
+    IReadOnlyList<ProfileCostlyLabelStat> CostliestMistakeLabels,
     IReadOnlyList<ProfilePhaseStat> MistakesByPhase,
     IReadOnlyList<ProfileOpeningStat> MistakesByOpening,
     IReadOnlyList<ProfileSideStat> GamesBySide,
     IReadOnlyList<ProfileMonthlyTrend> MonthlyTrend,
     IReadOnlyList<ProfileQuarterlyTrend> QuarterlyTrend,
+    ProfileProgressSignal ProgressSignal,
     IReadOnlyList<TrainingRecommendation> Recommendations,
-    WeeklyTrainingPlan WeeklyPlan);
+    WeeklyTrainingPlan WeeklyPlan,
+    IReadOnlyList<ProfileMistakeExample> MistakeExamples);

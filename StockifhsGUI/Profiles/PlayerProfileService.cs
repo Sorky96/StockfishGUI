@@ -51,13 +51,21 @@ public sealed partial class PlayerProfileService
     private List<PlayerProfileSnapshot> LoadSnapshots(string? filterText, int limit)
     {
         IReadOnlyList<StoredMoveAnalysis> storedMoves = analysisStore.ListMoveAnalyses(filterText, Math.Clamp(limit * 64, 500, 50000));
-        if (storedMoves.Count > 0)
-        {
-            return BuildSnapshotsFromMoves(storedMoves);
-        }
-
         IReadOnlyList<GameAnalysisResult> results = analysisStore.ListResults(filterText, Math.Max(limit * 8, 200));
-        return BuildSnapshotsFromResults(results);
+
+        List<PlayerProfileSnapshot> mergedSnapshots = BuildSnapshotsFromMoves(storedMoves);
+        mergedSnapshots.AddRange(BuildSnapshotsFromResults(results));
+
+        return mergedSnapshots
+            .GroupBy(snapshot => new SnapshotSelectionKey(snapshot.GameFingerprint, snapshot.Side))
+            .Select(group => group
+                .OrderByDescending(snapshot => snapshot.AnalysisUpdatedUtc)
+                .ThenByDescending(snapshot => snapshot.Depth)
+                .ThenByDescending(snapshot => snapshot.MultiPv)
+                .ThenByDescending(snapshot => snapshot.MoveTimeMs ?? -1)
+                .First())
+            .Take(limit)
+            .ToList();
     }
 
     private static List<PlayerProfileSnapshot> BuildSnapshotsFromMoves(IReadOnlyList<StoredMoveAnalysis> storedMoves)
@@ -67,13 +75,6 @@ public sealed partial class PlayerProfileService
             .Select(CreateSnapshotFromMoves)
             .Where(snapshot => snapshot is not null)
             .Select(snapshot => snapshot!)
-            .GroupBy(snapshot => new SnapshotSelectionKey(snapshot.GameFingerprint, snapshot.Side))
-            .Select(group => group
-                .OrderByDescending(snapshot => snapshot.AnalysisUpdatedUtc)
-                .ThenByDescending(snapshot => snapshot.Depth)
-                .ThenByDescending(snapshot => snapshot.MultiPv)
-                .ThenByDescending(snapshot => snapshot.MoveTimeMs ?? -1)
-                .First())
             .ToList();
     }
 
@@ -83,8 +84,6 @@ public sealed partial class PlayerProfileService
             .Select(CreateSnapshotFromResult)
             .Where(snapshot => snapshot is not null)
             .Select(snapshot => snapshot!)
-            .GroupBy(snapshot => new SnapshotSelectionKey(snapshot.GameFingerprint, snapshot.Side))
-            .Select(group => group.First())
             .ToList();
     }
 
@@ -117,6 +116,128 @@ public sealed partial class PlayerProfileService
             topLabels);
     }
 
+    private static IReadOnlyList<PriorityLabelStat> BuildPriorityLabels(
+        IReadOnlyList<ProfileLabelStat> topLabels,
+        IReadOnlyList<ProfileCostlyLabelStat> costliestLabels,
+        IReadOnlyList<HighlightedGroup> highlightedGroups,
+        IReadOnlyList<StoredMoveAnalysis> mistakeMoves)
+    {
+        Dictionary<string, ProfileLabelStat> frequentByLabel = topLabels
+            .ToDictionary(item => item.Label, StringComparer.Ordinal);
+        Dictionary<string, ProfileCostlyLabelStat> costlyByLabel = costliestLabels
+            .ToDictionary(item => item.Label, StringComparer.Ordinal);
+        Dictionary<string, int> highlightedCounts = highlightedGroups
+            .GroupBy(group => group.Label, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+        return mistakeMoves
+            .GroupBy(move => move.MistakeLabel!, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                int count = group.Count();
+                int totalCpl = group.Sum(move => Math.Max(0, move.CentipawnLoss ?? 0));
+                int? averageCpl = TryAverage(group.Select(move => move.CentipawnLoss));
+                double averageConfidence = group
+                    .Where(move => move.MistakeConfidence.HasValue)
+                    .Select(move => move.MistakeConfidence!.Value)
+                    .DefaultIfEmpty(0.0)
+                    .Average();
+                int frequencyBoost = frequentByLabel.TryGetValue(group.Key, out ProfileLabelStat? frequent)
+                    ? frequent.Count * 80
+                    : count * 40;
+                int costlyBoost = costlyByLabel.TryGetValue(group.Key, out ProfileCostlyLabelStat? costly)
+                    ? costly.TotalCentipawnLoss
+                    : totalCpl;
+                int highlightBoost = highlightedCounts.TryGetValue(group.Key, out int highlightedCount)
+                    ? highlightedCount * 90
+                    : 0;
+                int priorityScore = frequencyBoost + costlyBoost + highlightBoost + (int)Math.Round(averageConfidence * 40);
+
+                return new PriorityLabelStat(group.Key, count, totalCpl, averageCpl, averageConfidence, priorityScore);
+            })
+            .OrderByDescending(item => item.PriorityScore)
+            .ThenByDescending(item => item.TotalCentipawnLoss)
+            .ThenByDescending(item => item.Count)
+            .ThenBy(item => item.Label, StringComparer.Ordinal)
+            .Take(3)
+            .ToList();
+    }
+
+    private static ProfileProgressSignal BuildProgressSignal(IReadOnlyList<PlayerProfileSnapshot> snapshots)
+    {
+        List<PlayerProfileSnapshot> ordered = snapshots
+            .OrderBy(snapshot => snapshot.GameDate ?? snapshot.AnalysisUpdatedUtc)
+            .ThenBy(snapshot => snapshot.GameFingerprint, StringComparer.Ordinal)
+            .ToList();
+
+        int window = Math.Min(5, ordered.Count / 2);
+        if (window < 2)
+        {
+            return new ProfileProgressSignal(
+                ProfileProgressDirection.InsufficientData,
+                "Not enough dated games yet to compare recent form against earlier results.",
+                null,
+                null);
+        }
+
+        List<PlayerProfileSnapshot> previous = ordered
+            .Skip(Math.Max(0, ordered.Count - (window * 2)))
+            .Take(window)
+            .ToList();
+        List<PlayerProfileSnapshot> recent = ordered
+            .TakeLast(window)
+            .ToList();
+
+        ProfileProgressPeriod previousPeriod = BuildProgressPeriod(previous, "Earlier sample");
+        ProfileProgressPeriod recentPeriod = BuildProgressPeriod(recent, "Recent sample");
+
+        int cplDelta = (recentPeriod.AverageCentipawnLoss ?? 0) - (previousPeriod.AverageCentipawnLoss ?? 0);
+        double highlightDelta = recentPeriod.HighlightedMistakesPerGame - previousPeriod.HighlightedMistakesPerGame;
+
+        if ((previousPeriod.AverageCentipawnLoss is null || recentPeriod.AverageCentipawnLoss is null) && previous.Count < 2)
+        {
+            return new ProfileProgressSignal(
+                ProfileProgressDirection.InsufficientData,
+                "Not enough reliable data to measure progress yet.",
+                recentPeriod,
+                previousPeriod);
+        }
+
+        ProfileProgressDirection direction;
+        string summary;
+        if (cplDelta <= -35 || (cplDelta <= -25 && highlightDelta <= -0.15))
+        {
+            direction = ProfileProgressDirection.Improving;
+            summary = $"Recent games are cleaner: average CPL improved by {Math.Abs(cplDelta)} and highlighted mistakes per game also dropped.";
+        }
+        else if (cplDelta >= 35 || (cplDelta >= 25 && highlightDelta >= 0.15))
+        {
+            direction = ProfileProgressDirection.Regressing;
+            summary = $"Recent games are rougher: average CPL rose by {cplDelta} and the number of highlighted mistakes per game increased.";
+        }
+        else
+        {
+            direction = ProfileProgressDirection.Stable;
+            summary = "Recent results are broadly stable versus the earlier sample, with no strong improvement or regression signal yet.";
+        }
+
+        return new ProfileProgressSignal(direction, summary, recentPeriod, previousPeriod);
+    }
+
+    private static ProfileProgressPeriod BuildProgressPeriod(IReadOnlyList<PlayerProfileSnapshot> snapshots, string label)
+    {
+        int highlightedMistakes = snapshots.Sum(snapshot => GetHighlightedGroups(snapshot).Count);
+        double highlightsPerGame = snapshots.Count == 0
+            ? 0.0
+            : Math.Round((double)highlightedMistakes / snapshots.Count, 2);
+
+        return new ProfileProgressPeriod(
+            label,
+            snapshots.Count,
+            TryAverage(snapshots.SelectMany(snapshot => snapshot.Moves).Select(move => move.CentipawnLoss)),
+            highlightsPerGame);
+    }
+
     private static PlayerProfileReport BuildReport(IReadOnlyList<PlayerProfileSnapshot> snapshots)
     {
         string playerKey = snapshots[0].PlayerKey;
@@ -130,6 +251,10 @@ public sealed partial class PlayerProfileService
         IReadOnlyList<HighlightedGroup> highlightedGroups = snapshots
             .SelectMany(GetHighlightedGroups)
             .ToList();
+        IReadOnlyList<StoredMoveAnalysis> mistakeMoves = snapshots
+            .SelectMany(snapshot => snapshot.Moves)
+            .Where(move => move.Quality != MoveQualityBucket.Good && !string.IsNullOrWhiteSpace(move.MistakeLabel))
+            .ToList();
 
         IReadOnlyList<ProfileLabelStat> topLabels = highlightedGroups
             .GroupBy(item => item.Label)
@@ -139,6 +264,20 @@ public sealed partial class PlayerProfileService
                 group.Average(item => item.AverageConfidence)))
             .OrderByDescending(item => item.Count)
             .ThenByDescending(item => item.AverageConfidence)
+            .ThenBy(item => item.Label, StringComparer.Ordinal)
+            .Take(3)
+            .ToList();
+
+        IReadOnlyList<ProfileCostlyLabelStat> costliestLabels = mistakeMoves
+            .GroupBy(move => move.MistakeLabel!, StringComparer.Ordinal)
+            .Select(group => new ProfileCostlyLabelStat(
+                group.Key,
+                group.Count(),
+                group.Sum(move => Math.Max(0, move.CentipawnLoss ?? 0)),
+                TryAverage(group.Select(move => move.CentipawnLoss))))
+            .OrderByDescending(item => item.TotalCentipawnLoss)
+            .ThenByDescending(item => item.AverageCentipawnLoss ?? 0)
+            .ThenByDescending(item => item.Count)
             .ThenBy(item => item.Label, StringComparer.Ordinal)
             .Take(3)
             .ToList();
@@ -192,11 +331,20 @@ public sealed partial class PlayerProfileService
             .OrderBy(item => item.QuarterKey, StringComparer.Ordinal)
             .ToList();
 
-        IReadOnlyList<TrainingRecommendation> recommendations = topLabels
+        IReadOnlyList<PriorityLabelStat> recommendationPriority = BuildPriorityLabels(topLabels, costliestLabels, highlightedGroups, mistakeMoves);
+        ProfileProgressSignal progressSignal = BuildProgressSignal(snapshots);
+
+        IReadOnlyList<TrainingRecommendation> recommendations = recommendationPriority
             .Take(3)
-            .Select((labelStat, index) => CreateRecommendation(labelStat, BuildRecommendationContext(snapshots, labelStat.Label), index + 1))
+            .Select((labelStat, index) => CreateRecommendation(
+                labelStat,
+                BuildRecommendationContext(snapshots, labelStat.Label),
+                BuildMistakeExamples(snapshots, labelStat.Label, 3),
+                index + 1))
             .ToList();
         WeeklyTrainingPlan weeklyPlan = BuildWeeklyPlan(displayName, recommendations);
+
+        IReadOnlyList<ProfileMistakeExample> allExamples = BuildAllMistakeExamples(snapshots, topLabels, 9);
 
         return new PlayerProfileReport(
             playerKey,
@@ -206,13 +354,16 @@ public sealed partial class PlayerProfileService
             highlightedGroups.Count,
             TryAverage(snapshots.SelectMany(snapshot => snapshot.Moves).Select(move => move.CentipawnLoss)),
             topLabels,
+            costliestLabels,
             mistakesByPhase,
             mistakesByOpening,
             gamesBySide,
             monthlyTrend,
             quarterlyTrend,
+            progressSignal,
             recommendations,
-            weeklyPlan);
+            weeklyPlan,
+            allExamples);
     }
 }
 
@@ -239,6 +390,7 @@ public sealed partial class PlayerProfileService
             NormalizePlayerKey(playerName),
             playerName.Trim(),
             first.AnalyzedSide,
+            ParseGameDate(first.DateText),
             ParseMonthKey(first.DateText),
             ParseQuarterKey(first.DateText),
             string.IsNullOrWhiteSpace(first.Eco) ? "Unknown" : first.Eco!,
@@ -308,6 +460,7 @@ public sealed partial class PlayerProfileService
             NormalizePlayerKey(playerName),
             playerName.Trim(),
             result.AnalyzedSide,
+            ParseGameDate(result.Game.DateText),
             ParseMonthKey(result.Game.DateText),
             ParseQuarterKey(result.Game.DateText),
             string.IsNullOrWhiteSpace(result.Game.Eco) ? "Unknown" : result.Game.Eco!,
@@ -335,7 +488,7 @@ public sealed partial class PlayerProfileService
         return playerName.Trim().ToLowerInvariant();
     }
 
-    private static string? ParseMonthKey(string? dateText)
+    private static DateTime? ParseGameDate(string? dateText)
     {
         if (string.IsNullOrWhiteSpace(dateText))
         {
@@ -352,35 +505,24 @@ public sealed partial class PlayerProfileService
             "yyyy/MM"
         ];
 
-        if (DateTime.TryParseExact(dateText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed))
-        {
-            return parsed.ToString("yyyy-MM", CultureInfo.InvariantCulture);
-        }
+        return DateTime.TryParseExact(dateText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed)
+            ? parsed
+            : null;
+    }
 
-        return null;
+    private static string? ParseMonthKey(string? dateText)
+    {
+        DateTime? parsed = ParseGameDate(dateText);
+        return parsed?.ToString("yyyy-MM", CultureInfo.InvariantCulture);
     }
 
     private static string? ParseQuarterKey(string? dateText)
     {
-        if (string.IsNullOrWhiteSpace(dateText))
+        DateTime? parsed = ParseGameDate(dateText);
+        if (parsed.HasValue)
         {
-            return null;
-        }
-
-        string[] formats =
-        [
-            "yyyy.MM.dd",
-            "yyyy-MM-dd",
-            "yyyy/MM/dd",
-            "yyyy.MM",
-            "yyyy-MM",
-            "yyyy/MM"
-        ];
-
-        if (DateTime.TryParseExact(dateText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed))
-        {
-            int quarter = ((parsed.Month - 1) / 3) + 1;
-            return $"{parsed:yyyy}-Q{quarter}";
+            int quarter = ((parsed.Value.Month - 1) / 3) + 1;
+            return $"{parsed.Value:yyyy}-Q{quarter}";
         }
 
         return null;
@@ -402,6 +544,7 @@ public sealed partial class PlayerProfileService
         string PlayerKey,
         string DisplayName,
         PlayerSide Side,
+        DateTime? GameDate,
         string? MonthKey,
         string? QuarterKey,
         string Eco,
@@ -426,6 +569,14 @@ public sealed partial class PlayerProfileService
         PlayerSide Side,
         GamePhase? Phase,
         string Eco);
+
+    private sealed record PriorityLabelStat(
+        string Label,
+        int Count,
+        int TotalCentipawnLoss,
+        int? AverageCentipawnLoss,
+        double AverageConfidence,
+        int PriorityScore);
 }
 
 public sealed partial class PlayerProfileService
@@ -668,9 +819,14 @@ public sealed partial class PlayerProfileService
 
 public sealed partial class PlayerProfileService
 {
-    private static TrainingRecommendation CreateRecommendation(ProfileLabelStat labelStat, RecommendationContext context, int priority)
+    private static TrainingRecommendation CreateRecommendation(
+        PriorityLabelStat labelStat,
+        RecommendationContext context,
+        IReadOnlyList<ProfileMistakeExample> examples,
+        int priority)
     {
         string contextSummary = BuildContextSummary(context);
+        string severitySummary = BuildSeveritySummary(labelStat);
         string openingSummary = BuildOpeningSummary(context.TopOpenings);
 
         return labelStat.Label switch
@@ -679,7 +835,7 @@ public sealed partial class PlayerProfileService
                 priority,
                 "Board safety",
                 "Protect Loose Pieces",
-                $"Your profile shows repeated piece losses after moves that leave a square underprotected. {contextSummary}",
+                $"Your profile shows repeated piece losses after moves that leave a square underprotected. {severitySummary} {contextSummary}",
                 context.DominantPhase,
                 context.DominantSide,
                 context.TopOpenings,
@@ -694,12 +850,13 @@ public sealed partial class PlayerProfileService
                     "Slow review of your own blunders with attacker-defender counting.",
                     $"Mini checklist game: say 'safe or loose?' before each move{BuildSideSuffix(context.DominantSide)}.",
                     openingSummary
-                ]),
+                ],
+                examples),
             "missed_tactic" => new TrainingRecommendation(
                 priority,
                 "Tactics",
                 "Checks, Captures, Threats",
-                $"You are missing forcing resources often enough that tactical scanning should become the first step of your thought process in sharp positions. {contextSummary}",
+                $"You are missing forcing resources often enough that tactical scanning should become the first step of your thought process in sharp positions. {severitySummary} {contextSummary}",
                 context.DominantPhase,
                 context.DominantSide,
                 context.TopOpenings,
@@ -714,12 +871,13 @@ public sealed partial class PlayerProfileService
                     "Two-move tactical calculation drills from your own analyzed games.",
                     "Flashcards with forks, skewers and discovered attacks.",
                     openingSummary
-                ]),
+                ],
+                examples),
             "opening_principles" => new TrainingRecommendation(
                 priority,
                 "Opening discipline",
                 "Clean Up The Opening",
-                $"The profile shows that you give away quality early by spending tempi on side ideas before finishing development and king safety. {contextSummary}",
+                $"The profile shows that you give away quality early by spending tempi on side ideas before finishing development and king safety. {severitySummary} {contextSummary}",
                 context.DominantPhase,
                 context.DominantSide,
                 context.TopOpenings,
@@ -734,12 +892,13 @@ public sealed partial class PlayerProfileService
                     "Annotate the first 10 moves of your own games with 'develop / center / king safety'.",
                     "Play a few training games with a rule: no wing pawn moves before minor piece development.",
                     openingSummary
-                ]),
+                ],
+                examples),
             "king_safety" => new TrainingRecommendation(
                 priority,
                 "King safety",
                 "Safer King Decisions",
-                $"Your mistakes suggest that king shelter breaks down too easily after pawn pushes or slow reactions to attacking chances. {contextSummary}",
+                $"Your mistakes suggest that king shelter breaks down too easily after pawn pushes or slow reactions to attacking chances. {severitySummary} {contextSummary}",
                 context.DominantPhase,
                 context.DominantSide,
                 context.TopOpenings,
@@ -754,12 +913,13 @@ public sealed partial class PlayerProfileService
                     "Puzzle set on mating nets and defensive resources.",
                     "Post-game note: which move first weakened your king?",
                     openingSummary
-                ]),
+                ],
+                examples),
             "endgame_technique" => new TrainingRecommendation(
                 priority,
                 "Endgames",
                 "Sharpen Endgame Technique",
-                $"The profile points to technical slips in reduced material, especially around king activity and the simplest conversion path. {contextSummary}",
+                $"The profile points to technical slips in reduced material, especially around king activity and the simplest conversion path. {severitySummary} {contextSummary}",
                 context.DominantPhase,
                 context.DominantSide,
                 context.TopOpenings,
@@ -774,12 +934,13 @@ public sealed partial class PlayerProfileService
                     "Winning rook or minor-piece endgame conversion exercises.",
                     "Replay your own endgames and mark where the king should have improved first.",
                     "Create a mini set from your own late-game mistakes and replay the conversion plan."
-                ]),
+                ],
+                examples),
             "material_loss" => new TrainingRecommendation(
                 priority,
                 "Material discipline",
                 "Material Discipline",
-                $"A recurring theme is losing material in lines where the forcing continuation was not checked deeply enough. {contextSummary}",
+                $"A recurring theme is losing material in lines where the forcing continuation was not checked deeply enough. {severitySummary} {contextSummary}",
                 context.DominantPhase,
                 context.DominantSide,
                 context.TopOpenings,
@@ -794,12 +955,13 @@ public sealed partial class PlayerProfileService
                     "Blunder-check drill: write the final material count after each forcing line.",
                     "Review games where one missed recapture changed the result.",
                     openingSummary
-                ]),
+                ],
+                examples),
             "piece_activity" => new TrainingRecommendation(
                 priority,
                 "Piece coordination",
                 "Improve Piece Activity",
-                $"You are giving away too many useful tempi on moves that reduce mobility or coordination instead of improving the worst-placed piece. {contextSummary}",
+                $"You are giving away too many useful tempi on moves that reduce mobility or coordination instead of improving the worst-placed piece. {severitySummary} {contextSummary}",
                 context.DominantPhase,
                 context.DominantSide,
                 context.TopOpenings,
@@ -814,12 +976,13 @@ public sealed partial class PlayerProfileService
                     "Annotate middlegame plans by identifying your worst piece each turn.",
                     "Review losses for passive regrouping moves that handed over initiative.",
                     openingSummary
-                ]),
+                ],
+                examples),
             _ => new TrainingRecommendation(
                 priority,
                 "Critical review",
                 "Review Critical Moments",
-                $"Your profile still has a mixed error picture, so the best next step is disciplined review of the positions where the evaluation turned fastest. {contextSummary}",
+                $"Your profile still has a mixed error picture, so the best next step is disciplined review of the positions where the evaluation turned fastest. {severitySummary} {contextSummary}",
                 context.DominantPhase,
                 context.DominantSide,
                 context.TopOpenings,
@@ -834,8 +997,64 @@ public sealed partial class PlayerProfileService
                     "Short review sessions of only the largest evaluation swings.",
                     "Theme tagging of recent blunders to find a dominant pattern.",
                     openingSummary
-                ])
+                ],
+                examples)
         };
+    }
+
+    private static IReadOnlyList<ProfileMistakeExample> BuildMistakeExamples(
+        IReadOnlyList<PlayerProfileSnapshot> snapshots,
+        string label,
+        int maxCount)
+    {
+        return snapshots
+            .SelectMany(snapshot => snapshot.Moves
+                .Where(move =>
+                    !string.IsNullOrWhiteSpace(move.MistakeLabel)
+                    && string.Equals(move.MistakeLabel, label, StringComparison.Ordinal)
+                    && move.Quality is MoveQualityBucket.Mistake or MoveQualityBucket.Blunder
+                    && !string.IsNullOrWhiteSpace(move.FenBefore))
+                .OrderByDescending(move => move.CentipawnLoss ?? 0)
+                .Take(1)
+                .Select(move => new ProfileMistakeExample(
+                    snapshot.GameFingerprint,
+                    move.MoveNumber,
+                    move.AnalyzedSide,
+                    move.San,
+                    move.BestMoveUci,
+                    label,
+                    move.CentipawnLoss,
+                    move.Quality,
+                    move.Phase,
+                    snapshot.Eco,
+                    move.FenBefore)))
+            .OrderByDescending(example => example.CentipawnLoss ?? 0)
+            .Take(maxCount)
+            .ToList();
+    }
+
+    private static IReadOnlyList<ProfileMistakeExample> BuildAllMistakeExamples(
+        IReadOnlyList<PlayerProfileSnapshot> snapshots,
+        IReadOnlyList<ProfileLabelStat> topLabels,
+        int maxTotal)
+    {
+        if (topLabels.Count == 0)
+        {
+            return [];
+        }
+
+        int perLabel = Math.Max(1, maxTotal / topLabels.Count);
+        return topLabels
+            .SelectMany(label => BuildMistakeExamples(snapshots, label.Label, perLabel))
+            .OrderByDescending(example => example.CentipawnLoss ?? 0)
+            .Take(maxTotal)
+            .ToList();
+    }
+
+    private static string BuildSeveritySummary(PriorityLabelStat labelStat)
+    {
+        string averageCpl = labelStat.AverageCentipawnLoss?.ToString() ?? "n/a";
+        return $"It appeared {labelStat.Count} times and cost about {labelStat.TotalCentipawnLoss} centipawns in total (avg {averageCpl}).";
     }
 
     private static RecommendationContext BuildRecommendationContext(IReadOnlyList<PlayerProfileSnapshot> snapshots, string label)

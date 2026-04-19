@@ -286,6 +286,7 @@ Status w repo:
 - [x] wdrożone podstawowe etykiety `material_loss`, `hanging_piece`, `missed_tactic`, `king_safety`, `opening_principles`, `endgame_technique`
 - [x] wdrożone `confidence` i `evidence`
 - [x] rozszerzone heurystyki debiutowe o wykrywanie przegapionej roszady i przegapionego kroku rozwojowego, gdy najlepszy ruch poprawiał rozwój
+- [x] poprawiona separacja `hanging_piece` vs `material_loss`, tak żeby bezpośrednio powieszona i tracona figura dostawała bardziej konkretną etykietę
 - [ ] rozszerzyć heurystyki o bogatsze cechy pozycji i lepszą separację etykiet
 
 ### Etap 2 - klasyfikacja hybrydowa
@@ -691,6 +692,7 @@ Cel: nie komentować wszystkiego, tylko rzeczy ważne.
 
 Status:
 - [x] gotowe jako wersja podstawowa
+- [x] ranking preferuje bardziej edukacyjne momenty z pozycji grywalnych lub wygranych, zamiast przeceniać podobne błędy z pozycji już przegranych
 - [ ] wymaga dopracowania rankingu i jakości selekcji
 
 ---
@@ -923,7 +925,7 @@ Stan po bieżącej iteracji:
 - pojawił się prosty trend miesięczny i kwartalny oraz 1-3 priorytety treningowe z checklistą i sugerowanymi ćwiczeniami,
 - profil układa też deterministyczny tygodniowy plan treningowy z dniami, aktywnościami i kryterium ukończenia,
 - w UI głównego okna można otworzyć widok profili i filtrować graczy po nazwie,
-- kolejnym krokiem pozostaje bardziej zaawansowane grupowanie historyczne, lepsze trendy i później np. automatyczne śledzenie realizacji takiego planu.
+- kolejnym krokiem pozostaje bardziej zaawansowane grupowanie historyczne, lepsze trendy, bardziej przyjazny układ `Summary` + `Deep dive`, a później np. automatyczne śledzenie realizacji takiego planu.
 
 ### Krok 6 - AdviceGenerator i ścieżka lokalna
 - [x] wydzielić `IAdviceGenerator` oraz szablonowe `TemplateAdviceGenerator`,
@@ -1008,6 +1010,239 @@ Stan po bieżącej iteracji:
 - [x] Instrukcja dla LLM: jeśli bieżący błąd pasuje do wzorca, wspomnieć o tym
 - [x] Profil ładowany raz per partia (nie per ruch) — zero overhead
 - [x] Graceful fallback gdy store niedostępny (catch w TryBuild)
+
+## Kolejne sprinty od obecnego stanu
+
+### Sprint 10 - Klasyfikacja v1.5
+- [x] Dopracować rozdzielenie `missed_tactic` vs `material_loss`
+- [x] Dopracować rozdzielenie `missed_tactic` vs `hanging_piece`
+- [ ] Ograniczyć liczbę wyników `unclassified`
+- [x] Rozszerzyć heurystyki `king_safety` i `endgame_technique`
+- [x] Dodać testy regresyjne dla granicznych przypadków klasyfikatora
+
+Stan po bieżącej iteracji:
+- `king_safety` uwzględnia już nie tylko osłabienie po roszadzie krótkiej, ale też analogiczne osłabienie po roszadzie długiej oraz wyjście królem z bezpiecznego schronienia.
+- `endgame_technique` łapie teraz także pasywny odwrót króla i spadek aktywności króla w końcówce, nie tylko brak centralizacji.
+- klasyfikator potrafi preferować `missed_tactic`, gdy przegapiona szansa taktyczna wyraźnie przewyższa małą stratę materiału.
+- `piece_activity` obejmuje już także część pozycyjnych ruchów, w których najlepsza kontynuacja polegała głównie na aktywizacji figury, a nie na czystej taktyce.
+- nadal warto ograniczyć pulę starych lub mało informacyjnych przypadków `unclassified` w danych historycznych oraz dalej zmniejszać zbyt szeroki fallback do `missed_tactic`.
+
+Cel sprintu:
+żeby etykiety błędów były bardziej trafne i stabilne, zanim dołożymy kolejne warstwy opisu i profilowania.
+
+### Sprint 11 - Selekcja błędów v1.5
+- [x] Ulepszyć ranking `MistakeSelector`, żeby lepiej wybierał momenty edukacyjnie najważniejsze
+- [x] Mocniej preferować pierwszy punkt zwrotny zamiast kilku podobnych błędów pod rząd
+- [x] Lepiej scalać sąsiadujące błędy tego samego motywu
+- [x] Ograniczyć szum z pozycji już przegranych
+- [x] Dodać testy selekcji na partiach z wieloma podobnymi błędami
+
+Stan po bieżącej iteracji:
+- selektor scala już nie tylko identyczne etykiety obok siebie, ale też bliskie w czasie błędy z tej samej rodziny motywów, jeśli pozycja realnie nie zdążyła się odbudować;
+- w obrębie scalonej narracji reprezentant częściej pokazuje pierwszy punkt zwrotny, a nie tylko najpóźniejszy ruch z największym CPL;
+- ranking dalej premiuje momenty edukacyjne z pozycji grywalnych lub wygranych i ogranicza szum z pozycji już wyraźnie przegranych;
+- testy obejmują teraz także przypadki: merge przez jeden spokojniejszy ruch, merge pokrewnych motywów materiałowych oraz wybór pierwszego punktu zwrotnego jako lead move.
+
+Cel sprintu:
+żeby użytkownik widział krótszą, bardziej sensowną listę błędów, a nie kilka wariantów tego samego problemu.
+
+### Sprint 12 - Advice v2
+- [x] Dokończyć pełną wersję krótką i rozszerzoną dla komentarzy
+- [x] Ujednolicić strukturę porady: `what`, `why`, `better move`, `watch next time`
+- [x] Poprawić naturalność języka dla generatora heurystycznego i LLM fallback
+- [x] Dopiąć limity długości tak, by komentarze były krótkie, ale konkretne
+- [x] Dodać testy jakości formatu odpowiedzi i fallbacków
+
+Stan po bieżącej iteracji:
+- `TemplateAdviceGenerator` buduje teraz bardziej przewidywalny `detailed_text` w układzie `What / Why / Better / Watch next time`, zamiast luźnego akapitu;
+- `short_text` jest krótsze i bardziej czytelne, a generator zachowuje odrębny ton dla poziomów `Beginner / Intermediate / Advanced`;
+- `LocalHeuristicAdviceGenerator` dokleja lokalne sygnały pozycyjne i kontekst otwarcia do rozszerzonego opisu, zamiast przeładowywać `short_text`;
+- prompt dla local model wyraźnie wymaga tej samej struktury w `detailed_text`, więc heurystyki i LLM idą w tym samym kierunku UX;
+- testy pilnują teraz zarówno struktury sekcji, jak i jakości fallbacków oraz limitów długości.
+
+Cel sprintu:
+żeby porady były czytelne, spójne i naprawdę pomocne, niezależnie od tego, czy odpowiada model lokalny czy heurystyka.
+
+### Sprint 13 - Profil gracza v2
+- [x] Rozdzielić błędy częste od błędów najdroższych
+- [x] Wzmocnić priorytety treningowe na podstawie realnego kosztu błędów
+- [x] Dodać porównanie okresów: ostatnie gry vs starsza historia
+- [x] Pokazywać bardziej konkretne przykłady motywów prowadzących do rekomendacji
+- [x] Uzupełnić profil o prosty sygnał postępu lub regresu
+
+Stan po bieżącej iteracji:
+- raport profilu rozdziela teraz `TopMistakeLabels` od `CostliestMistakeLabels`, więc widać osobno to, co wraca często, i to, co kosztuje najwięcej CPL;
+- priorytety treningowe są budowane na bazie połączonego sygnału: częstość, koszt błędów i liczba wyróżnionych momentów, zamiast samej liczby wystąpień;
+- profil pokazuje prosty `ProgressSignal`, który porównuje ostatnią próbkę gier do wcześniejszej i oznacza kierunek jako `Improving`, `Stable`, `Regressing` albo `InsufficientData`;
+- widok profili pokazuje już sekcję błędów najdroższych oraz sekcję trendu postępu/regresu;
+- nadal warto dołożyć bardziej konkretne przykłady pozycji lub motywów prowadzących do rekomendacji treningowych.
+
+Cel sprintu:
+żeby profil nie był tylko statystyką, ale faktycznie wskazywał, nad czym gracz powinien pracować najpierw.
+
+### Sprint 14 - Dane pod local AI
+- [x] Logować przypadki niskiej pewności klasyfikatora i słabe jakościowo porady
+- [x] Zbierać bogatszy payload diagnostyczny dla przyszłego strojenia promptów lub modeli
+- [x] Dodać prosty raport jakości: ile wyników wpada do `unclassified`, ile porad kończy się fallbackiem
+- [x] Przygotować dataset eksportowy pod przyszłe eksperymenty z lokalnym modelem
+- [x] Utrzymać pełną pracę offline bez zależności od zewnętrznych providerów
+
+Stan po bieżącej iteracji:
+- `DiagnosticMistakeClassifier` owija `MistakeClassifier` i automatycznie zapisuje do JSONL każdy przypadek z niską pewnością (< 0.70) lub generycznym fallbackiem `missed_tactic`; logowanie jest fire-and-forget i nigdy nie blokuje analizy;
+- `AnalysisQualityReporter` czyta oba pliki JSONL (klasyfikator + advice traces) i generuje raport markdown z tabelą etykiet, wskaźnikiem fallbacków i podziałem przyczyn; uruchamialny przez CLI `--quality-report`;
+- `DatasetExporter` eksportuje wszystkie `StoredMoveAnalysis` do JSONL i CSV z kompletem pól potrzebnych do eksperymentów z lokalnym modelem; uruchamialny przez `--export-dataset`;
+- `ProfileMistakeExample` dostarcza do profilu gracza konkretne pozycje (FEN, CPL, SAN, best move, opening) dla każdego dominującego motywu błędu;
+- cały system działa w 100% offline; brak nowych zależności sieciowych.
+
+### Sprint 15 - UI / workflow polish
+- [ ] Przebudować profil gracza na dwie warstwy prezentacji: krótki blok `Summary` na górze i sekcję `Deep dive` niżej
+- [ ] W `Summary` pokazywać: największy problem, drugi problem, najsłabszą fazę partii, najbardziej problematyczne otwarcie oraz krótki sygnał ostatniego trendu
+- [ ] Pokazać w profilach i analizach bardziej klikalne przykłady pozycji
+- [ ] Ułatwić przejście z profilu gracza do konkretnej partii i konkretnego błędu
+- [ ] Dodać lepsze badge, filtry i oznaczenia najważniejszych błędów
+- [ ] Zamienić techniczne nazwy sekcji na bardziej naturalne, np. `Key mistakes`, `Most expensive mistakes`, `What to work on`, `Recent trend`
+- [ ] Uprościć nazwy priorytetów treningowych tak, aby brzmiały naturalnie dla gracza, np. `Avoid Losing Material`, `Scan for Tactics`, `Finish Development First`
+- [ ] Dodać krótki blok `What to fix first` z 2-3 bezpośrednimi, operacyjnymi wskazówkami
+- [ ] Przebudować widok profilu na sekcje zwijane / rozwijane, tak aby bloki typu `overview`, `mistake labels`, `openings`, `phases`, `training priorities` i `history/trend` nie tworzyły jednej długiej ściany tekstu
+- [ ] W sekcji historii i trendów dodać listę rozwijaną dla poszczególnych dni, tak aby po rozwinięciu dnia było widać partie, highlighty, średni CPL i najważniejsze motywy błędów tylko dla tej daty
+- [ ] Dodać walidację spójności przed renderem, tak aby liczby w profilu, opisy trendu i sumy sekcji nie mogły sobie widocznie przeczyć
+- [ ] Poprawić prezentację otwarć, używając bardziej ludzkich nazw i sensownych fallbacków, np. `B00 - King's Pawn setups after 1.e4` zamiast surowych lub mało pomocnych nazw `Uncommon ...`
+- [ ] Zrobić z tygodniowego planu sekcję opcjonalną, pokazywaną dopiero po rozwinięciu albo po akcji typu `Show training plan`
+- [ ] Dalej odchudzać formularze i separować logikę UI od pipeline analizy
+- [ ] Dopracować responsywność i skalowanie okien pomocniczych
+
+Cel sprintu:
+żeby coraz mocniejsza logika analityczna była też wygodna w codziennym użyciu, a profil dawał się zrozumieć w 10-15 sekund zamiast wyglądać jak raport debugowy.
+
+### Rekomendowana kolejność realizacji
+1. Sprint 10 - Klasyfikacja v1.5
+2. Sprint 11 - Selekcja błędów v1.5
+3. Sprint 12 - Advice v2
+4. Sprint 13 - Profil gracza v2
+5. Sprint 14 - Dane pod local AI
+6. Sprint 15 - UI / workflow polish
+
+### Uwaga wykonawcza
+Najpierw warto dopracować trafność klasyfikacji i selekcji, bo to jest jakość wejścia dla profilu gracza i przyszłych porad generowanych przez lokalny model. Dopiero na tym fundamencie sensownie rozwijać warstwę local AI i dalszą personalizację.
+
+## Ścieżka Do Opening Trainera I Treningu Personalnego
+
+Ta sekcja rozpisuje kolejne sprinty, które mają doprowadzić do trzech celów:
+- `opening trainer`,
+- plan treningowy oparty na realnych słabościach użytkownika,
+- użycie lokalnego LLM do formatowania profilu i planu pod poziom gracza, bez oddawania mu logiki priorytetów.
+
+Założenie architektoniczne:
+- logika priorytetów, scoringu i selekcji pozostaje deterministyczna,
+- LLM służy do tłumaczenia, personalizacji tonu i lepszego formatowania,
+- system zachowuje pełny fallback offline.
+
+### Sprint 16 - Przykłady Do Profilu
+- [ ] Dodać do profilu `example positions` dla dominujących motywów błędów.
+- [ ] Dla każdej rekomendacji pokazywać 2-3 konkretne przykłady z własnych partii użytkownika.
+- [ ] Przy każdym przykładzie pokazać: label, CPL, fazę partii, opening i lepszy ruch.
+- [ ] Dodać ranking przykładów: najczęstszy, najdroższy, najbardziej reprezentatywny.
+- [ ] Umożliwić przejście `profil -> przykład -> plansza -> analiza`.
+- [ ] Spiąć przykłady z przebudowanym widokiem profilu, aby każda rozwijana sekcja i każdy rozwijany dzień mogły pokazywać własne przykłady oraz szybkie przejścia do partii.
+- [ ] Sprawić, aby sekcje `Summary` i `What to fix first` korzystały z tej samej puli przykładów, tak aby każde ogólne stwierdzenie dało się prześledzić do konkretnych pozycji.
+
+Cel sprintu:
+żeby profil przestał być tylko zestawem agregatów i zaczął pokazywać rzeczywiste momenty z partii, które stoją za rekomendacjami.
+
+### Sprint 17 - Silnik Planu Treningowego v1
+- [ ] Wydzielić `TrainingPlanService`.
+- [ ] Zbudować `TrainingPlanReport` na podstawie `PlayerProfileReport`.
+- [ ] Wyliczać priorytety z połączenia: częstość, koszt CPL, trend i faza partii.
+- [ ] Rozdzielić tematy na `core weakness`, `secondary weakness`, `maintenance topic`.
+- [ ] Dodać prosty budżet czasu treningowego na tydzień.
+
+Cel sprintu:
+żeby użytkownik dostawał realny tygodniowy plan pracy, a nie tylko opis swoich słabości.
+
+### Sprint 18 - Trening Słabości v2
+- [ ] Dodać typy bloków treningowych: `tactics`, `opening review`, `endgame drill`, `game review`, `slow play focus`.
+- [ ] Mapować etykiety błędów na konkretne typy ćwiczeń.
+- [ ] Rozdzielić ćwiczenia na naprawcze, utrwalające i checklisty do gry.
+- [ ] Dodać prostą adaptację priorytetów na podstawie trendu poprawy lub regresu.
+- [ ] Dodać `why this topic now` dla każdej pozycji w planie.
+
+Cel sprintu:
+żeby plan treningowy był praktyczny i tłumaczył, czemu dany temat jest teraz ważny.
+
+### Sprint 19 - Fundament Pod Opening Trainer
+- [ ] Dodać identyfikację momentu wyjścia z teorii w zaimportowanej partii.
+- [ ] Wykrywać pierwszy błąd w debiucie i przypisywać go do konkretnej gałęzi openingu.
+- [ ] Zbudować `OpeningWeaknessService`.
+- [ ] Agregować najczęstsze problematyczne openingi i typowe sekwencje błędów.
+- [ ] Dla każdego openingu zapisywać przykładowe partie, motywy błędów i referencyjne ruchy.
+
+Cel sprintu:
+zrozumieć nie tylko, że gracz ma problem w debiucie, ale dokładnie w jakim debiucie i po jakiej sekwencji ruchów.
+
+### Sprint 20 - Opening Trainer v1
+- [ ] Dodać `OpeningTrainerService`.
+- [ ] Wprowadzić tryb `line recall`, gdzie użytkownik odtwarza właściwy ruch z pozycji.
+- [ ] Wprowadzić tryb `mistake repair`, gdzie użytkownik poprawia własny błąd z partii.
+- [ ] Wprowadzić tryb `branch awareness`, gdzie użytkownik trenuje typowe odpowiedzi przeciwnika.
+- [ ] Dodać podstawowy scoring: poprawny ruch, ruch grywalny, ruch błędny.
+
+Cel sprintu:
+uruchomić pierwszą wersję trenera debiutowego opartego na własnych partiach użytkownika i lokalnych danych.
+
+### Sprint 21 - Opening Trainer v2 + Integracja Z Planem
+- [ ] Zintegrować opening trainer z profilem gracza i planem treningowym.
+- [ ] Automatycznie dodawać sesje debiutowe do planu, jeśli opening jest niestabilny lub kosztowny.
+- [ ] Dodać kategorie `opening to fix now`, `opening to review later`, `opening stable`.
+- [ ] Pokazać w UI listę najbardziej niestabilnych i najdroższych openingów.
+- [ ] Umożliwić start treningu bezpośrednio z profilu i planu tygodniowego.
+
+Cel sprintu:
+żeby trener debiutowy stał się naturalną częścią całego workflow treningowego, a nie osobnym modułem.
+
+### Sprint 22 - LLM Formatter Profilu Gracza
+- [ ] Przygotować strukturalny input do LLM z gotowego `PlayerProfileReport`.
+- [ ] Dodać wyjścia: `profile_summary`, `strengths_and_weaknesses`, `what_to_focus_next`, `tone_adapted_version`.
+- [ ] Dodać poziomy odbiorcy: `Beginner`, `Intermediate`, `Advanced`.
+- [ ] Utrzymać zgodność wyjścia z układem UI: krótkie `Summary` najpierw, opcjonalne `Deep dive` niżej i zero debugowego stylu w tekście dla gracza.
+- [ ] Utrzymać walidację, żeby model nie dodawał nowych faktów spoza danych.
+- [ ] Zachować pełny heurystyczny fallback bez modelu.
+
+Cel sprintu:
+używać lokalnego LLM do formatowania i upraszczania profilu, ale nie do ustalania logiki diagnozy.
+
+### Sprint 23 - LLM Formatter Planu Treningowego
+- [ ] Przygotować strukturalny input do LLM z gotowego `TrainingPlanReport`.
+- [ ] Generować krótką i rozszerzoną wersję planu tygodniowego.
+- [ ] Dodawać zrozumiałe uzasadnienie priorytetów dla użytkownika.
+- [ ] Dostosować ton do poziomu gracza i dostępnego czasu na trening.
+- [ ] Zachować pełny fallback lokalny bez modelu.
+
+Cel sprintu:
+sprawić, żeby plan treningowy był bardziej ludzki, czytelny i motywujący, bez utraty deterministycznego rdzenia.
+
+### Sprint 24 - Zamknięcie Pętli Treningowej
+- [ ] Zapisywać wykonane sesje treningowe i wyniki z opening trainera.
+- [ ] Łączyć wyniki treningu z profilem gracza i planem.
+- [ ] Aktualizować priorytety tematów na podstawie realnych wyników, a nie tylko nowych analiz partii.
+- [ ] Dodać statusy tematów: `new weakness`, `improving`, `stable`, `urgent`.
+- [ ] Zbudować prosty dashboard `why this is your current plan`.
+
+Cel sprintu:
+zamknąć pętlę między analizą partii, profilem, planem treningowym i treningiem debiutowym.
+
+### Rekomendowana Kolejność Po Sprint 15
+1. Sprint 16 - Przykłady Do Profilu
+2. Sprint 17 - Silnik Planu Treningowego v1
+3. Sprint 18 - Trening Słabości v2
+4. Sprint 19 - Fundament Pod Opening Trainer
+5. Sprint 20 - Opening Trainer v1
+6. Sprint 21 - Opening Trainer v2 + Integracja Z Planem
+7. Sprint 22 - LLM Formatter Profilu Gracza
+8. Sprint 23 - LLM Formatter Planu Treningowego
+9. Sprint 24 - Zamknięcie Pętli Treningowej
+
+### Uwaga Końcowa
+Najpierw warto domknąć dane, przykłady i deterministyczny plan treningowy, a dopiero potem dołożyć warstwę LLM do formatowania. Dzięki temu model będzie poprawiał UX i personalizację języka, ale nie stanie się pojedynczym punktem awarii ani źródłem halucynacji w logice treningowej.
 
 ---
 

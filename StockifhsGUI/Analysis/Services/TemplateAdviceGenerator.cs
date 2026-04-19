@@ -26,12 +26,7 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
             ? $"and lost about {cp} centipawns"
             : "and changed the evaluation sharply";
         string bestMoveText = context?.PromptContext?.BestMoveSan ?? FormatMoveFromFen(replay.FenBefore, bestMoveUci);
-        string bestMoveSentence = string.IsNullOrWhiteSpace(bestMoveText)
-            ? "A calmer alternative kept the position healthier."
-            : $"A stronger option was {bestMoveText}.";
-        string openingSentence = replay.Phase == GamePhase.Opening && !string.IsNullOrWhiteSpace(context?.PromptContext?.OpeningName)
-            ? $"The opening context here was {context.PromptContext.OpeningName}."
-            : string.Empty;
+        string openingName = context?.PromptContext?.OpeningName ?? string.Empty;
 
         string patternHint = label switch
         {
@@ -44,10 +39,10 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
             _ => "Pause on tactical turns and look for forcing replies before choosing a natural-looking move."
         };
 
-        string shortText = Shorten(BuildShortText(replay, qualityText, lossText, label, bestMoveSentence, level), settings.MaxShortTextLength);
+        string shortText = Shorten(BuildShortText(replay, qualityText, lossText, label, bestMoveText, level), settings.MaxShortTextLength);
         string detailedText = Shorten(MergeSentences(
-            BuildDetailedText(replay, qualityText, label, bestMoveSentence, centipawnLoss, level),
-            openingSentence),
+            BuildDetailedText(replay, qualityText, label, bestMoveText, centipawnLoss, level, openingName),
+            string.Empty),
             settings.MaxDetailedTextLength);
         string trainingHint = Shorten(BuildTrainingHint(patternHint, label, level), settings.MaxTrainingHintLength);
 
@@ -76,10 +71,13 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
         int lastWordBreak = text.LastIndexOf(' ', candidateLength - 1);
         if (lastWordBreak >= maxLength / 2)
         {
-            return $"{text[..lastWordBreak].Trim()}...";
+            int maxWordLength = Math.Max(1, maxLength - 3);
+            string shortened = text[..Math.Min(lastWordBreak, maxWordLength)].Trim();
+            return $"{shortened}...";
         }
 
-        return $"{text[..candidateLength].Trim()}...";
+        int hardLimit = Math.Max(1, maxLength - 3);
+        return $"{text[..hardLimit].Trim()}...";
     }
 
     private static string BuildShortText(
@@ -87,14 +85,20 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
         string qualityText,
         string lossText,
         string label,
-        string bestMoveSentence,
+        string bestMoveText,
         ExplanationLevel level)
     {
         return level switch
         {
-            ExplanationLevel.Beginner => $"After {replay.San}, the position got worse {lossText}. This was mainly an example of '{label}'. {bestMoveSentence}",
-            ExplanationLevel.Advanced => $"{replay.San} was a {qualityText} in the '{label}' family {lossText}. {bestMoveSentence}",
-            _ => $"This {qualityText} came after {replay.San} {lossText}. It fits the pattern '{label}'. {bestMoveSentence}"
+            ExplanationLevel.Beginner => string.IsNullOrWhiteSpace(bestMoveText)
+                ? $"Simple view: {replay.San} was a {qualityText} {lossText}. The main theme was {DisplayLabel(label)}."
+                : $"Simple view: {replay.San} was a {qualityText} {lossText}. A stronger option was {bestMoveText}.",
+            ExplanationLevel.Advanced => string.IsNullOrWhiteSpace(bestMoveText)
+                ? $"Engine view: {replay.San} was a {qualityText} in the {DisplayLabel(label)} pattern {lossText}."
+                : $"Engine view: {replay.San} was a {qualityText} in the {DisplayLabel(label)} pattern {lossText}. A stronger option was {bestMoveText}.",
+            _ => string.IsNullOrWhiteSpace(bestMoveText)
+                ? $"Practical view: {replay.San} was a {qualityText} {lossText}. It fits the {DisplayLabel(label)} pattern."
+                : $"Practical view: {replay.San} was a {qualityText} {lossText}. A stronger option was {bestMoveText}."
         };
     }
 
@@ -102,35 +106,38 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
         ReplayPly replay,
         string qualityText,
         string label,
-        string bestMoveSentence,
+        string bestMoveText,
         int? centipawnLoss,
-        ExplanationLevel level)
+        ExplanationLevel level,
+        string openingName)
     {
-        return level switch
+        (string what, string why, string better, string watch) = level switch
         {
-            ExplanationLevel.Beginner =>
-                $"{BuildProblemSentenceBeginner(replay, qualityText, centipawnLoss)} " +
-                $"{BuildWhySentenceBeginner(label)} " +
-                $"{bestMoveSentence} " +
-                $"{BuildRecognitionSentenceBeginner(label)}",
-            ExplanationLevel.Advanced =>
-                $"{BuildProblemSentenceAdvanced(replay, qualityText, centipawnLoss)} " +
-                $"{BuildWhySentenceAdvanced(label)} " +
-                $"{bestMoveSentence} " +
-                $"{BuildRecognitionSentenceAdvanced(label)}",
+            ExplanationLevel.Beginner => (
+                BuildProblemSentenceBeginner(replay, qualityText, centipawnLoss),
+                BuildWhySentenceBeginner(label),
+                BuildBetterSentence(bestMoveText, openingName, label, level),
+                BuildRecognitionSentenceBeginner(label)),
+            ExplanationLevel.Advanced => (
+                BuildProblemSentenceAdvanced(replay, qualityText, centipawnLoss),
+                BuildWhySentenceAdvanced(label),
+                BuildBetterSentence(bestMoveText, openingName, label, level),
+                BuildRecognitionSentenceAdvanced(label)),
             _ =>
-                $"{BuildProblemSentence(replay, qualityText, centipawnLoss)} " +
-                $"{BuildWhySentence(label)} " +
-                $"{bestMoveSentence} " +
-                $"{BuildRecognitionSentence(label)}"
+                (BuildProblemSentence(replay, qualityText, centipawnLoss),
+                BuildWhySentence(label),
+                BuildBetterSentence(bestMoveText, openingName, label, level),
+                BuildRecognitionSentence(label))
         };
+
+        return ComposeDetailedStructure(what, why, better, watch);
     }
 
     private static string BuildTrainingHint(string baseHint, string label, ExplanationLevel level)
     {
         return level switch
         {
-            ExplanationLevel.Beginner => $"Focus on one simple habit: {baseHint}",
+            ExplanationLevel.Beginner => $"Next time, use one simple habit: {baseHint}",
             ExplanationLevel.Advanced => label switch
             {
                 "material_loss" => "Train this by checking forcing continuations until the resulting material balance is completely clear.",
@@ -142,7 +149,7 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
                 "endgame_technique" => "Drill conversion and defensive endgames with emphasis on king activity and zugzwang awareness.",
                 _ => baseHint
             },
-            _ => baseHint
+            _ => $"Watch next time for this trigger: {baseHint}"
         };
     }
 
@@ -255,6 +262,52 @@ public sealed class TemplateAdviceGenerator : IAdviceGenerator
             "endgame_technique" => "In technical endgames, prioritize king activity and the line with the lowest counterplay, even if several moves keep the edge.",
             _ => "Use the position as a cue to run a stricter candidate-move and forcing-line verification pass."
         };
+    }
+
+    private static string BuildBetterSentence(string bestMoveText, string openingName, string label, ExplanationLevel level)
+    {
+        string main = string.IsNullOrWhiteSpace(bestMoveText)
+            ? "A calmer alternative kept the position healthier."
+            : $"A stronger option was {bestMoveText}.";
+
+        if (string.IsNullOrWhiteSpace(openingName))
+        {
+            return main;
+        }
+
+        return level switch
+        {
+            ExplanationLevel.Beginner when label == "opening_principles" => $"{main} In {openingName}, development and king safety mattered more here.",
+            ExplanationLevel.Advanced when label == "opening_principles" => $"{main} In {openingName}, the better line respected development tempo and opening efficiency.",
+            ExplanationLevel.Intermediate when label == "opening_principles" => $"{main} In {openingName}, development was the more important priority in this moment.",
+            _ => main
+        };
+    }
+
+    private static string ComposeDetailedStructure(string what, string why, string better, string watch)
+    {
+        return string.Join(" ",
+            PrefixSection("What", what),
+            PrefixSection("Why", why),
+            PrefixSection("Better", better),
+            PrefixSection("Watch next time", watch));
+    }
+
+    private static string PrefixSection(string heading, string text)
+    {
+        return $"{heading}: {TrimSentence(text)}";
+    }
+
+    private static string TrimSentence(string text)
+    {
+        return string.IsNullOrWhiteSpace(text)
+            ? string.Empty
+            : text.Trim().TrimEnd();
+    }
+
+    private static string DisplayLabel(string label)
+    {
+        return label.Replace('_', ' ');
     }
 
     private static string FormatMoveFromFen(string fenBefore, string? uciMove)

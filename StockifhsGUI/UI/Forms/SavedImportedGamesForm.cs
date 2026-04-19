@@ -1,31 +1,34 @@
+using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using MaterialSkin;
+using MaterialSkin.Controls;
 
 namespace StockifhsGUI;
 
-public sealed class SavedImportedGamesForm : Form
+public sealed class SavedImportedGamesForm : MaterialForm
 {
     private readonly IAnalysisStore analysisStore;
     private readonly TextBox filterTextBox;
     private readonly ListBox gamesListBox;
-    private readonly TextBox detailsTextBox;
-    private readonly Button loadButton;
-    private readonly Button deleteButton;
+    private readonly MaterialMultiLineTextBox2 detailsTextBox;
+    private readonly MaterialButton loadButton;
+    private readonly MaterialButton deleteButton;
 
     public SavedImportedGamesForm(IAnalysisStore analysisStore)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
-        UiTheme.ApplyFormChrome(this);
 
         Text = "Saved Imported Games";
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(1040, 640);
-        MinimumSize = new Size(860, 560);
+        ClientSize = new Size(1100, 700);
+        MinimumSize = new Size(900, 600);
 
         TableLayoutPanel rootLayout = new()
         {
             Dock = DockStyle.Fill,
-            Padding = new Padding(16),
+            Padding = new Padding(16, 70, 16, 16),
             ColumnCount = 1,
             RowCount = 2
         };
@@ -48,14 +51,13 @@ public sealed class SavedImportedGamesForm : Form
         topBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         rootLayout.Controls.Add(topBar, 0, 0);
 
-        Label filterLabel = new()
+        MaterialLabel filterLabel = new()
         {
             AutoSize = true,
             Anchor = AnchorStyles.Left,
             Margin = new Padding(0, 6, 12, 0),
-            Text = "Filter by player, date, ECO, result or site:"
+            Text = "Filter games:"
         };
-        UiTheme.StyleSectionLabel(filterLabel);
         topBar.Controls.Add(filterLabel, 0, 0);
 
         filterTextBox = new TextBox
@@ -63,39 +65,40 @@ public sealed class SavedImportedGamesForm : Form
             Anchor = AnchorStyles.Left | AnchorStyles.Right,
             Margin = new Padding(0, 2, 0, 0)
         };
-        UiTheme.StyleTextBox(filterTextBox);
         filterTextBox.TextChanged += (_, _) => RefreshList();
         topBar.Controls.Add(filterTextBox, 1, 0);
 
-        loadButton = new Button
+        loadButton = new MaterialButton
         {
             Text = "Load Game",
-            Size = new Size(120, 32),
+            AutoSize = false,
+            Size = new Size(130, 36),
             Enabled = false,
             Anchor = AnchorStyles.Right
         };
-        UiTheme.StylePrimaryButton(loadButton);
         loadButton.Click += (_, _) => LoadSelectedGame();
         topBar.Controls.Add(loadButton, 3, 0);
 
-        deleteButton = new Button
+        deleteButton = new MaterialButton
         {
-            Text = "Delete Game",
-            Size = new Size(120, 32),
+            Text = "Delete",
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Outlined,
+            Size = new Size(100, 36),
             Enabled = false,
             Anchor = AnchorStyles.Right
         };
-        UiTheme.StyleDangerButton(deleteButton);
         deleteButton.Click += (_, _) => DeleteSelectedGame();
         topBar.Controls.Add(deleteButton, 4, 0);
 
-        Button cancelButton = new()
+        MaterialButton cancelButton = new()
         {
             Text = "Cancel",
-            Size = new Size(120, 32),
+            AutoSize = false,
+            Type = MaterialButton.MaterialButtonType.Text,
+            Size = new Size(100, 36),
             Anchor = AnchorStyles.Right
         };
-        UiTheme.StyleSecondaryButton(cancelButton);
         cancelButton.Click += (_, _) => DialogResult = DialogResult.Cancel;
         topBar.Controls.Add(cancelButton, 5, 0);
 
@@ -104,9 +107,9 @@ public sealed class SavedImportedGamesForm : Form
             Dock = DockStyle.Fill,
             Margin = new Padding(0, 16, 0, 0),
             FixedPanel = FixedPanel.None,
-            SplitterDistance = 430
+            SplitterDistance = 480
         };
-        splitContainer.BackColor = UiTheme.BorderColor;
+        splitContainer.BackColor = System.Drawing.Color.Transparent;
         rootLayout.Controls.Add(splitContainer, 0, 1);
 
         gamesListBox = new ListBox
@@ -116,23 +119,18 @@ public sealed class SavedImportedGamesForm : Form
             HorizontalScrollbar = true,
             IntegralHeight = false
         };
-        UiTheme.StyleListBox(gamesListBox);
         gamesListBox.SelectedIndexChanged += (_, _) => UpdateDetails();
         gamesListBox.DoubleClick += (_, _) => LoadSelectedGame();
-        splitContainer.Panel1.BackColor = UiTheme.CardBackground;
+        splitContainer.Panel1.BackColor = System.Drawing.Color.Transparent;
         splitContainer.Panel1.Controls.Add(gamesListBox);
 
-        detailsTextBox = new TextBox
+        detailsTextBox = new MaterialMultiLineTextBox2
         {
             Dock = DockStyle.Fill,
-            Multiline = true,
             ReadOnly = true,
-            ScrollBars = ScrollBars.Both,
-            WordWrap = false,
             Font = new Font("Consolas", 10)
         };
-        UiTheme.StyleTextBox(detailsTextBox);
-        splitContainer.Panel2.BackColor = UiTheme.CardBackground;
+        splitContainer.Panel2.BackColor = System.Drawing.Color.Transparent;
         splitContainer.Panel2.Controls.Add(detailsTextBox);
 
         RefreshList();
@@ -186,8 +184,6 @@ public sealed class SavedImportedGamesForm : Form
             $"Saved: {(summary.UpdatedUtc == default ? "(unknown)" : summary.UpdatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))}{Environment.NewLine}{Environment.NewLine}" +
             "Double click or use 'Load Game' to bring this PGN back into the main board." + Environment.NewLine +
             "Use 'Delete Game' to remove the PGN together with saved analysis data for this game.";
-        detailsTextBox.SelectionStart = 0;
-        detailsTextBox.SelectionLength = 0;
     }
 
     private void LoadSelectedGame()

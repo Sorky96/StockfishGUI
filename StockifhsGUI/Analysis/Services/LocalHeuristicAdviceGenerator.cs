@@ -43,10 +43,13 @@ public sealed class LocalHeuristicAdviceGenerator : IAdviceGenerator
             ? $"This came from {context.PromptContext.OpeningName}, so it is a reusable opening pattern."
             : string.Empty;
 
-        string shortText = MergeSentences(MergeSentences(baseline.ShortText, confidenceHint, settings.MaxShortTextLength), evidenceHint, settings.MaxShortTextLength);
+        string shortText = MergeSentences(baseline.ShortText, confidenceHint, settings.MaxShortTextLength);
         string detailedText = MergeSentences(
             MergeSentences(
-                MergeSentences(baseline.DetailedText, heuristicHint, settings.MaxDetailedTextLength),
+                MergeSentences(
+                    MergeSentences(baseline.DetailedText, evidenceHint, settings.MaxDetailedTextLength),
+                    heuristicHint,
+                    settings.MaxDetailedTextLength),
                 openingHint,
                 settings.MaxDetailedTextLength),
             phaseHint,
@@ -64,7 +67,7 @@ public sealed class LocalHeuristicAdviceGenerator : IAdviceGenerator
         }
 
         string summary = string.Join("; ", context.Evidence.Take(2));
-        return $"Local evidence points to this because {summary}.";
+        return $"Position cues: {summary}.";
     }
 
     private static string BuildHeuristicHint(AdvicePromptContext? context)
@@ -75,7 +78,7 @@ public sealed class LocalHeuristicAdviceGenerator : IAdviceGenerator
         }
 
         string summary = string.Join("; ", context.HeuristicNotes.Take(2));
-        return $"Concrete positional cues: {summary}.";
+        return $"Why this pattern fits: {summary}.";
     }
 
     private static string BuildFocusHint(ReplayPly replay, MoveQualityBucket quality)

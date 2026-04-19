@@ -100,6 +100,7 @@ public sealed record MoveHeuristicContext(
     bool BestMoveIsCapture,
     bool BestMoveIsCastle,
     bool BestMoveDevelopsMinorPiece,
+    bool BestMoveImprovesPieceActivity,
     int? BestMoveMaterialSwingCp,
     int? PlayedLineMaterialSwingCp,
     int DevelopedMinorPiecesBefore,
@@ -107,9 +108,11 @@ public sealed record MoveHeuristicContext(
     int BestMoveDevelopedMinorPiecesAfter,
     bool CastledBeforeMove,
     bool CastledAfterMove,
+    bool KingLeftCastledShelter,
     bool KingCentralizedBeforeMove,
     bool KingCentralizedAfterMove,
-    bool BestMoveCentralizesKing);
+    bool BestMoveCentralizesKing,
+    bool BestMoveImprovesKingActivity);
 
 public sealed record MoveAnalysisResult(
     ReplayPly Replay,
