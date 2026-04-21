@@ -66,16 +66,25 @@ public sealed record ProfileProgressSignal(
 
 public sealed record ProfileMistakeExample(
     string GameFingerprint,
+    int Ply,
     int MoveNumber,
     PlayerSide Side,
     string PlayedSan,
-    string? BestMoveUci,
+    string BetterMove,
     string Label,
     int? CentipawnLoss,
     MoveQualityBucket Quality,
     GamePhase Phase,
     string Eco,
-    string FenBefore);
+    string FenBefore,
+    ProfileMistakeExampleRank Rank);
+
+public enum ProfileMistakeExampleRank
+{
+    MostFrequent,
+    MostCostly,
+    MostRepresentative
+}
 
 public sealed record TrainingRecommendation(
     int Priority,

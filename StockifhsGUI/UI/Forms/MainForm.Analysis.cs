@@ -19,8 +19,8 @@ public partial class MainForm
             return Task.CompletedTask;
         }
 
-        using GameAnalysisForm analysisForm = new(importedSession.Game, engine, NavigateToAnalysisMistake);
-        analysisForm.ShowDialog(this);
+        GameAnalysisForm analysisForm = new(importedSession.Game, engine, NavigateToAnalysisMistake);
+        analysisForm.Show(this);
         return Task.CompletedTask;
     }
 
@@ -51,8 +51,8 @@ public partial class MainForm
                     return;
                 }
 
-                using GameAnalysisForm analysisForm = new(dialog.SelectedResult.Game, engine, NavigateToAnalysisMistake, dialog.SelectedResult.AnalyzedSide);
-                analysisForm.ShowDialog(this);
+                GameAnalysisForm analysisForm = new(dialog.SelectedResult.Game, engine, NavigateToAnalysisMistake, dialog.SelectedResult.AnalyzedSide);
+                analysisForm.Show(this);
             }
         }
         catch (Exception ex)
@@ -70,8 +70,8 @@ public partial class MainForm
             return;
         }
 
-        using PlayerProfilesForm profilesForm = new(new PlayerProfileService(store), pieceImages, NavigateToProfileExample);
-        profilesForm.ShowDialog(this);
+        PlayerProfilesForm profilesForm = new(new PlayerProfileService(store), pieceImages, NavigateToProfileExample);
+        profilesForm.Show(this);
     }
 
     private void NavigateToProfileExample(ProfileMistakeExample example)
@@ -93,8 +93,8 @@ public partial class MainForm
         LoadImportedGame(game);
 
         // Then we open the analysis form for that side
-        using GameAnalysisForm analysisForm = new(game, engine, NavigateToAnalysisMistake, example.Side);
-        analysisForm.ShowDialog(this);
+        GameAnalysisForm analysisForm = new(game, engine, NavigateToAnalysisMistake, example.Side);
+        analysisForm.Show(this);
     }
 
     private void NavigateToAnalysisMistake(MoveAnalysisResult moveAnalysis)

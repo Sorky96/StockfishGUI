@@ -59,6 +59,17 @@ internal static class PlayerProfileTextFormatter
         return count == 1 ? "1 mistake" : $"{count} mistakes";
     }
 
+    public static string FormatExampleRank(ProfileMistakeExampleRank rank)
+    {
+        return rank switch
+        {
+            ProfileMistakeExampleRank.MostFrequent => "Most frequent",
+            ProfileMistakeExampleRank.MostCostly => "Most costly",
+            ProfileMistakeExampleRank.MostRepresentative => "Most representative",
+            _ => rank.ToString()
+        };
+    }
+
     public static string TrimSentence(string text)
     {
         return string.IsNullOrWhiteSpace(text)

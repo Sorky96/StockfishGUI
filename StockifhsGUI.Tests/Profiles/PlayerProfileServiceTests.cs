@@ -17,7 +17,7 @@ public sealed class PlayerProfileServiceTests
                 "C20",
                 "2026.04.01",
                 [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
-                [CreateMoveAnalysis(GamePhase.Opening, 120, "opening_principles")]),
+                [CreateMoveAnalysis(GamePhase.Opening, 120, "opening_principles", bestMoveUci: "e2e4")]),
             CreateResult(
                 "Alpha",
                 "Gamma",
@@ -25,7 +25,7 @@ public sealed class PlayerProfileServiceTests
                 "C42",
                 "2026.05.03",
                 [CreateSelectedMistake("hanging_piece", MoveQualityBucket.Blunder)],
-                [CreateMoveAnalysis(GamePhase.Middlegame, 260, "hanging_piece")]),
+                [CreateMoveAnalysis(GamePhase.Middlegame, 260, "hanging_piece", moveNumber: 12, san: "Qh5", bestMoveUci: "g1f3")]),
             CreateResult(
                 "Delta",
                 "Alpha",
@@ -33,7 +33,7 @@ public sealed class PlayerProfileServiceTests
                 "B01",
                 "2026.05.21",
                 [CreateSelectedMistake("hanging_piece", MoveQualityBucket.Mistake)],
-                [CreateMoveAnalysis(GamePhase.Middlegame, 180, "hanging_piece")]),
+                [CreateMoveAnalysis(GamePhase.Middlegame, 180, "hanging_piece", moveNumber: 15, san: "Nc6", bestMoveUci: "d7d5")]),
             CreateResult(
                 "Omega",
                 "Alpha",
@@ -41,7 +41,7 @@ public sealed class PlayerProfileServiceTests
                 "B01",
                 "2026.06.04",
                 [CreateSelectedMistake("hanging_piece", MoveQualityBucket.Mistake)],
-                [CreateMoveAnalysis(GamePhase.Endgame, 80, "hanging_piece")])
+                [CreateMoveAnalysis(GamePhase.Endgame, 80, "hanging_piece", moveNumber: 32, san: "Kf7", bestMoveUci: "e7e5")])
         ]);
 
         PlayerProfileService service = new(store);
@@ -71,6 +71,15 @@ public sealed class PlayerProfileServiceTests
         Assert.Contains(report.QuarterlyTrend, item => item.QuarterKey == "2026-Q2" && item.GamesAnalyzed == 4);
         Assert.Contains("middlegame", topRecommendation.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("centipawns in total", topRecommendation.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.InRange(topRecommendation.Examples!.Count, 2, 3);
+        Assert.Contains(topRecommendation.Examples, item => item.Rank == ProfileMistakeExampleRank.MostFrequent);
+        Assert.Contains(topRecommendation.Examples, item => item.Rank == ProfileMistakeExampleRank.MostCostly);
+        Assert.Contains(topRecommendation.Examples, item => item.Rank == ProfileMistakeExampleRank.MostRepresentative);
+        Assert.All(topRecommendation.Examples, item =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(item.BetterMove));
+            Assert.False(string.IsNullOrWhiteSpace(item.Eco));
+        });
         Assert.Equal(ProfileProgressDirection.Improving, report.ProgressSignal.Direction);
         Assert.Equal("Alpha Weekly Training Plan", report.WeeklyPlan.Title);
         Assert.Equal(7, report.WeeklyPlan.Days.Count);
@@ -78,6 +87,7 @@ public sealed class PlayerProfileServiceTests
         Assert.Contains("Protect Loose Pieces", report.WeeklyPlan.Summary, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(report.WeeklyPlan.Days, day => day.Theme.Contains("Applied game", StringComparison.OrdinalIgnoreCase));
         Assert.All(report.WeeklyPlan.Days, day => Assert.NotEmpty(day.Activities));
+        Assert.Contains(report.MistakeExamples, item => item.Label == "hanging_piece");
     }
 
     [Fact]
@@ -92,7 +102,7 @@ public sealed class PlayerProfileServiceTests
                 "C20",
                 "2026.01.04",
                 [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
-                [CreateMoveAnalysis(GamePhase.Opening, 90, "opening_principles")]),
+                [CreateMoveAnalysis(GamePhase.Opening, 90, "opening_principles", bestMoveUci: "e2e4")]),
             CreateResult(
                 "Sigma",
                 "Gamma",
@@ -100,7 +110,7 @@ public sealed class PlayerProfileServiceTests
                 "C20",
                 "2026.02.11",
                 [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
-                [CreateMoveAnalysis(GamePhase.Opening, 95, "opening_principles")]),
+                [CreateMoveAnalysis(GamePhase.Opening, 95, "opening_principles", moveNumber: 2, san: "h3", bestMoveUci: "g1f3")]),
             CreateResult(
                 "Sigma",
                 "Theta",
@@ -108,7 +118,7 @@ public sealed class PlayerProfileServiceTests
                 "C23",
                 "2026.02.22",
                 [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
-                [CreateMoveAnalysis(GamePhase.Opening, 88, "opening_principles")]),
+                [CreateMoveAnalysis(GamePhase.Opening, 88, "opening_principles", moveNumber: 3, san: "a3", bestMoveUci: "d2d4")]),
             CreateResult(
                 "Sigma",
                 "Delta",
@@ -116,7 +126,7 @@ public sealed class PlayerProfileServiceTests
                 "B01",
                 "2026.03.18",
                 [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
-                [CreateMoveAnalysis(GamePhase.Middlegame, 320, "material_loss")]),
+                [CreateMoveAnalysis(GamePhase.Middlegame, 320, "material_loss", moveNumber: 18, san: "Bxh7+", bestMoveUci: "d1d5")]),
             CreateResult(
                 "Sigma",
                 "Omega",
@@ -124,7 +134,7 @@ public sealed class PlayerProfileServiceTests
                 "B01",
                 "2026.04.25",
                 [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
-                [CreateMoveAnalysis(GamePhase.Middlegame, 340, "material_loss")])
+                [CreateMoveAnalysis(GamePhase.Middlegame, 340, "material_loss", moveNumber: 20, san: "Qxd4", bestMoveUci: "c3d5")])
         ]);
 
         PlayerProfileService service = new(store);
@@ -169,7 +179,7 @@ public sealed class PlayerProfileServiceTests
             "C20",
             "2026.04.01",
             [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
-            [CreateMoveAnalysis(GamePhase.Opening, 90, "opening_principles")]);
+            [CreateMoveAnalysis(GamePhase.Opening, 90, "opening_principles", bestMoveUci: "e2e4")]);
         GameAnalysisResult resultB = CreateResult(
             "Alpha",
             "Gamma",
@@ -177,7 +187,7 @@ public sealed class PlayerProfileServiceTests
             "B01",
             "2026.04.02",
             [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
-            [CreateMoveAnalysis(GamePhase.Middlegame, 250, "material_loss")]);
+            [CreateMoveAnalysis(GamePhase.Middlegame, 250, "material_loss", moveNumber: 11, san: "Qh4", bestMoveUci: "g1f3")]);
         GameAnalysisResult resultC = CreateResult(
             "Delta",
             "Alpha",
@@ -185,7 +195,7 @@ public sealed class PlayerProfileServiceTests
             "C23",
             "2026.04.03",
             [CreateSelectedMistake("missed_tactic", MoveQualityBucket.Mistake)],
-            [CreateMoveAnalysis(GamePhase.Middlegame, 180, "missed_tactic")]);
+            [CreateMoveAnalysis(GamePhase.Middlegame, 180, "missed_tactic", moveNumber: 14, san: "Re8", bestMoveUci: "d2d4")]);
 
         FakeAnalysisStore store = new(
             [resultA, resultB, resultC],
@@ -234,17 +244,26 @@ public sealed class PlayerProfileServiceTests
             new MoveExplanation("Short", "Hint", "Detailed"));
     }
 
-    private static MoveAnalysisResult CreateMoveAnalysis(GamePhase phase, int cpl, string label)
+    private static MoveAnalysisResult CreateMoveAnalysis(
+        GamePhase phase,
+        int cpl,
+        string label,
+        int moveNumber = 1,
+        string san = "e4",
+        string bestMoveUci = "e2e4")
     {
+        const string StartFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        const string AfterE4Fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1";
+
         ReplayPly replay = new(
-            1,
-            1,
+            moveNumber * 2 - 1,
+            moveNumber,
             PlayerSide.White,
-            "e4",
-            "e4",
-            "e2e4",
-            "start",
-            "after",
+            san,
+            san,
+            bestMoveUci,
+            StartFen,
+            AfterE4Fen,
             string.Empty,
             string.Empty,
             phase,
@@ -258,8 +277,8 @@ public sealed class PlayerProfileServiceTests
 
         return new MoveAnalysisResult(
             replay,
-            new EngineAnalysis("start", [], null),
-            new EngineAnalysis("after", [], null),
+            new EngineAnalysis(StartFen, [], bestMoveUci),
+            new EngineAnalysis(AfterE4Fen, [], null),
             20,
             -cpl,
             null,

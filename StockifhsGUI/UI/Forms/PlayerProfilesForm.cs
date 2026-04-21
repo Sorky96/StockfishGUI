@@ -24,10 +24,13 @@ public sealed class PlayerProfilesForm : MaterialForm
     private readonly Color cardColor;
     private readonly Color highEmphasisTextColor;
     private readonly Color mediumEmphasisTextColor;
+    private readonly System.Windows.Forms.Timer filterRefreshTimer;
     private int detailsRequestVersion;
+    private int listRequestVersion;
     private int lastMeasuredDetailsWidth = -1;
     private bool isRefreshingList;
     private bool initialSelectionScheduled;
+    private bool hasLoadedInitialList;
     private string? currentPlayerKey;
 
     public PlayerProfilesForm(PlayerProfileService profileService, IReadOnlyDictionary<string, Image> pieceImages, Action<ProfileMistakeExample>? navigateToExample = null)
@@ -90,7 +93,7 @@ public sealed class PlayerProfilesForm : MaterialForm
             Anchor = AnchorStyles.Left | AnchorStyles.Right,
             Margin = new Padding(0, 2, 0, 0)
         };
-        filterTextBox.TextChanged += (_, _) => RefreshList();
+        filterTextBox.TextChanged += (_, _) => QueueListRefresh();
         topBar.Controls.Add(filterTextBox, 1, 0);
 
         MaterialButton closeButton = new()
@@ -101,7 +104,7 @@ public sealed class PlayerProfilesForm : MaterialForm
             Size = new Size(120, 36),
             Anchor = AnchorStyles.Left
         };
-        closeButton.Click += (_, _) => DialogResult = DialogResult.OK;
+        closeButton.Click += (_, _) => Close();
         topBar.Controls.Add(closeButton, 3, 0);
 
         SplitContainer splitContainer = new()
@@ -149,13 +152,50 @@ public sealed class PlayerProfilesForm : MaterialForm
         splitContainer.Panel2.Controls.Add(detailsPanel);
         splitContainer.Panel2.BackColor = surfaceColor;
 
+        filterRefreshTimer = new System.Windows.Forms.Timer
+        {
+            Interval = 300
+        };
+        filterRefreshTimer.Tick += (_, _) =>
+        {
+            filterRefreshTimer.Stop();
+            _ = RefreshListAsync();
+        };
+
         detailsPanel.Resize += (_, _) => UpdateScrollableContentWidths();
-        Shown += (_, _) => EnsureInitialSelectionLoaded();
-        RefreshList();
+        Shown += (_, _) =>
+        {
+            if (hasLoadedInitialList)
+            {
+                return;
+            }
+
+            hasLoadedInitialList = true;
+            ShowListLoadingState("Loading analyzed players...");
+            ShowDetailsLoadingState("Loading player profile...");
+            _ = RefreshListAsync();
+        };
     }
 
-    private void RefreshList()
+    private void QueueListRefresh()
     {
+        filterRefreshTimer.Stop();
+        filterRefreshTimer.Start();
+    }
+
+    private async Task RefreshListAsync()
+    {
+        int requestVersion = ++listRequestVersion;
+        string filterText = filterTextBox.Text;
+        ShowListLoadingState("Loading analyzed players...");
+        ShowDetailsLoadingState("Loading player profile...");
+
+        IReadOnlyList<PlayerProfileSummary> profiles = await Task.Run(() => profileService.ListProfiles(filterText));
+        if (requestVersion != listRequestVersion || IsDisposed)
+        {
+            return;
+        }
+
         isRefreshingList = true;
         SuspendProfileLayout();
         profilesListBox.BeginUpdate();
@@ -165,9 +205,9 @@ public sealed class PlayerProfilesForm : MaterialForm
                 ? previousItem.Summary.PlayerKey
                 : currentPlayerKey;
 
+            profilesListBox.Enabled = true;
             profilesListBox.Items.Clear();
 
-            IReadOnlyList<PlayerProfileSummary> profiles = profileService.ListProfiles(filterTextBox.Text);
             int selectedIndex = -1;
             for (int i = 0; i < profiles.Count; i++)
             {
@@ -198,7 +238,7 @@ public sealed class PlayerProfilesForm : MaterialForm
             {
                 currentPlayerKey = null;
                 ClearAndDisposeControls(detailsContainer);
-                detailsContainer.Controls.Add(new MaterialLabel { Text = "No analyzed players match the current filter.", AutoSize = true });
+                detailsContainer.Controls.Add(CreateStatusContent("No analyzed players match the current filter.", showSpinner: false));
             }
         }
         finally
@@ -246,8 +286,7 @@ public sealed class PlayerProfilesForm : MaterialForm
 
         SuspendProfileLayout();
         ClearAndDisposeControls(detailsContainer);
-        MaterialLabel loadingLabel = new() { Text = "Loading profile data...", AutoSize = true, Margin = new Padding(16) };
-        detailsContainer.Controls.Add(loadingLabel);
+        detailsContainer.Controls.Add(CreateStatusContent("Loading profile data...", showSpinner: true));
         ResumeProfileLayout();
 
         cachedProfile = await LoadProfileViewAsync(playerKey);
@@ -261,7 +300,7 @@ public sealed class PlayerProfilesForm : MaterialForm
         ClearAndDisposeControls(detailsContainer);
         if (cachedProfile is null)
         {
-            detailsContainer.Controls.Add(new MaterialLabel { Text = "Failed to load report.", AutoSize = true });
+            detailsContainer.Controls.Add(CreateStatusContent("Failed to load report.", showSpinner: false));
             ResumeProfileLayout();
             return;
         }
@@ -280,7 +319,7 @@ public sealed class PlayerProfilesForm : MaterialForm
         AddCollapsibleSection("What to fix first", () => BuildWhatToFixContent(viewModel), expanded: true);
         AddCollapsibleSection("Key mistakes", () => BuildKeyMistakesContent(viewModel), expanded: false);
         AddCollapsibleSection("Most expensive mistakes", () => BuildCostliestMistakesContent(viewModel), expanded: false);
-        AddCollapsibleSection("What to work on", () => BuildWhatToWorkOnContent(viewModel), expanded: false);
+        AddCollapsibleSection("What to work on", () => BuildWhatToWorkOnContent(report, viewModel), expanded: false);
         AddCollapsibleSection("Recent trend", () => BuildRecentTrendContent(viewModel), expanded: false);
         AddCollapsibleSection("Examples", () => BuildExamplesContent(report), expanded: false);
     }
@@ -391,6 +430,67 @@ public sealed class PlayerProfilesForm : MaterialForm
         return (expanded ? "[-] " : "[+] ") + title;
     }
 
+    private void ShowListLoadingState(string message)
+    {
+        profilesListBox.BeginUpdate();
+        try
+        {
+            profilesListBox.Enabled = false;
+            profilesListBox.Items.Clear();
+            profilesListBox.Items.Add(message);
+        }
+        finally
+        {
+            profilesListBox.EndUpdate();
+        }
+    }
+
+    private void ShowDetailsLoadingState(string message)
+    {
+        SuspendProfileLayout();
+        try
+        {
+            ClearAndDisposeControls(detailsContainer);
+            detailsContainer.Controls.Add(CreateStatusContent(message, showSpinner: true));
+        }
+        finally
+        {
+            ResumeProfileLayout();
+        }
+    }
+
+    private Control CreateStatusContent(string message, bool showSpinner)
+    {
+        DoubleBufferedTableLayoutPanel layout = new()
+        {
+            ColumnCount = 1,
+            RowCount = 0,
+            AutoSize = true,
+            Dock = DockStyle.Top,
+            Padding = new Padding(24, 32, 24, 24),
+            Margin = Padding.Empty,
+            BackColor = surfaceColor
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+
+        if (showSpinner)
+        {
+            ProgressBar progressBar = new()
+            {
+                Style = ProgressBarStyle.Marquee,
+                MarqueeAnimationSpeed = 28,
+                Width = 220,
+                Height = 20,
+                Margin = new Padding(0, 0, 0, 12),
+                Anchor = AnchorStyles.Left
+            };
+            AddContentRow(layout, progressBar);
+        }
+
+        AddContentRow(layout, CreatePrimaryLabel(message, 0, 0));
+        return layout;
+    }
+
     private Control BuildSummaryContent(PlayerProfilePresentationViewModel viewModel)
     {
         DoubleBufferedTableLayoutPanel layout = CreateContentLayout();
@@ -450,12 +550,13 @@ public sealed class PlayerProfilesForm : MaterialForm
         return layout;
     }
 
-    private Control BuildWhatToWorkOnContent(PlayerProfilePresentationViewModel viewModel)
+    private Control BuildWhatToWorkOnContent(PlayerProfileReport report, PlayerProfilePresentationViewModel viewModel)
     {
         DoubleBufferedTableLayoutPanel layout = CreateContentLayout();
 
-        foreach (PlayerProfileWorkItem item in viewModel.WorkOnItems)
+        for (int i = 0; i < viewModel.WorkOnItems.Count; i++)
         {
+            PlayerProfileWorkItem item = viewModel.WorkOnItems[i];
             DoubleBufferedPanel card = CreateWorkItemCard();
             DoubleBufferedTableLayoutPanel cardLayout = CreateCardLayout(card.BackColor);
             card.Controls.Add(cardLayout);
@@ -468,6 +569,19 @@ public sealed class PlayerProfilesForm : MaterialForm
             }
 
             AddCardRow(cardLayout, CreateBodyLabel(item.Description));
+
+            if (i < report.Recommendations.Count)
+            {
+                IReadOnlyList<ProfileMistakeExample> examples = report.Recommendations[i].Examples ?? [];
+                if (examples.Count > 0)
+                {
+                    AddCardRow(cardLayout, CreateSecondaryLabel("Example positions", 12, 6));
+                    foreach (ProfileMistakeExample example in examples)
+                    {
+                        AddCardRow(cardLayout, CreateRecommendationExampleSummary(example));
+                    }
+                }
+            }
 
             AddContentRow(layout, card);
         }
@@ -493,11 +607,19 @@ public sealed class PlayerProfilesForm : MaterialForm
             return layout;
         }
 
-        AddContentRow(layout, CreateSecondaryLabel($"Showing {examples.Count} example position{(examples.Count == 1 ? string.Empty : "s")}.", 0, 10));
+        AddContentRow(layout, CreateSecondaryLabel($"Showing {examples.Count} ranked example position{(examples.Count == 1 ? string.Empty : "s")} from dominant motifs.", 0, 10));
 
-        foreach (ProfileMistakeExample example in examples)
+        foreach (IGrouping<string, ProfileMistakeExample> group in examples
+            .GroupBy(example => example.Label, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal))
         {
-            AddContentRow(layout, CreateExampleCard(example));
+            string header = PlayerProfileTextFormatter.FormatMistakeLabel(group.Key);
+            AddContentRow(layout, CreateSecondaryLabel(header, 4, 8));
+
+            foreach (ProfileMistakeExample example in group)
+            {
+                AddContentRow(layout, CreateExampleCard(example));
+            }
         }
 
         return layout;
@@ -612,36 +734,16 @@ public sealed class PlayerProfilesForm : MaterialForm
 
     private IReadOnlyList<ProfileMistakeExample> BuildDisplayedExamples(PlayerProfileReport report)
     {
-        if (report.Recommendations.Count == 0 && report.MistakeExamples.Count == 0)
+        if (report.MistakeExamples.Count == 0)
         {
             return [];
         }
 
-        HashSet<string> displayedFens = [];
-        List<ProfileMistakeExample> result = [];
-
-        foreach (TrainingRecommendation rec in report.Recommendations)
-        {
-            if (rec?.Examples is null || rec.Examples.Count == 0) continue;
-
-            foreach (ProfileMistakeExample example in rec.Examples)
-            {
-                if (!displayedFens.Add(example.FenBefore)) continue;
-                result.Add(example);
-            }
-        }
-
-        List<ProfileMistakeExample> otherExamples = report.MistakeExamples.Where(e => !displayedFens.Contains(e.FenBefore)).ToList();
-        if (otherExamples.Count > 0)
-        {
-            foreach (ProfileMistakeExample example in otherExamples)
-            {
-                if (!displayedFens.Add(example.FenBefore)) continue;
-                result.Add(example);
-            }
-        }
-
-        return result.Take(8).ToList();
+        return report.MistakeExamples
+            .GroupBy(example => $"{example.GameFingerprint}|{example.Ply}|{example.Rank}", StringComparer.Ordinal)
+            .Select(group => group.First())
+            .Take(9)
+            .ToList();
     }
 
     private Control CreateExampleCard(ProfileMistakeExample example)
@@ -708,8 +810,9 @@ public sealed class PlayerProfilesForm : MaterialForm
         };
         layout.Controls.Add(textLayout, 1, 0);
 
-        textLayout.Controls.Add(CreatePrimaryLabel(PlayerProfileTextFormatter.FormatMistakeLabel(example.Label), 0, 2));
-        textLayout.Controls.Add(CreateBodyLabel($"{OpeningCatalog.Describe(example.Eco)}{Environment.NewLine}Move {example.MoveNumber}: {example.PlayedSan} (CPL {example.CentipawnLoss})"));
+        textLayout.Controls.Add(CreateSecondaryLabel(PlayerProfileTextFormatter.FormatExampleRank(example.Rank), 0, 2));
+        textLayout.Controls.Add(CreatePrimaryLabel(PlayerProfileTextFormatter.FormatMistakeLabel(example.Label), 0, 4));
+        textLayout.Controls.Add(CreateBodyLabel(BuildExampleSummary(example)));
 
         MaterialButton btn = new()
         {
@@ -722,11 +825,114 @@ public sealed class PlayerProfilesForm : MaterialForm
         btn.Click += (_, _) =>
         {
             navigateToExample?.Invoke(example);
-            DialogResult = DialogResult.OK;
         };
         textLayout.Controls.Add(btn);
 
         return card;
+    }
+
+    private Control CreateRecommendationExampleSummary(ProfileMistakeExample example)
+    {
+        MaterialCard card = new()
+        {
+            AutoSize = true,
+            Dock = DockStyle.Top,
+            Margin = new Padding(0, 0, 0, 8),
+            BackColor = cardColor
+        };
+
+        DoubleBufferedTableLayoutPanel layout = new()
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            ColumnCount = 2,
+            RowCount = 1,
+            Padding = new Padding(8),
+            BackColor = card.BackColor
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        card.Controls.Add(layout);
+
+        PictureBox thumbnail = new()
+        {
+            Size = new Size(112, 112),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Color.FromArgb(40, 0, 0, 0)
+        };
+        layout.Controls.Add(thumbnail, 0, 0);
+        BindExampleThumbnail(thumbnail, example.FenBefore);
+
+        DoubleBufferedFlowLayoutPanel textLayout = new()
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            BackColor = card.BackColor
+        };
+        layout.Controls.Add(textLayout, 1, 0);
+
+        textLayout.Controls.Add(CreateSecondaryLabel(PlayerProfileTextFormatter.FormatExampleRank(example.Rank), 0, 4));
+        textLayout.Controls.Add(CreatePrimaryLabel($"Move {example.MoveNumber}: {example.PlayedSan}", 0, 4));
+        textLayout.Controls.Add(CreateBodyLabel(BuildExampleSummary(example)));
+
+        MaterialButton btn = new()
+        {
+            Text = "Go to Analysis",
+            Type = MaterialButton.MaterialButtonType.Contained,
+            AutoSize = false,
+            Size = new Size(140, 36),
+            Margin = new Padding(0, 8, 0, 0)
+        };
+        btn.Click += (_, _) =>
+        {
+            navigateToExample?.Invoke(example);
+        };
+        textLayout.Controls.Add(btn);
+
+        return card;
+    }
+
+    private void BindExampleThumbnail(PictureBox thumbnail, string fen)
+    {
+        if (thumbnailCache.TryGetValue(fen, out Bitmap? cached))
+        {
+            thumbnail.Image = cached;
+            return;
+        }
+
+        Task.Run(() =>
+        {
+            try
+            {
+                Bitmap bmp = UI.Helpers.BoardThumbnailRenderer.Render(fen, 112, pieceImages);
+                thumbnailCache.TryAdd(fen, bmp);
+                if (!IsDisposed)
+                {
+                    BeginInvoke(() =>
+                    {
+                        if (!thumbnail.IsDisposed)
+                        {
+                            thumbnail.Image = bmp;
+                        }
+                    });
+                }
+            }
+            catch
+            {
+                // Ignore render errors in background.
+            }
+        });
+    }
+
+    private static string BuildExampleSummary(ProfileMistakeExample example)
+    {
+        return $"Label: {PlayerProfileTextFormatter.FormatMistakeLabel(example.Label)}{Environment.NewLine}"
+            + $"CPL: {example.CentipawnLoss?.ToString() ?? "n/a"}{Environment.NewLine}"
+            + $"Phase: {PlayerProfileTextFormatter.FormatPhase(example.Phase)}{Environment.NewLine}"
+            + $"Opening: {PlayerProfileTextFormatter.FormatOpening(example.Eco)}{Environment.NewLine}"
+            + $"Better move: {example.BetterMove}";
     }
 
     private Label CreatePrimaryLabel(string text, int topMargin = 0, int bottomMargin = 0)
@@ -908,6 +1114,11 @@ public sealed class PlayerProfilesForm : MaterialForm
         {
             pictureBox.Image?.Dispose();
             pictureBox.Image = null;
+        }
+
+        if (control is ProgressBar progressBar)
+        {
+            progressBar.Style = ProgressBarStyle.Blocks;
         }
 
         control.Dispose();
