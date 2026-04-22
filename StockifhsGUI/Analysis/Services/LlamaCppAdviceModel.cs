@@ -27,7 +27,7 @@ public sealed class LlamaCppAdviceModel : ILocalAdviceModel
 
         string workingDirectory = Path.GetDirectoryName(runtime.CliPath) ?? AppContext.BaseDirectory;
         string modelArgument = ResolveModelArgument(runtime.ModelPath, workingDirectory);
-        IReadOnlyList<string> arguments = BuildArguments(modelArgument, request.Prompt, runtime.MaxTokens, runtime.ContextSize);
+        IReadOnlyList<string> arguments = BuildArguments(modelArgument, request.Prompt, runtime.MaxTokens, runtime.ContextSize, runtime.GpuLayersArgument);
         string commandLine = BuildCommandLine(runtime.CliPath, arguments);
         string promptPreview = BuildPromptPreview(request.Prompt);
         int promptLength = request.Prompt?.Length ?? 0;
@@ -144,7 +144,7 @@ public sealed class LlamaCppAdviceModel : ILocalAdviceModel
         return startInfo;
     }
 
-    public static IReadOnlyList<string> BuildArguments(string modelPath, string prompt, int maxTokens, int contextSize)
+    public static IReadOnlyList<string> BuildArguments(string modelPath, string prompt, int maxTokens, int contextSize, string? gpuLayersArgument = LlamaGpuSettingsResolver.BalancedGpuLayersArgument)
     {
         return
         [
@@ -158,6 +158,8 @@ public sealed class LlamaCppAdviceModel : ILocalAdviceModel
             "--simple-io",
             "--no-display-prompt",
             "--log-disable",
+            "-ngl",
+            NormalizeGpuLayersArgument(gpuLayersArgument),
             "--grammar",
             BuildJsonGrammar(),
             "-p",
@@ -193,6 +195,19 @@ hex ::= [0-9a-fA-F]
         return IsSafeRelativePath(relativePath)
             ? relativePath
             : modelPath;
+    }
+
+    private static string NormalizeGpuLayersArgument(string? gpuLayersArgument)
+    {
+        if (string.IsNullOrWhiteSpace(gpuLayersArgument))
+        {
+            return LlamaGpuSettingsResolver.BalancedGpuLayersArgument;
+        }
+
+        string normalized = gpuLayersArgument.Trim();
+        return normalized.Equals("all", StringComparison.OrdinalIgnoreCase)
+            ? "all"
+            : normalized;
     }
 
     private static bool IsSafeRelativePath(string relativePath)

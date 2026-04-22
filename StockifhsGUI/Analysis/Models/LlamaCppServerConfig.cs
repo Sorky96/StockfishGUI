@@ -7,4 +7,5 @@ public sealed record LlamaCppServerConfig(
     int ContextSize = 2048,
     int MaxTokens = 256,
     int TimeoutMs = 30000,
-    int StartupTimeoutMs = 90000);
+    int StartupTimeoutMs = 90000,
+    string GpuLayersArgument = LlamaGpuSettingsResolver.BalancedGpuLayersArgument);

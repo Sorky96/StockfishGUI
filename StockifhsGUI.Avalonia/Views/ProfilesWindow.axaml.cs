@@ -11,10 +11,12 @@ namespace StockifhsGUI.Avalonia.Views;
 public partial class ProfilesWindow : Window
 {
     private readonly PlayerProfileService profileService;
+    private readonly OpeningTrainerService openingTrainerService;
     private readonly Func<ProfileMistakeExample, Task>? navigateToProfileExampleAsync;
     private readonly Func<OpeningExampleGame, Task>? navigateToOpeningExampleAsync;
     private readonly Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync;
     private List<PlayerProfileSummaryItemViewModel> items = [];
+    private OpeningTrainingSession? currentOpeningTrainingSession;
 
     public ProfilesWindow()
         : this(new PlayerProfileService(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable.")))
@@ -28,6 +30,7 @@ public partial class ProfilesWindow : Window
         Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync = null)
     {
         this.profileService = profileService;
+        openingTrainerService = new OpeningTrainerService(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable."));
         this.navigateToProfileExampleAsync = navigateToProfileExampleAsync;
         this.navigateToOpeningExampleAsync = navigateToOpeningExampleAsync;
         this.navigateToOpeningPositionAsync = navigateToOpeningPositionAsync;
@@ -55,6 +58,12 @@ public partial class ProfilesWindow : Window
         }
 
         profileService.TryBuildOpeningWeaknessReport(item.Summary.PlayerKey, out OpeningWeaknessReport? openingReport);
+        openingTrainerService.TryBuildSession(item.Summary.PlayerKey, out currentOpeningTrainingSession, new OpeningTrainingSessionOptions(
+            Modes: [OpeningTrainingMode.BranchAwareness],
+            Sources: [OpeningTrainingSourceKind.OpeningWeakness],
+            MaxPositions: 12,
+            MaxPositionsPerSource: 12,
+            MaxContinuationMoves: 4));
         RenderProfile(report, openingReport);
     }
 
@@ -995,17 +1004,182 @@ public partial class ProfilesWindow : Window
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 4, 0, 0)
         };
-        actions.Children.Add(new Button
+        IReadOnlyList<OpeningTrainingPosition> openingBranches = currentOpeningTrainingSession?.Positions
+            .Where(position => position.Mode == OpeningTrainingMode.BranchAwareness
+                && string.Equals(position.Eco, opening.Eco, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(position => position.Priority)
+            .ToList()
+            ?? [];
+        Button branchButton = new()
         {
-            Content = "Opening trainer (coming soon)",
-            IsEnabled = false,
+            Content = openingBranches.Count == 0 ? "Branch awareness unavailable" : "Open branch awareness",
+            IsEnabled = openingBranches.Count > 0,
             Margin = new Thickness(0, 0, 8, 0),
             MinWidth = 220
-        });
-        actions.Children.Add(CreateBodyText("Layout prepared for a future trainer entry point.", "#9EB5C5"));
+        };
+        branchButton.Click += async (_, _) =>
+        {
+            branchButton.IsEnabled = false;
+            try
+            {
+                await ShowBranchAwarenessWindowAsync(opening, openingBranches);
+            }
+            finally
+            {
+                if (!IsClosed())
+                {
+                    branchButton.IsEnabled = openingBranches.Count > 0;
+                }
+            }
+        };
+        actions.Children.Add(branchButton);
+        actions.Children.Add(CreateBodyText(
+            openingBranches.Count == 0
+                ? "No stable local branch sample yet for this opening."
+                : "Shows the most common local opponent replies and one recommended local reaction.",
+            "#9EB5C5"));
         panel.Children.Add(actions);
 
         card.Child = panel;
+        return card;
+    }
+
+    private async Task ShowBranchAwarenessWindowAsync(OpeningWeaknessEntry opening, IReadOnlyList<OpeningTrainingPosition> positions)
+    {
+        Window window = new()
+        {
+            Title = $"Branch awareness - {opening.OpeningDisplayName}",
+            Width = 1120,
+            Height = 820,
+            MinWidth = 900,
+            MinHeight = 620,
+            Background = Brush.Parse("#23313B")
+        };
+
+        StackPanel content = new()
+        {
+            Spacing = 12
+        };
+
+        content.Children.Add(CreateSectionCard(
+            "Branch awareness",
+            [
+                CreateBodyText($"{opening.OpeningDisplayName} | {opening.Eco}", "#D7E2EA"),
+                CreateBodyText("The branches below come only from local example games, recurring mistake patterns, and saved continuations.", "#D7E2EA")
+            ]));
+
+        foreach (OpeningTrainingPosition position in positions)
+        {
+            content.Children.Add(CreateBranchAwarenessCard(position));
+        }
+
+        window.Content = new Border
+        {
+            Padding = new Thickness(18),
+            Child = new ScrollViewer
+            {
+                Content = content
+            }
+        };
+
+        await window.ShowDialog(this);
+    }
+
+    private Control CreateBranchAwarenessCard(OpeningTrainingPosition position)
+    {
+        Border card = new()
+        {
+            Background = Brush.Parse("#182B37"),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+
+        Grid grid = new()
+        {
+            ColumnDefinitions = new ColumnDefinitions("170,*")
+        };
+
+        Border boardHost = new()
+        {
+            Width = 160,
+            Height = 160,
+            CornerRadius = new CornerRadius(10),
+            ClipToBounds = true
+        };
+        boardHost.Child = new ChessBoardView
+        {
+            Width = 160,
+            Height = 160,
+            Fen = position.Fen,
+            IsHitTestVisible = false
+        };
+        grid.Children.Add(boardHost);
+
+        StackPanel panel = new()
+        {
+            Margin = new Thickness(16, 0, 0, 0),
+            Spacing = 6
+        };
+        Grid.SetColumn(panel, 1);
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"{position.Prompt}",
+            FontSize = 17,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap
+        });
+        panel.Children.Add(CreateBodyText(position.Instruction, "#D7E2EA"));
+        if (!string.IsNullOrWhiteSpace(position.BranchSelectionSummary))
+        {
+            panel.Children.Add(CreateBodyText(position.BranchSelectionSummary, "#9EB5C5"));
+        }
+
+        foreach (OpeningTrainingBranch branch in position.Branches ?? [])
+        {
+            Border branchCard = new()
+            {
+                Background = Brush.Parse("#203542"),
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(12),
+                Margin = new Thickness(0, 4, 0, 4)
+            };
+
+            StackPanel branchPanel = new() { Spacing = 5 };
+            branchPanel.Children.Add(new TextBlock
+            {
+                Text = $"Opponent reply: {branch.OpponentMove} | seen {branch.Frequency} time(s)",
+                FontSize = 15,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Brushes.White,
+                TextWrapping = TextWrapping.Wrap
+            });
+            branchPanel.Children.Add(CreateBodyText(branch.SourceSummary, "#D7E2EA"));
+            branchPanel.Children.Add(CreateBodyText(
+                branch.RecommendedResponse is null
+                    ? "Recommended reaction: no stable local response saved yet."
+                    : $"Recommended reaction: {branch.RecommendedResponse.DisplayText}",
+                "#D7E2EA"));
+
+            if (!string.IsNullOrWhiteSpace(branch.RecommendedResponse?.Note))
+            {
+                branchPanel.Children.Add(CreateBodyText(branch.RecommendedResponse.Note, "#9EB5C5"));
+            }
+
+            if (branch.Continuation.Count > 0)
+            {
+                string lineText = string.Join(" -> ", branch.Continuation.Select(move => move.San));
+                branchPanel.Children.Add(CreateBodyText($"Sample continuation: {lineText}", "#9EB5C5"));
+            }
+
+            branchCard.Child = branchPanel;
+            panel.Children.Add(branchCard);
+        }
+
+        grid.Children.Add(panel);
+        card.Child = grid;
         return card;
     }
 

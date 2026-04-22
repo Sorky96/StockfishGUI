@@ -142,6 +142,12 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void SettingsButton_Click(object? sender, RoutedEventArgs e)
+    {
+        SettingsWindow dialog = new();
+        await dialog.ShowDialog<bool?>(this);
+    }
+
     private async Task<LegalMoveInfo?> ShowPromotionDialogAsync(IReadOnlyList<LegalMoveInfo> moves)
     {
         PromotionWindow dialog = new(moves);

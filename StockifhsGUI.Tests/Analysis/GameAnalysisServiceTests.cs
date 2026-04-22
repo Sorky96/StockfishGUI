@@ -1480,7 +1480,8 @@ training_hint: Model training hint
             "C:\\models\\stockifhsgui-advice.gguf",
             "Prompt body",
             180,
-            2048);
+            2048,
+            "all");
 
         Assert.Equal("-m", arguments[0]);
         Assert.Equal("C:\\models\\stockifhsgui-advice.gguf", arguments[1]);
@@ -1492,10 +1493,12 @@ training_hint: Model training hint
         Assert.Equal("--simple-io", arguments[7]);
         Assert.Equal("--no-display-prompt", arguments[8]);
         Assert.Equal("--log-disable", arguments[9]);
-        Assert.Equal("--grammar", arguments[10]);
-        Assert.Contains("short_text", arguments[11], StringComparison.Ordinal);
-        Assert.Equal("-p", arguments[12]);
-        Assert.Equal("Prompt body", arguments[13]);
+        Assert.Equal("-ngl", arguments[10]);
+        Assert.Equal("all", arguments[11]);
+        Assert.Equal("--grammar", arguments[12]);
+        Assert.Contains("short_text", arguments[13], StringComparison.Ordinal);
+        Assert.Equal("-p", arguments[14]);
+        Assert.Equal("Prompt body", arguments[15]);
     }
 
     [Fact]
@@ -1538,6 +1541,7 @@ training_hint: Model training hint
             Assert.Equal(190, runtime.MaxTokens);
             Assert.Equal(2048, runtime.ContextSize);
             Assert.Equal(12000, runtime.TimeoutMs);
+            Assert.Equal(LlamaGpuSettingsResolver.BalancedGpuLayersArgument, runtime.GpuLayersArgument);
         }
         finally
         {
@@ -1685,6 +1689,7 @@ training_hint: Model training hint
             Assert.NotNull(config);
             Assert.Equal(serverPath, config!.ServerPath);
             Assert.Equal(modelPath, config.ModelPath);
+            Assert.Equal(LlamaGpuSettingsResolver.BalancedGpuLayersArgument, config.GpuLayersArgument);
         }
         finally
         {
@@ -1716,6 +1721,25 @@ training_hint: Model training hint
         finally
         {
             Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH", previousServer);
+        }
+    }
+
+    [Fact]
+    public void LlamaGpuSettingsResolver_UsesEnvironmentOverrideForFullGpuMode()
+    {
+        string? previousValue = Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_FULL_GPU");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_FULL_GPU", "true");
+
+            string gpuLayersArgument = LlamaGpuSettingsResolver.ResolveGpuLayersArgument();
+
+            Assert.Equal(LlamaGpuSettingsResolver.FullGpuLayersArgument, gpuLayersArgument);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_FULL_GPU", previousValue);
         }
     }
 

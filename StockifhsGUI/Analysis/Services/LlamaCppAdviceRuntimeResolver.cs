@@ -31,8 +31,9 @@ public static class LlamaCppAdviceRuntimeResolver
         int timeoutMs = ParsePositiveInt(
             Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_CPP_TIMEOUT_MS"),
             120000);
+        string gpuLayersArgument = LlamaGpuSettingsResolver.ResolveGpuLayersArgument();
 
-        return new LlamaCppAdviceRuntime(cliPath, modelPath, maxTokens, contextSize, timeoutMs);
+        return new LlamaCppAdviceRuntime(cliPath, modelPath, maxTokens, contextSize, timeoutMs, gpuLayersArgument);
     }
 
     public static string? ResolveCliPath()

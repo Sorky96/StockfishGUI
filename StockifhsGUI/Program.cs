@@ -8,6 +8,8 @@ namespace StockifhsGUI
         [STAThread]
         static void Main(string[] args)
         {
+            LlamaCppProcessCleaner.CleanupOrphanedProcesses();
+
             // Advice quality evaluation mode (console).
             if (args.Length > 0 && args[0] == "--eval-advice")
             {

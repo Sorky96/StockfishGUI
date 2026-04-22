@@ -130,6 +130,8 @@ public sealed class LlamaCppServerManager : IDisposable
             startInfo.ArgumentList.Add(port.ToString());
             startInfo.ArgumentList.Add("-c");
             startInfo.ArgumentList.Add(Math.Max(512, config.ContextSize).ToString());
+            startInfo.ArgumentList.Add("-ngl");
+            startInfo.ArgumentList.Add(string.IsNullOrWhiteSpace(config.GpuLayersArgument) ? LlamaGpuSettingsResolver.BalancedGpuLayersArgument : config.GpuLayersArgument);
             startInfo.ArgumentList.Add("--log-disable");
 
             Process process = new() { StartInfo = startInfo };

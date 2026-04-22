@@ -27,8 +27,9 @@ public static class LlamaCppServerResolver
         int startupTimeoutMs = ParsePositiveInt(
             Environment.GetEnvironmentVariable("STOCKIFHSGUI_LLAMA_SERVER_STARTUP_TIMEOUT_MS"),
             90000);
+        string gpuLayersArgument = LlamaGpuSettingsResolver.ResolveGpuLayersArgument();
 
-        return new LlamaCppServerConfig(serverPath, modelPath, port, contextSize, maxTokens, timeoutMs, startupTimeoutMs);
+        return new LlamaCppServerConfig(serverPath, modelPath, port, contextSize, maxTokens, timeoutMs, startupTimeoutMs, gpuLayersArgument);
     }
 
     public static string? ResolveServerPath()
