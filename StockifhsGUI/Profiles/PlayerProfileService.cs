@@ -48,6 +48,11 @@ public sealed partial class PlayerProfileService
         return true;
     }
 
+    public bool TryBuildOpeningWeaknessReport(string playerKeyOrName, out OpeningWeaknessReport? report)
+    {
+        return new OpeningWeaknessService(analysisStore).TryBuildReport(playerKeyOrName, out report);
+    }
+
     private List<PlayerProfileSnapshot> LoadSnapshots(string? filterText, int limit)
     {
         IReadOnlyList<StoredMoveAnalysis> storedMoves = analysisStore.ListMoveAnalyses(filterText, Math.Clamp(limit * 64, 500, 50000));
@@ -224,6 +229,107 @@ public sealed partial class PlayerProfileService
         return new ProfileProgressSignal(direction, summary, recentPeriod, previousPeriod);
     }
 
+    private static IReadOnlyList<ProfileLabelTrend> BuildLabelTrends(IReadOnlyList<PlayerProfileSnapshot> snapshots)
+    {
+        List<PlayerProfileSnapshot> ordered = snapshots
+            .OrderBy(snapshot => snapshot.GameDate ?? snapshot.AnalysisUpdatedUtc)
+            .ThenBy(snapshot => snapshot.GameFingerprint, StringComparer.Ordinal)
+            .ToList();
+
+        int window = Math.Min(5, ordered.Count / 2);
+        if (window < 2)
+        {
+            return [];
+        }
+
+        List<PlayerProfileSnapshot> previous = ordered
+            .Skip(Math.Max(0, ordered.Count - (window * 2)))
+            .Take(window)
+            .ToList();
+        List<PlayerProfileSnapshot> recent = ordered
+            .TakeLast(window)
+            .ToList();
+
+        return snapshots
+            .SelectMany(snapshot => snapshot.Moves)
+            .Where(move => move.Quality != MoveQualityBucket.Good && !string.IsNullOrWhiteSpace(move.MistakeLabel))
+            .Select(move => move.MistakeLabel!)
+            .Distinct(StringComparer.Ordinal)
+            .Select(label => BuildLabelTrend(label, previous, recent))
+            .OrderBy(item => item.Label, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static ProfileLabelTrend BuildLabelTrend(
+        string label,
+        IReadOnlyList<PlayerProfileSnapshot> previousSnapshots,
+        IReadOnlyList<PlayerProfileSnapshot> recentSnapshots)
+    {
+        List<StoredMoveAnalysis> previousMoves = GetMovesForLabel(previousSnapshots, label);
+        List<StoredMoveAnalysis> recentMoves = GetMovesForLabel(recentSnapshots, label);
+
+        int previousCount = previousMoves.Count;
+        int recentCount = recentMoves.Count;
+        int totalCount = previousCount + recentCount;
+        int? previousAverageCpl = TryAverage(previousMoves.Select(move => move.CentipawnLoss));
+        int? recentAverageCpl = TryAverage(recentMoves.Select(move => move.CentipawnLoss));
+
+        ProfileProgressDirection direction;
+        if (totalCount < 2)
+        {
+            direction = ProfileProgressDirection.InsufficientData;
+        }
+        else if (previousCount == 0 && recentCount >= 2)
+        {
+            direction = ProfileProgressDirection.Regressing;
+        }
+        else if (recentCount == 0 && previousCount >= 2)
+        {
+            direction = ProfileProgressDirection.Improving;
+        }
+        else
+        {
+            int countDelta = recentCount - previousCount;
+            int cplDelta = (recentAverageCpl ?? 0) - (previousAverageCpl ?? 0);
+
+            bool worseningByFrequency = countDelta >= 1;
+            bool improvingByFrequency = countDelta <= -1;
+            bool worseningByCost = recentAverageCpl.HasValue && previousAverageCpl.HasValue && cplDelta >= 25;
+            bool improvingByCost = recentAverageCpl.HasValue && previousAverageCpl.HasValue && cplDelta <= -25;
+
+            if (worseningByFrequency || (countDelta >= 0 && worseningByCost))
+            {
+                direction = ProfileProgressDirection.Regressing;
+            }
+            else if (improvingByFrequency || (countDelta <= 0 && improvingByCost))
+            {
+                direction = ProfileProgressDirection.Improving;
+            }
+            else
+            {
+                direction = ProfileProgressDirection.Stable;
+            }
+        }
+
+        return new ProfileLabelTrend(
+            label,
+            direction,
+            recentCount,
+            previousCount,
+            recentAverageCpl,
+            previousAverageCpl);
+    }
+
+    private static List<StoredMoveAnalysis> GetMovesForLabel(IReadOnlyList<PlayerProfileSnapshot> snapshots, string label)
+    {
+        return snapshots
+            .SelectMany(snapshot => snapshot.Moves)
+            .Where(move =>
+                move.Quality != MoveQualityBucket.Good
+                && string.Equals(move.MistakeLabel, label, StringComparison.Ordinal))
+            .ToList();
+    }
+
     private static ProfileProgressPeriod BuildProgressPeriod(IReadOnlyList<PlayerProfileSnapshot> snapshots, string label)
     {
         int highlightedMistakes = snapshots.Sum(snapshot => GetHighlightedGroups(snapshot).Count);
@@ -331,24 +437,50 @@ public sealed partial class PlayerProfileService
             .OrderBy(item => item.QuarterKey, StringComparer.Ordinal)
             .ToList();
 
-        IReadOnlyList<PriorityLabelStat> recommendationPriority = BuildPriorityLabels(topLabels, costliestLabels, highlightedGroups, mistakeMoves);
         ProfileProgressSignal progressSignal = BuildProgressSignal(snapshots);
-
-        IReadOnlyList<TrainingRecommendation> recommendations = recommendationPriority
-            .Take(3)
-            .Select((labelStat, index) =>
-            {
-                RecommendationContext context = BuildRecommendationContext(snapshots, labelStat.Label);
-                return CreateRecommendation(
-                    labelStat,
-                    context,
-                    BuildMistakeExamples(snapshots, labelStat.Label, context, 3),
-                    index + 1);
-            })
-            .ToList();
-        WeeklyTrainingPlan weeklyPlan = BuildWeeklyPlan(displayName, recommendations);
+        IReadOnlyList<ProfileLabelTrend> labelTrends = BuildLabelTrends(snapshots);
 
         IReadOnlyList<ProfileMistakeExample> allExamples = BuildAllMistakeExamples(snapshots, topLabels, 9);
+
+        WeeklyTrainingPlan emptyWeeklyPlan = new(
+            $"{displayName} Weekly Training Plan",
+            "Training plan is being prepared from the current profile.",
+            new WeeklyTrainingBudget(
+                0,
+                0,
+                0,
+                0,
+                0,
+                "Budget will be calculated after training priorities are ranked."),
+            []);
+        PlayerProfileReport draftReport = new(
+            playerKey,
+            displayName,
+            snapshots.Count,
+            snapshots.Sum(snapshot => snapshot.Moves.Count),
+            highlightedGroups.Count,
+            TryAverage(snapshots.SelectMany(snapshot => snapshot.Moves).Select(move => move.CentipawnLoss)),
+            topLabels,
+            costliestLabels,
+            mistakesByPhase,
+            mistakesByOpening,
+            gamesBySide,
+            monthlyTrend,
+            quarterlyTrend,
+            progressSignal,
+            labelTrends,
+            [],
+            emptyWeeklyPlan,
+            allExamples,
+            new TrainingPlanReport(
+                playerKey,
+                displayName,
+                progressSignal.Direction,
+                "Training plan is being prepared from the current profile.",
+                [],
+                [],
+                emptyWeeklyPlan));
+        TrainingPlanReport trainingPlan = new TrainingPlanService().Build(draftReport);
 
         return new PlayerProfileReport(
             playerKey,
@@ -365,9 +497,11 @@ public sealed partial class PlayerProfileService
             monthlyTrend,
             quarterlyTrend,
             progressSignal,
-            recommendations,
-            weeklyPlan,
-            allExamples);
+            labelTrends,
+            trainingPlan.Recommendations,
+            trainingPlan.WeeklyPlan,
+            allExamples,
+            trainingPlan);
     }
 }
 
@@ -1346,93 +1480,67 @@ public sealed partial class PlayerProfileService
         [
             new WeeklyTrainingDay(
                 1,
-                "Baseline scan",
-                primary.FocusArea,
+                primary.Title,
+                "Pattern drill",
+                $"Build a repeatable board-scan habit around {primary.FocusArea.ToLowerInvariant()}.",
                 35,
-                [
-                    $"Read the priority theme aloud: {primary.Title}.",
-                    PickOrFallback(primary.Checklist, 0, "Write down the one board-scan question you want to repeat before every move."),
-                    PickOrFallback(primary.SuggestedDrills, 0, "Solve a short puzzle set linked to your main recurring mistake."),
-                    $"Save one example position that captures the idea behind {primary.FocusArea.ToLowerInvariant()}."
-                ],
-                $"You finish with one concrete trigger phrase for {primary.FocusArea.ToLowerInvariant()}."),
+                TrainingPlanTopicCategory.CoreWeakness),
             new WeeklyTrainingDay(
                 2,
-                "Deep work",
-                primary.FocusArea,
+                primary.Title,
+                "Own-game review",
+                $"Review your own mistakes until you can explain the trigger behind {primary.Title.ToLowerInvariant()}.",
                 45,
-                [
-                    PickOrFallback(primary.Checklist, 1, "Repeat the same scan after every candidate move."),
-                    PickOrFallback(primary.Checklist, 2, "Compare your move against the safest practical alternative."),
-                    PickOrFallback(primary.SuggestedDrills, 1, "Review two of your own mistakes in slow motion."),
-                    $"Close with 5 minutes of verbal recap: what usually goes wrong in {FormatRecommendationContext(primary)}?"
-                ],
-                $"You can explain why {primary.Title.ToLowerInvariant()} matters before you make the move, not after."),
+                TrainingPlanTopicCategory.CoreWeakness),
             new WeeklyTrainingDay(
                 3,
-                "Secondary theme",
-                secondary.FocusArea,
+                secondary.Title,
+                "Focused drill",
+                $"Spot the recurring cue behind {secondary.FocusArea.ToLowerInvariant()} positions faster and more reliably.",
                 40,
-                [
-                    $"Switch focus to: {secondary.Title}.",
-                    PickOrFallback(secondary.Checklist, 0, "List the first thing you should verify in this type of position."),
-                    PickOrFallback(secondary.SuggestedDrills, 0, "Do one drill block dedicated to the secondary pattern."),
-                    $"Note how {secondary.FocusArea.ToLowerInvariant()} connects with your main theme from day 1."
-                ],
-                $"You identify at least one recurring pattern in {secondary.FocusArea.ToLowerInvariant()} positions."),
+                TrainingPlanTopicCategory.SecondaryWeakness),
             new WeeklyTrainingDay(
                 4,
-                "Review and reset",
-                "Integration",
+                $"{primary.Title} + {secondary.Title}",
+                "Integration review",
+                "Recall both main themes quickly before checking concrete moves.",
                 25,
-                [
-                    $"Revisit one saved mistake from {primary.Title} and one from {secondary.Title}.",
-                    $"Use this checklist pair: {PickOrFallback(primary.Checklist, 0, "scan safety")} + {PickOrFallback(secondary.Checklist, 0, "scan forcing ideas")}.",
-                    "Stop after each critical move and say which theme should have guided the decision.",
-                    "Keep the session light: the goal is clean recall, not volume."
-                ],
-                "You can name the right training theme for both reviewed positions within a few seconds."),
+                TrainingPlanTopicCategory.CoreWeakness),
             new WeeklyTrainingDay(
                 5,
-                "Applied game",
-                $"{primary.FocusArea} + {secondary.FocusArea}",
+                primary.Title,
+                "Training game",
+                $"Play one slower game with extra attention on {primary.Title.ToLowerInvariant()}.",
                 50,
-                [
-                    $"Play one slow training game with extra attention on {primary.Title}.",
-                    $"Before every move, repeat the top checks from {primary.Title} and {secondary.Title}.",
-                    "Mark 3 positions where you nearly defaulted to your old habit.",
-                    PickOrFallback(secondary.SuggestedDrills, 1, "After the game, review the sharpest decision and write one better candidate move.")
-                ],
-                "You complete one full game where your process stays visible from opening to endgame."),
+                TrainingPlanTopicCategory.CoreWeakness),
             new WeeklyTrainingDay(
                 6,
-                "Third theme and structures",
-                tertiary.FocusArea,
+                tertiary.Title,
+                "Maintenance review",
+                $"Keep the supporting theme active without letting it replace the main weekly priority.",
                 35,
-                [
-                    $"Work on the supporting theme: {tertiary.Title}.",
-                    PickOrFallback(tertiary.Checklist, 0, "Write a one-line reminder for this theme."),
-                    PickOrFallback(tertiary.SuggestedDrills, 0, "Review positions from your own games that match this theme."),
-                    BuildOpeningTask(tertiary)
-                ],
-                $"You finish with one reusable rule for {tertiary.FocusArea.ToLowerInvariant()} positions."),
+                TrainingPlanTopicCategory.MaintenanceTopic),
             new WeeklyTrainingDay(
                 7,
-                "Weekly assessment",
+                "Weekly reset",
                 "Reflection",
+                "Choose one theme that remains primary for the next cycle.",
                 20,
-                [
-                    $"Rank your confidence in these themes: {primary.Title}, {secondary.Title}, {tertiary.Title}.",
-                    "List the easiest improvement and the habit that still feels unstable.",
-                    "Choose one position to revisit next week as a checkpoint.",
-                    "Prepare the next week around the theme that still breaks first under pressure."
-                ],
-                "You end the week with one clear priority for the next training cycle.")
+                TrainingPlanTopicCategory.CoreWeakness)
         ];
+
+        WeeklyTrainingBudget budget = new(
+            days.Sum(day => day.EstimatedMinutes),
+            days.Where(day => day.Category == TrainingPlanTopicCategory.CoreWeakness).Sum(day => day.EstimatedMinutes),
+            days.Where(day => day.Category == TrainingPlanTopicCategory.SecondaryWeakness).Sum(day => day.EstimatedMinutes),
+            days.Where(day => day.Category == TrainingPlanTopicCategory.MaintenanceTopic).Sum(day => day.EstimatedMinutes),
+            days.Where(day => day.WorkType is "Integration review" or "Reflection").Sum(day => day.EstimatedMinutes),
+            $"About {days.Sum(day => day.EstimatedMinutes)} minutes split across core work, a secondary theme, maintenance and a short weekly review.");
 
         return new WeeklyTrainingPlan(
             $"{displayName} Weekly Training Plan",
             summary,
+            budget,
             days);
     }
 }

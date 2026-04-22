@@ -99,7 +99,8 @@ public sealed class GameAnalysisService
         }
 
         IReadOnlyList<SelectedMistake> highlightedMistakes = mistakeSelector.Select(moveAnalyses);
-        return new GameAnalysisResult(game, analyzedSide, replay, moveAnalyses, highlightedMistakes);
+        OpeningPhaseReview? openingReview = OpeningPhaseReviewBuilder.Build(game, analyzedSide, replay, moveAnalyses);
+        return new GameAnalysisResult(game, analyzedSide, replay, moveAnalyses, highlightedMistakes, openingReview);
     }
 
     private EngineAnalysis AnalyzeCached(

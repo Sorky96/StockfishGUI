@@ -437,7 +437,7 @@ public sealed class GameAnalysisForm : MaterialSkin.Controls.MaterialForm
             explanation = cachedExplanation;
         }
 
-        detailsTextBox.Text = BuildDetailsText(mistake, lead, explanationLevel, explanation, !isCached);
+        detailsTextBox.Text = BuildDetailsText(mistake, lead, explanationLevel, explanation, !isCached, currentResult?.OpeningReview);
 
         if (!isCached)
         {
@@ -624,7 +624,7 @@ public sealed class GameAnalysisForm : MaterialSkin.Controls.MaterialForm
             return;
         }
 
-        detailsTextBox.Text = BuildDetailsText(item.Mistake, lead, explanationLevel, explanation, false);
+        detailsTextBox.Text = BuildDetailsText(item.Mistake, lead, explanationLevel, explanation, false, currentResult?.OpeningReview);
     }
 
     private static string BuildExplanationCacheKey(MoveAnalysisResult lead, ExplanationLevel explanationLevel)
@@ -635,7 +635,8 @@ public sealed class GameAnalysisForm : MaterialSkin.Controls.MaterialForm
         MoveAnalysisResult lead,
         ExplanationLevel explanationLevel,
         MoveExplanation explanation,
-        bool isLoading)
+        bool isLoading,
+        OpeningPhaseReview? openingReview)
     {
         StringBuilder builder = new();
         builder.AppendLine($"Moves: {BuildMoveRange(mistake)}");
@@ -649,6 +650,24 @@ public sealed class GameAnalysisForm : MaterialSkin.Controls.MaterialForm
         builder.AppendLine($"Eval after: {FormatScore(lead.EvalAfterCp, lead.PlayedMateIn)}");
         builder.AppendLine($"Centipawn loss: {(lead.CentipawnLoss?.ToString() ?? "n/a")}");
         builder.AppendLine($"Material delta: {lead.MaterialDeltaCp}");
+
+        if (openingReview is not null && lead.Replay.Phase == GamePhase.Opening)
+        {
+            builder.AppendLine();
+            builder.AppendLine("Opening review:");
+            builder.AppendLine($"Branch: {openingReview.Branch.BranchLabel}");
+
+            if (openingReview.TheoryExit?.Ply == lead.Replay.Ply)
+            {
+                builder.AppendLine($"This move is marked as the theory exit: {openingReview.TheoryExit.Trigger}");
+            }
+
+            if (openingReview.FirstSignificantMistake?.Ply == lead.Replay.Ply)
+            {
+                builder.AppendLine($"This move is the first significant opening mistake: {openingReview.FirstSignificantMistake.Trigger}");
+            }
+        }
+
         builder.AppendLine();
         builder.AppendLine($"Explanation ({explanationLevel}):");
         builder.AppendLine(explanation.ShortText);
@@ -763,10 +782,39 @@ public sealed class GameAnalysisForm : MaterialSkin.Controls.MaterialForm
         int inaccuracies = result.HighlightedMistakes.Count(item => item.Quality == MoveQualityBucket.Inaccuracy);
         string filterText = filter?.QualityFilter is null ? "all highlighted mistakes" : filter!.Label.ToLowerInvariant();
         string cacheSuffix = isCached ? " Loaded from cache." : string.Empty;
+        string openingSuffix = BuildOpeningSummarySuffix(result.OpeningReview);
 
         return visibleCount == 0
-            ? $"No items match the current filter ({filterText}) for {result.AnalyzedSide}.{cacheSuffix}"
-            : $"Showing {visibleCount} items for {result.AnalyzedSide}. Highlights: {blunders} blunders, {mistakes} mistakes, {inaccuracies} inaccuracies.{cacheSuffix}";
+            ? $"No items match the current filter ({filterText}) for {result.AnalyzedSide}.{openingSuffix}{cacheSuffix}"
+            : $"Showing {visibleCount} items for {result.AnalyzedSide}. Highlights: {blunders} blunders, {mistakes} mistakes, {inaccuracies} inaccuracies.{openingSuffix}{cacheSuffix}";
+    }
+
+    private static string BuildOpeningSummarySuffix(OpeningPhaseReview? openingReview)
+    {
+        if (openingReview is null)
+        {
+            return string.Empty;
+        }
+
+        if (openingReview.TheoryExit is null && openingReview.FirstSignificantMistake is null)
+        {
+            return $" Opening branch: {openingReview.Branch.BranchLabel}.";
+        }
+
+        if (openingReview.TheoryExit is not null && openingReview.FirstSignificantMistake is not null)
+        {
+            return $" Opening: theory exit at {FormatMoment(openingReview.TheoryExit)}, first significant mistake at {FormatMoment(openingReview.FirstSignificantMistake)}.";
+        }
+
+        OpeningCriticalMoment moment = openingReview.TheoryExit ?? openingReview.FirstSignificantMistake!;
+        string label = openingReview.TheoryExit is not null ? "theory exit" : "first significant mistake";
+        return $" Opening: {label} at {FormatMoment(moment)}.";
+    }
+
+    private static string FormatMoment(OpeningCriticalMoment moment)
+    {
+        string prefix = moment.Side == PlayerSide.White ? "." : "...";
+        return $"{moment.MoveNumber}{prefix} {moment.San}";
     }
 
     private static string FormatEngineScore(int? centipawns, int? mateIn)

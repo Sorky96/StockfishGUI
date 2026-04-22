@@ -6,6 +6,12 @@ internal sealed class ChessBoardControl : DoubleBufferedPanel
 {
     private const int GridSize = 8;
 
+    public ChessBoardControl()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        UpdateStyles();
+    }
+
     public event EventHandler<BoardSquareClickEventArgs>? SquareClicked;
 
     public int TileSize { get; set; } = 64;

@@ -67,10 +67,15 @@ public sealed class PlayerProfileServiceTests
         Assert.Contains("B01", topRecommendation.RelatedOpenings);
         Assert.NotEmpty(topRecommendation.Checklist);
         Assert.NotEmpty(topRecommendation.SuggestedDrills);
+        Assert.NotNull(topRecommendation.Blocks);
+        Assert.Equal(3, topRecommendation.Blocks!.Count);
+        Assert.Contains(topRecommendation.Blocks, block => block.Purpose == TrainingBlockPurpose.Repair && block.Kind == TrainingBlockKind.Tactics);
+        Assert.Contains(topRecommendation.Blocks, block => block.Purpose == TrainingBlockPurpose.Maintain && block.Kind == TrainingBlockKind.GameReview);
+        Assert.Contains(topRecommendation.Blocks, block => block.Purpose == TrainingBlockPurpose.Checklist && block.Kind == TrainingBlockKind.SlowPlayFocus);
         Assert.Contains(report.MonthlyTrend, item => item.MonthKey == "2026-05" && item.GamesAnalyzed == 2);
         Assert.Contains(report.QuarterlyTrend, item => item.QuarterKey == "2026-Q2" && item.GamesAnalyzed == 4);
         Assert.Contains("middlegame", topRecommendation.Description, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("centipawns in total", topRecommendation.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("material losses", topRecommendation.Description, StringComparison.OrdinalIgnoreCase);
         Assert.InRange(topRecommendation.Examples!.Count, 2, 3);
         Assert.Contains(topRecommendation.Examples, item => item.Rank == ProfileMistakeExampleRank.MostFrequent);
         Assert.Contains(topRecommendation.Examples, item => item.Rank == ProfileMistakeExampleRank.MostCostly);
@@ -81,12 +86,25 @@ public sealed class PlayerProfileServiceTests
             Assert.False(string.IsNullOrWhiteSpace(item.Eco));
         });
         Assert.Equal(ProfileProgressDirection.Improving, report.ProgressSignal.Direction);
+        Assert.All(report.TrainingPlan.Topics, topic =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(topic.WhyThisTopicNow));
+            Assert.Contains("Frequency:", topic.WhyThisTopicNow, StringComparison.Ordinal);
+            Assert.Contains("CPL cost:", topic.WhyThisTopicNow, StringComparison.Ordinal);
+            Assert.Contains("Trend:", topic.WhyThisTopicNow, StringComparison.Ordinal);
+        });
         Assert.Equal("Alpha Weekly Training Plan", report.WeeklyPlan.Title);
         Assert.Equal(7, report.WeeklyPlan.Days.Count);
-        Assert.Equal("Board safety", report.WeeklyPlan.Days[0].PrimaryFocus);
+        Assert.Equal("Protect loose pieces", report.WeeklyPlan.Days[0].Topic);
+        Assert.Contains("Repair", report.WeeklyPlan.Days[0].WorkType, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(TrainingBlockPurpose.Repair, report.WeeklyPlan.Days[0].Purpose);
+        Assert.Equal(TrainingBlockKind.Tactics, report.WeeklyPlan.Days[0].BlockKind);
+        Assert.False(string.IsNullOrWhiteSpace(report.WeeklyPlan.Days[0].Goal));
         Assert.Contains("Protect Loose Pieces", report.WeeklyPlan.Summary, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(report.WeeklyPlan.Days, day => day.Theme.Contains("Applied game", StringComparison.OrdinalIgnoreCase));
-        Assert.All(report.WeeklyPlan.Days, day => Assert.NotEmpty(day.Activities));
+        Assert.True(report.WeeklyPlan.Budget.TotalMinutes > 0);
+        Assert.True(report.WeeklyPlan.Budget.CoreWeaknessMinutes > 0);
+        Assert.True(report.WeeklyPlan.Budget.SecondaryWeaknessMinutes > 0);
+        Assert.Contains(report.WeeklyPlan.Days, day => day.BlockKind == TrainingBlockKind.SlowPlayFocus);
         Assert.Contains(report.MistakeExamples, item => item.Label == "hanging_piece");
     }
 
@@ -145,11 +163,83 @@ public sealed class PlayerProfileServiceTests
         Assert.NotNull(report);
         Assert.Equal("opening_principles", report!.TopMistakeLabels[0].Label);
         Assert.Equal("material_loss", report.CostliestMistakeLabels[0].Label);
-        Assert.Equal("Material Discipline", report.Recommendations[0].Title);
+        Assert.Equal("Calculate the full exchange", report.Recommendations[0].Title);
         Assert.Equal(ProfileProgressDirection.Regressing, report.ProgressSignal.Direction);
+        Assert.Contains(report.LabelTrends, item => item.Label == "material_loss" && item.Direction == ProfileProgressDirection.Regressing);
+        Assert.Contains(report.LabelTrends, item => item.Label == "opening_principles" && item.Direction == ProfileProgressDirection.Improving);
+        TrainingPlanTopic materialLossTopic = Assert.Single(report.TrainingPlan.Topics, item => item.Label == "material_loss");
+        Assert.Equal(ProfileProgressDirection.Regressing, materialLossTopic.TrendDirection);
+        Assert.Equal(TrainingPlanTopicCategory.CoreWeakness, materialLossTopic.Category);
+        Assert.Contains("Trend: regressing", materialLossTopic.WhyThisTopicNow, StringComparison.OrdinalIgnoreCase);
+        TrainingPlanTopic openingTopic = Assert.Single(report.TrainingPlan.Topics, item => item.Label == "opening_principles");
+        Assert.Equal(ProfileProgressDirection.Improving, openingTopic.TrendDirection);
+        Assert.Equal(TrainingPlanTopicCategory.MaintenanceTopic, openingTopic.Category);
+        Assert.Contains("maintenance/review", openingTopic.WhyThisTopicNow, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(report.Recommendations[0].Blocks);
+        Assert.Contains(report.Recommendations[0].Blocks!, block => block.Purpose == TrainingBlockPurpose.Repair && block.Kind == TrainingBlockKind.Tactics);
+        Assert.Contains(report.Recommendations, recommendation =>
+            recommendation.FocusArea == "Opening discipline"
+            && recommendation.Blocks is not null
+            && recommendation.Blocks.Any(block => block.Purpose == TrainingBlockPurpose.Repair && block.Kind == TrainingBlockKind.OpeningReview));
         Assert.NotNull(report.ProgressSignal.Recent);
         Assert.NotNull(report.ProgressSignal.Previous);
         Assert.True((report.ProgressSignal.Recent!.AverageCentipawnLoss ?? 0) > (report.ProgressSignal.Previous!.AverageCentipawnLoss ?? 0));
+        Assert.Equal("Calculate the full exchange", report.WeeklyPlan.Days[0].Topic);
+        Assert.Contains("core weakness", report.WeeklyPlan.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            report.WeeklyPlan.Days.Sum(day => day.EstimatedMinutes),
+            report.WeeklyPlan.Budget.TotalMinutes);
+    }
+
+    [Fact]
+    public void PlayerProfileService_BuildsStableAndInsufficientTopicTrends()
+    {
+        FakeAnalysisStore store = new(
+        [
+            CreateResult(
+                "Tau",
+                "Beta",
+                PlayerSide.White,
+                "C20",
+                "2026.01.10",
+                [CreateSelectedMistake("missed_tactic", MoveQualityBucket.Mistake)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 160, "missed_tactic", moveNumber: 8, san: "Qh5", bestMoveUci: "g1f3")]),
+            CreateResult(
+                "Tau",
+                "Gamma",
+                PlayerSide.White,
+                "B01",
+                "2026.02.12",
+                [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 260, "material_loss", moveNumber: 12, san: "Bxh7+", bestMoveUci: "d1d5")]),
+            CreateResult(
+                "Tau",
+                "Delta",
+                PlayerSide.White,
+                "C23",
+                "2026.03.18",
+                [CreateSelectedMistake("missed_tactic", MoveQualityBucket.Mistake)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 165, "missed_tactic", moveNumber: 10, san: "Ng5", bestMoveUci: "d2d4")]),
+            CreateResult(
+                "Tau",
+                "Omega",
+                PlayerSide.White,
+                "A00",
+                "2026.04.20",
+                [CreateSelectedMistake("king_safety", MoveQualityBucket.Mistake)],
+                [CreateMoveAnalysis(GamePhase.Opening, 140, "king_safety", moveNumber: 6, san: "g4", bestMoveUci: "g1f3")])
+        ]);
+
+        PlayerProfileService service = new(store);
+
+        bool found = service.TryBuildProfile("Tau", out PlayerProfileReport? report);
+
+        Assert.True(found);
+        Assert.NotNull(report);
+        Assert.Contains(report!.LabelTrends, item => item.Label == "missed_tactic" && item.Direction == ProfileProgressDirection.Stable);
+        Assert.Contains(report.LabelTrends, item => item.Label == "king_safety" && item.Direction == ProfileProgressDirection.InsufficientData);
+        TrainingPlanTopic stableTopic = Assert.Single(report.TrainingPlan.Topics, item => item.Label == "missed_tactic");
+        Assert.Contains("Trend: stable", stableTopic.WhyThisTopicNow, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

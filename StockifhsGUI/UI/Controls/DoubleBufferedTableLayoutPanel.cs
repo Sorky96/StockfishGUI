@@ -7,8 +7,8 @@ internal sealed class DoubleBufferedTableLayoutPanel : TableLayoutPanel
     public DoubleBufferedTableLayoutPanel()
     {
         DoubleBuffered = true;
-        ResizeRedraw = true;
-        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        ResizeRedraw = false;
+        SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
         UpdateStyles();
     }
 }

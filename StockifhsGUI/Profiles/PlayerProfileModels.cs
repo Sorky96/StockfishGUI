@@ -64,6 +64,14 @@ public sealed record ProfileProgressSignal(
     ProfileProgressPeriod? Recent,
     ProfileProgressPeriod? Previous);
 
+public sealed record ProfileLabelTrend(
+    string Label,
+    ProfileProgressDirection Direction,
+    int RecentCount,
+    int PreviousCount,
+    int? RecentAverageCentipawnLoss,
+    int? PreviousAverageCentipawnLoss);
+
 public sealed record ProfileMistakeExample(
     string GameFingerprint,
     int Ply,
@@ -86,6 +94,32 @@ public enum ProfileMistakeExampleRank
     MostRepresentative
 }
 
+public enum TrainingBlockKind
+{
+    Tactics,
+    OpeningReview,
+    EndgameDrill,
+    GameReview,
+    SlowPlayFocus
+}
+
+public enum TrainingBlockPurpose
+{
+    Repair,
+    Maintain,
+    Checklist
+}
+
+public sealed record TrainingBlock(
+    TrainingBlockPurpose Purpose,
+    TrainingBlockKind Kind,
+    string Title,
+    string Description,
+    int EstimatedMinutes,
+    GamePhase? EmphasisPhase,
+    PlayerSide? EmphasisSide,
+    IReadOnlyList<string> RelatedOpenings);
+
 public sealed record TrainingRecommendation(
     int Priority,
     string FocusArea,
@@ -96,20 +130,74 @@ public sealed record TrainingRecommendation(
     IReadOnlyList<string> RelatedOpenings,
     IReadOnlyList<string> Checklist,
     IReadOnlyList<string> SuggestedDrills,
-    IReadOnlyList<ProfileMistakeExample>? Examples = null);
+    IReadOnlyList<ProfileMistakeExample>? Examples = null,
+    IReadOnlyList<TrainingBlock>? Blocks = null);
 
 public sealed record WeeklyTrainingDay(
     int DayNumber,
-    string Theme,
-    string PrimaryFocus,
+    string Topic,
+    string WorkType,
+    string Goal,
     int EstimatedMinutes,
-    IReadOnlyList<string> Activities,
-    string SuccessCheck);
+    TrainingPlanTopicCategory Category,
+    TrainingBlockPurpose Purpose = TrainingBlockPurpose.Maintain,
+    TrainingBlockKind BlockKind = TrainingBlockKind.GameReview);
+
+public sealed record WeeklyTrainingBudget(
+    int TotalMinutes,
+    int CoreWeaknessMinutes,
+    int SecondaryWeaknessMinutes,
+    int MaintenanceMinutes,
+    int IntegrationMinutes,
+    string Summary);
 
 public sealed record WeeklyTrainingPlan(
     string Title,
     string Summary,
+    WeeklyTrainingBudget Budget,
     IReadOnlyList<WeeklyTrainingDay> Days);
+
+public enum TrainingPlanTopicCategory
+{
+    CoreWeakness,
+    SecondaryWeakness,
+    MaintenanceTopic
+}
+
+public sealed record TrainingPlanPriorityBreakdown(
+    int FrequencyScore,
+    int CostScore,
+    int TrendScore,
+    int PhaseScore,
+    int TotalScore);
+
+public sealed record TrainingPlanTopic(
+    int Priority,
+    TrainingPlanTopicCategory Category,
+    string Label,
+    string FocusArea,
+    string Title,
+    string Summary,
+    string WhyThisTopicNow,
+    string Rationale,
+    ProfileProgressDirection TrendDirection,
+    GamePhase? EmphasisPhase,
+    PlayerSide? EmphasisSide,
+    IReadOnlyList<string> RelatedOpenings,
+    IReadOnlyList<string> Checklist,
+    IReadOnlyList<string> SuggestedDrills,
+    IReadOnlyList<TrainingBlock> Blocks,
+    IReadOnlyList<ProfileMistakeExample> Examples,
+    TrainingPlanPriorityBreakdown PriorityBreakdown);
+
+public sealed record TrainingPlanReport(
+    string PlayerKey,
+    string DisplayName,
+    ProfileProgressDirection TrendDirection,
+    string Summary,
+    IReadOnlyList<TrainingPlanTopic> Topics,
+    IReadOnlyList<TrainingRecommendation> Recommendations,
+    WeeklyTrainingPlan WeeklyPlan);
 
 public sealed record PlayerProfileReport(
     string PlayerKey,
@@ -126,6 +214,8 @@ public sealed record PlayerProfileReport(
     IReadOnlyList<ProfileMonthlyTrend> MonthlyTrend,
     IReadOnlyList<ProfileQuarterlyTrend> QuarterlyTrend,
     ProfileProgressSignal ProgressSignal,
+    IReadOnlyList<ProfileLabelTrend> LabelTrends,
     IReadOnlyList<TrainingRecommendation> Recommendations,
     WeeklyTrainingPlan WeeklyPlan,
-    IReadOnlyList<ProfileMistakeExample> MistakeExamples);
+    IReadOnlyList<ProfileMistakeExample> MistakeExamples,
+    TrainingPlanReport TrainingPlan);

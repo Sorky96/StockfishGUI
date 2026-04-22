@@ -1,0 +1,107 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StockifhsGUI.Avalonia.Views.SavedAnalysesWindow"
+        Width="1220"
+        Height="760"
+        MinWidth="980"
+        MinHeight="640"
+        Title="Saved Analyses"
+        Background="{DynamicResource ChromeBrush}">
+  <Grid Margin="18" RowDefinitions="Auto,*">
+    <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+        <TextBlock VerticalAlignment="Center"
+                   Margin="0,0,16,0"
+                   FontSize="24"
+                   FontWeight="Bold"
+                   Foreground="White"
+                   Text="Saved Analyses" />
+        <TextBox x:Name="FilterTextBox"
+                 Grid.Column="1"
+                 Watermark="Filter by player, opening, result or labels..."
+                 TextChanged="FilterTextBox_OnTextChanged" />
+        <Button x:Name="LoadGameButton"
+                Grid.Column="2"
+                Margin="12,0,0,0"
+                IsEnabled="False"
+                Click="LoadGameButton_Click"
+                Content="Load Game" />
+        <Button x:Name="OpenAnalysisButton"
+                Grid.Column="3"
+                Margin="12,0,0,0"
+                IsEnabled="False"
+                Click="OpenAnalysisButton_Click"
+                Content="Open Analysis" />
+        <Button Grid.Column="4"
+                Margin="12,0,0,0"
+                Click="CloseButton_Click"
+                Content="Close" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="1" Margin="0,14,0,0" ColumnDefinitions="1.1*,1.4*">
+      <Border Padding="12" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+        <ListBox x:Name="AnalysesListBox"
+                 SelectionChanged="AnalysesListBox_OnSelectionChanged"
+                 DoubleTapped="AnalysesListBox_OnDoubleTapped"
+                 Background="White"
+                 Foreground="Black"
+                 BorderThickness="0">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem">
+              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Background" Value="Transparent" />
+            </Style>
+            <Style Selector="ListBoxItem ContentPresenter">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem TextBlock">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:pointerover">
+              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Background" Value="#DCE8F2" />
+            </Style>
+            <Style Selector="ListBoxItem:pointerover ContentPresenter">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:pointerover TextBlock">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:selected">
+              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Background" Value="#AFC6D9" />
+            </Style>
+            <Style Selector="ListBoxItem:selected ContentPresenter">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:selected TextBlock">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Margin="8,4"
+                         FontFamily="Cascadia Code, Consolas, monospace"
+                         Foreground="Black"
+                         Text="{Binding}" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Border>
+
+      <Border Grid.Column="1"
+              Margin="14,0,0,0"
+              Padding="14"
+              CornerRadius="18"
+              Background="{DynamicResource PanelBrush}">
+        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+          <TextBlock x:Name="DetailsTextBlock"
+                     Foreground="White"
+                     FontFamily="Cascadia Code, Consolas, monospace"
+                     TextWrapping="Wrap" />
+        </ScrollViewer>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

@@ -8,6 +8,50 @@ internal sealed record PlayerProfileWorkItem(string Title, string Description, s
 
 internal sealed record PlayerProfileTrendViewModel(string Headline, string Summary, string Comparison);
 
+internal sealed record PlayerProfileTrainingBlockViewModel(
+    string PurposeLabel,
+    string KindLabel,
+    string Title,
+    string Description,
+    int EstimatedMinutes);
+
+internal sealed record PlayerProfileTrainingPlanItemViewModel(
+    int TopicPriority,
+    string TopicPriorityLabel,
+    string Topic,
+    string BlockType,
+    string Category,
+    int EstimatedMinutes,
+    string ShortGoal,
+    string WhyThisTopicNow,
+    string? Context);
+
+internal sealed record PlayerProfileTrainingTopicViewModel(
+    string RoleLabel,
+    string Title,
+    string FocusArea,
+    string Summary,
+    string WhyThisTopicNow,
+    string Rationale,
+    string? Context,
+    IReadOnlyList<PlayerProfileTrainingBlockViewModel> Blocks);
+
+internal sealed record PlayerProfileTrainingDayViewModel(
+    int DayNumber,
+    string Topic,
+    string WorkType,
+    string Goal,
+    int EstimatedMinutes,
+    string RoleLabel);
+
+internal sealed record PlayerProfileTrainingPlanViewModel(
+    string Headline,
+    string Summary,
+    string BudgetSummary,
+    IReadOnlyList<PlayerProfileTrainingTopicViewModel> Topics,
+    IReadOnlyList<PlayerProfileTrainingPlanItemViewModel> Items,
+    IReadOnlyList<PlayerProfileTrainingDayViewModel> Days);
+
 internal sealed record PlayerProfilePresentationViewModel(
     string SnapshotCaption,
     IReadOnlyList<PlayerProfileSummaryItem> SummaryItems,
@@ -15,4 +59,5 @@ internal sealed record PlayerProfilePresentationViewModel(
     IReadOnlyList<PlayerProfileStatItem> KeyMistakes,
     IReadOnlyList<PlayerProfileStatItem> CostliestMistakes,
     IReadOnlyList<PlayerProfileWorkItem> WorkOnItems,
-    PlayerProfileTrendViewModel RecentTrend);
+    PlayerProfileTrendViewModel RecentTrend,
+    PlayerProfileTrainingPlanViewModel TrainingPlan);

@@ -726,8 +726,37 @@ Kxa2 62. Qb2# 1-0
         Assert.Equal(2, result.HighlightedMistakes.Count);
         Assert.Equal("opening_principles", result.HighlightedMistakes[0].Tag?.Label);
         Assert.Equal("missed_tactic", result.HighlightedMistakes[1].Tag?.Label);
+        Assert.NotNull(result.OpeningReview);
+        Assert.Equal(1, result.OpeningReview!.TheoryExit?.MoveNumber);
+        Assert.Equal("f3", result.OpeningReview.TheoryExit?.San);
+        Assert.Equal("opening_principles", result.OpeningReview.TheoryExit?.MistakeLabel);
+        Assert.Equal("f3", result.OpeningReview.FirstSignificantMistake?.San);
+        Assert.Contains("Uncommon Opening (A00)", result.OpeningReview.Branch.BranchLabel);
         Assert.All(result.HighlightedMistakes, item => Assert.False(string.IsNullOrWhiteSpace(item.Explanation.ShortText)));
         Assert.All(result.HighlightedMistakes, item => Assert.False(string.IsNullOrWhiteSpace(item.Explanation.DetailedText)));
+    }
+
+    [Fact]
+    public void OpeningPhaseReviewBuilder_UsesExactEcoBranchWhenAvailable()
+    {
+        ImportedGame game = PgnGameParser.Parse("1. e4 e5 2. Bc4 Nc6 3. Qh5");
+        GameReplayService replayService = new();
+        IReadOnlyList<ReplayPly> replay = replayService.Replay(game);
+
+        MoveAnalysisResult quietMove = CreateMoveAnalysis(1, 1, MoveQualityBucket.Good, "opening_principles", 0, GamePhase.Opening, san: "e4");
+        MoveAnalysisResult prematureQueenMove = CreateMoveAnalysis(5, 3, MoveQualityBucket.Inaccuracy, "opening_principles", 110, GamePhase.Opening, san: "Qh5", uci: "d1h5");
+        OpeningPhaseReview? review = OpeningPhaseReviewBuilder.Build(
+            game with { Eco = "C23" },
+            PlayerSide.White,
+            replay,
+            [quietMove, prematureQueenMove]);
+
+        Assert.NotNull(review);
+        Assert.False(review!.Branch.UsedFallback);
+        Assert.Equal("eco_exact", review.Branch.Source);
+        Assert.Contains("Bishop's Opening", review.Branch.BranchLabel);
+        Assert.Equal("Qh5", review.TheoryExit?.San);
+        Assert.Equal("Qh5", review.FirstSignificantMistake?.San);
     }
 
     [Fact]
@@ -1848,15 +1877,17 @@ training_hint: Model training hint
         GamePhase phase = GamePhase.Middlegame,
         int evalBeforeCp = 0,
         int? evalAfterCp = null,
-        MoveExplanation? explanation = null)
+        MoveExplanation? explanation = null,
+        string san = "move",
+        string uci = "a2a3")
     {
         ReplayPly replay = new(
             ply,
             moveNumber,
             PlayerSide.White,
-            "move",
-            "move",
-            "a2a3",
+            san,
+            san,
+            uci,
             "4k3/8/8/8/8/8/P7/4K3 w - - 0 1",
             "4k3/8/8/8/8/P7/8/4K3 b - - 0 1",
             string.Empty,
@@ -1872,7 +1903,7 @@ training_hint: Model training hint
 
         return new MoveAnalysisResult(
             replay,
-            AnalysisFor(replay.FenBefore, "a2a3", 0, null, "a2a3"),
+            AnalysisFor(replay.FenBefore, uci, 0, null, uci),
             AnalysisFor(replay.FenAfter, "a7a6", 0, null, "a7a6"),
             evalBeforeCp,
             evalAfterCp ?? -cpl,

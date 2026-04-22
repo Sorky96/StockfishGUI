@@ -56,4 +56,15 @@ public static class OpeningCatalog
             _ => normalized
         };
     }
+
+    public static bool TryGetExactName(string? eco, out string? openingName)
+    {
+        if (string.IsNullOrWhiteSpace(eco))
+        {
+            openingName = null;
+            return false;
+        }
+
+        return ExactNames.TryGetValue(eco.Trim().ToUpperInvariant(), out openingName);
+    }
 }

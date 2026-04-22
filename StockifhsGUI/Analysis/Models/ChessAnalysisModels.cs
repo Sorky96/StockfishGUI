@@ -134,12 +134,37 @@ public sealed record SelectedMistake(
     MistakeTag? Tag,
     MoveExplanation Explanation);
 
+public sealed record OpeningBranchReference(
+    string? Eco,
+    string OpeningName,
+    string BranchLabel,
+    string Source,
+    bool UsedFallback);
+
+public sealed record OpeningCriticalMoment(
+    int Ply,
+    int MoveNumber,
+    PlayerSide Side,
+    string San,
+    string Uci,
+    MoveQualityBucket Quality,
+    int? CentipawnLoss,
+    string? MistakeLabel,
+    string Trigger,
+    string BranchLabel);
+
+public sealed record OpeningPhaseReview(
+    OpeningBranchReference Branch,
+    OpeningCriticalMoment? TheoryExit,
+    OpeningCriticalMoment? FirstSignificantMistake);
+
 public sealed record GameAnalysisResult(
     ImportedGame Game,
     PlayerSide AnalyzedSide,
     IReadOnlyList<ReplayPly> Replay,
     IReadOnlyList<MoveAnalysisResult> MoveAnalyses,
-    IReadOnlyList<SelectedMistake> HighlightedMistakes);
+    IReadOnlyList<SelectedMistake> HighlightedMistakes,
+    OpeningPhaseReview? OpeningReview = null);
 
 public sealed record StoredMoveAnalysis(
     string GameFingerprint,

@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StockifhsGUI.Avalonia.Views.PgnImportWindow"
+        Width="900"
+        Height="620"
+        MinWidth="760"
+        MinHeight="520"
+        Title="PGN Import"
+        Background="{DynamicResource ChromeBrush}">
+  <Grid RowDefinitions="*,Auto" Margin="18">
+    <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+      <Grid RowDefinitions="Auto,Auto,*">
+        <TextBlock FontSize="24" FontWeight="Bold" Text="Import PGN" />
+        <TextBlock Grid.Row="1"
+                   Margin="0,12,0,12"
+                   Foreground="#D7E2EA"
+                   Text="Paste the full PGN file. Once imported, the game will immediately appear on the board and be saved locally." />
+        <TextBox x:Name="PgnTextBox"
+                 Grid.Row="2"
+                 AcceptsReturn="True"
+                 VerticalAlignment="Stretch"
+                 HorizontalAlignment="Stretch"
+                 MinHeight="360"
+                 Padding="12"
+                 TextWrapping="Wrap" />
+      </Grid>
+    </Border>
+
+    <StackPanel Grid.Row="1"
+                Margin="0,14,0,0"
+                Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="10">
+      <Button Content="Cancel" Click="CancelButton_Click" />
+      <Button Content="Import" Click="ImportButton_Click" />
+    </StackPanel>
+  </Grid>
+</Window>

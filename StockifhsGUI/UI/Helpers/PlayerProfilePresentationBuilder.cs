@@ -13,7 +13,8 @@ internal static class PlayerProfilePresentationBuilder
             BuildKeyMistakes(report),
             BuildCostliestMistakes(report),
             BuildWorkOnItems(report),
-            BuildTrend(report.ProgressSignal));
+            BuildTrend(report.ProgressSignal),
+            BuildTrainingPlan(report));
     }
 
     private static string BuildSnapshotCaption(PlayerProfileReport report)
@@ -27,10 +28,23 @@ internal static class PlayerProfilePresentationBuilder
         [
             new PlayerProfileSummaryItem("Biggest problem", BuildProblemSummary(report.TopMistakeLabels, 0)),
             new PlayerProfileSummaryItem("Second problem", BuildProblemSummary(report.TopMistakeLabels, 1)),
+            new PlayerProfileSummaryItem("Training priority", BuildTrainingPrioritySummary(report)),
             new PlayerProfileSummaryItem("Weakest phase", BuildWeakestPhaseSummary(report)),
             new PlayerProfileSummaryItem("Most problematic opening", BuildOpeningSummary(report)),
             new PlayerProfileSummaryItem("Recent trend", PlayerProfileTextFormatter.FormatTrendHeadline(report.ProgressSignal.Direction))
         ];
+    }
+
+    private static string BuildTrainingPrioritySummary(PlayerProfileReport report)
+    {
+        TrainingPlanTopic? core = report.TrainingPlan.Topics
+            .FirstOrDefault(topic => topic.Category == TrainingPlanTopicCategory.CoreWeakness);
+
+        core ??= report.TrainingPlan.Topics.FirstOrDefault();
+
+        return core is null
+            ? "Not enough data yet"
+            : $"{core.Title} ({core.FocusArea})";
     }
 
     private static string BuildProblemSummary(IReadOnlyList<ProfileLabelStat> labels, int index)
@@ -154,7 +168,7 @@ internal static class PlayerProfilePresentationBuilder
 
     private static IReadOnlyList<PlayerProfileWorkItem> BuildWorkOnItems(PlayerProfileReport report)
     {
-        if (report.Recommendations.Count == 0)
+        if (report.TrainingPlan.Topics.Count == 0)
         {
             return
             [
@@ -165,37 +179,40 @@ internal static class PlayerProfilePresentationBuilder
             ];
         }
 
-        return report.Recommendations
+        return report.TrainingPlan.Topics
             .Take(3)
             .Select(item => new PlayerProfileWorkItem(
-                item.Title,
-                item.Description,
-                BuildWorkContext(item)))
+                $"{BuildRoleLabel(item.Category)}: {item.Title}",
+                item.Summary,
+                BuildTopicContext(item)))
             .ToList();
     }
 
-    private static string? BuildWorkContext(TrainingRecommendation recommendation)
+    private static string? BuildTopicContext(TrainingPlanTopic topic)
     {
         List<string> parts = [];
 
-        if (recommendation.EmphasisPhase.HasValue)
+        if (topic.EmphasisPhase.HasValue)
         {
-            parts.Add(PlayerProfileTextFormatter.FormatPhase(recommendation.EmphasisPhase.Value));
+            parts.Add(PlayerProfileTextFormatter.FormatPhase(topic.EmphasisPhase.Value));
         }
 
-        if (recommendation.EmphasisSide.HasValue)
+        if (topic.EmphasisSide.HasValue)
         {
-            parts.Add(recommendation.EmphasisSide.Value == PlayerSide.White ? "Mostly as White" : "Mostly as Black");
+            parts.Add(topic.EmphasisSide.Value == PlayerSide.White ? "Mostly as White" : "Mostly as Black");
         }
 
-        if (recommendation.RelatedOpenings.Count > 0)
+        if (topic.RelatedOpenings.Count > 0)
         {
-            parts.Add(string.Join(" / ", recommendation.RelatedOpenings.Take(2).Select(PlayerProfileTextFormatter.FormatOpening)));
+            parts.Add(string.Join(" / ", topic.RelatedOpenings.Take(2).Select(PlayerProfileTextFormatter.FormatOpening)));
         }
 
-        return parts.Count == 0
-            ? null
-            : "Shows up most in " + string.Join(" | ", parts);
+        if (parts.Count == 0)
+        {
+            return topic.WhyThisTopicNow;
+        }
+
+        return $"{topic.WhyThisTopicNow} Shows up most in {string.Join(" | ", parts)}";
     }
 
     private static PlayerProfileTrendViewModel BuildTrend(ProfileProgressSignal signal)
@@ -214,5 +231,113 @@ internal static class PlayerProfilePresentationBuilder
     {
         string cpl = period.AverageCentipawnLoss?.ToString() ?? "n/a";
         return $"{period.GamesAnalyzed} games, CPL {cpl}, highlighted mistakes/game {period.HighlightedMistakesPerGame:F2}.";
+    }
+
+    private static PlayerProfileTrainingPlanViewModel BuildTrainingPlan(PlayerProfileReport report)
+    {
+        IReadOnlyList<PlayerProfileTrainingTopicViewModel> topics = report.TrainingPlan.Topics
+            .OrderBy(topic => topic.Priority)
+            .Select(topic => new PlayerProfileTrainingTopicViewModel(
+                BuildRoleLabel(topic.Category),
+                topic.Title,
+                topic.FocusArea,
+                topic.Summary,
+                topic.WhyThisTopicNow,
+                topic.Rationale,
+                BuildTopicDisplayContext(topic),
+                (topic.Blocks ?? [])
+                    .Select(block => new PlayerProfileTrainingBlockViewModel(
+                        PlayerProfileTextFormatter.FormatTrainingBlockPurpose(block.Purpose),
+                        PlayerProfileTextFormatter.FormatTrainingBlockKind(block.Kind),
+                        block.Title,
+                        block.Description,
+                        block.EstimatedMinutes))
+                    .ToList()))
+            .ToList();
+
+        IReadOnlyList<PlayerProfileTrainingPlanItemViewModel> items = report.TrainingPlan.Topics
+            .OrderBy(topic => topic.Priority)
+            .SelectMany(topic => (topic.Blocks ?? [])
+                .OrderBy(block => GetBlockPurposeOrder(block.Purpose))
+                .ThenBy(block => block.EstimatedMinutes)
+                .Select(block => new PlayerProfileTrainingPlanItemViewModel(
+                    topic.Priority,
+                    $"Priority {topic.Priority}",
+                    topic.Title,
+                    PlayerProfileTextFormatter.FormatTrainingBlockKind(block.Kind),
+                    PlayerProfileTextFormatter.FormatTrainingBlockPurpose(block.Purpose),
+                    block.EstimatedMinutes,
+                    block.Title,
+                    topic.WhyThisTopicNow,
+                    BuildTopicDisplayContext(topic))))
+            .ToList();
+
+        IReadOnlyList<PlayerProfileTrainingDayViewModel> days = report.TrainingPlan.WeeklyPlan.Days
+            .Select(day => new PlayerProfileTrainingDayViewModel(
+                day.DayNumber,
+                day.Topic,
+                day.WorkType,
+                day.Goal,
+                day.EstimatedMinutes,
+                BuildRoleLabel(day.Category)))
+            .ToList();
+
+        string headline = topics.Count == 0
+            ? "Training plan"
+            : $"Training plan built from {string.Join(", ", topics.Select(topic => topic.Title))}.";
+
+        return new PlayerProfileTrainingPlanViewModel(
+            headline,
+            report.TrainingPlan.Summary,
+            report.TrainingPlan.WeeklyPlan.Budget.Summary,
+            topics,
+            items,
+            days);
+    }
+
+    private static int GetBlockPurposeOrder(TrainingBlockPurpose purpose)
+    {
+        return purpose switch
+        {
+            TrainingBlockPurpose.Repair => 0,
+            TrainingBlockPurpose.Maintain => 1,
+            TrainingBlockPurpose.Checklist => 2,
+            _ => 3
+        };
+    }
+
+    private static string BuildRoleLabel(TrainingPlanTopicCategory category)
+    {
+        return category switch
+        {
+            TrainingPlanTopicCategory.CoreWeakness => "Core weakness",
+            TrainingPlanTopicCategory.SecondaryWeakness => "Secondary weakness",
+            TrainingPlanTopicCategory.MaintenanceTopic => "Maintenance topic",
+            _ => "Training topic"
+        };
+    }
+
+    private static string? BuildTopicDisplayContext(TrainingPlanTopic topic)
+    {
+        List<string> parts = [];
+
+        if (topic.EmphasisPhase.HasValue)
+        {
+            parts.Add(PlayerProfileTextFormatter.FormatPhase(topic.EmphasisPhase.Value));
+        }
+
+        if (topic.EmphasisSide.HasValue)
+        {
+            parts.Add(topic.EmphasisSide.Value == PlayerSide.White ? "Mostly as White" : "Mostly as Black");
+        }
+
+        if (topic.RelatedOpenings.Count > 0)
+        {
+            parts.Add(string.Join(" / ", topic.RelatedOpenings.Take(2).Select(PlayerProfileTextFormatter.FormatOpening)));
+        }
+
+        return parts.Count == 0
+            ? null
+            : string.Join(" | ", parts);
     }
 }

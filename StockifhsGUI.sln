@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StockifhsGUI", "StockifhsGU
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StockifhsGUI.Tests", "StockifhsGUI.Tests\StockifhsGUI.Tests.csproj", "{8FD8B450-7818-4BA6-8A82-E8FD6A47DF1D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StockifhsGUI.Avalonia", "StockifhsGUI.Avalonia\StockifhsGUI.Avalonia.csproj", "{17D85A9A-13AA-4336-AD52-8BBE849DE115}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{8FD8B450-7818-4BA6-8A82-E8FD6A47DF1D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8FD8B450-7818-4BA6-8A82-E8FD6A47DF1D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8FD8B450-7818-4BA6-8A82-E8FD6A47DF1D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{17D85A9A-13AA-4336-AD52-8BBE849DE115}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{17D85A9A-13AA-4336-AD52-8BBE849DE115}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{17D85A9A-13AA-4336-AD52-8BBE849DE115}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{17D85A9A-13AA-4336-AD52-8BBE849DE115}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

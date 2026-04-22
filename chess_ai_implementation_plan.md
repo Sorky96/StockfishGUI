@@ -1095,21 +1095,21 @@ Stan po bieżącej iteracji:
 - cały system działa w 100% offline; brak nowych zależności sieciowych.
 
 ### Sprint 15 - UI / workflow polish
-- [ ] Przebudować profil gracza na dwie warstwy prezentacji: krótki blok `Summary` na górze i sekcję `Deep dive` niżej
-- [ ] W `Summary` pokazywać: największy problem, drugi problem, najsłabszą fazę partii, najbardziej problematyczne otwarcie oraz krótki sygnał ostatniego trendu
-- [ ] Pokazać w profilach i analizach bardziej klikalne przykłady pozycji
-- [ ] Ułatwić przejście z profilu gracza do konkretnej partii i konkretnego błędu
-- [ ] Dodać lepsze badge, filtry i oznaczenia najważniejszych błędów
-- [ ] Zamienić techniczne nazwy sekcji na bardziej naturalne, np. `Key mistakes`, `Most expensive mistakes`, `What to work on`, `Recent trend`
-- [ ] Uprościć nazwy priorytetów treningowych tak, aby brzmiały naturalnie dla gracza, np. `Avoid Losing Material`, `Scan for Tactics`, `Finish Development First`
-- [ ] Dodać krótki blok `What to fix first` z 2-3 bezpośrednimi, operacyjnymi wskazówkami
-- [ ] Przebudować widok profilu na sekcje zwijane / rozwijane, tak aby bloki typu `overview`, `mistake labels`, `openings`, `phases`, `training priorities` i `history/trend` nie tworzyły jednej długiej ściany tekstu
-- [ ] W sekcji historii i trendów dodać listę rozwijaną dla poszczególnych dni, tak aby po rozwinięciu dnia było widać partie, highlighty, średni CPL i najważniejsze motywy błędów tylko dla tej daty
-- [ ] Dodać walidację spójności przed renderem, tak aby liczby w profilu, opisy trendu i sumy sekcji nie mogły sobie widocznie przeczyć
-- [ ] Poprawić prezentację otwarć, używając bardziej ludzkich nazw i sensownych fallbacków, np. `B00 - King's Pawn setups after 1.e4` zamiast surowych lub mało pomocnych nazw `Uncommon ...`
-- [ ] Zrobić z tygodniowego planu sekcję opcjonalną, pokazywaną dopiero po rozwinięciu albo po akcji typu `Show training plan`
-- [ ] Dalej odchudzać formularze i separować logikę UI od pipeline analizy
-- [ ] Dopracować responsywność i skalowanie okien pomocniczych
+- [x] Przebudować profil gracza na dwie warstwy prezentacji: krótki blok `Summary` na górze i sekcję `Deep dive` niżej
+- [x] W `Summary` pokazywać: największy problem, drugi problem, najsłabszą fazę partii, najbardziej problematyczne otwarcie oraz krótki sygnał ostatniego trendu
+- [x] Pokazać w profilach i analizach bardziej klikalne przykłady pozycji
+- [x] Ułatwić przejście z profilu gracza do konkretnej partii i konkretnego błędu
+- [x] Dodać lepsze badge, filtry i oznaczenia najważniejszych błędów
+- [x] Zamienić techniczne nazwy sekcji na bardziej naturalne, np. `Key mistakes`, `Most expensive mistakes`, `What to work on`, `Recent trend`
+- [x] Uprościć nazwy priorytetów treningowych tak, aby brzmiały naturalnie dla gracza, np. `Avoid Losing Material`, `Scan for Tactics`, `Finish Development First`
+- [x] Dodać krótki blok `What to fix first` z 2-3 bezpośrednimi, operacyjnymi wskazówkami
+- [x] Przebudować widok profilu na sekcje zwijane / rozwijane, tak aby bloki typu `overview`, `mistake labels`, `openings`, `phases`, `training priorities` i `history/trend` nie tworzyły jednej długiej ściany tekstu
+- [x] W sekcji historii i trendów dodać listę rozwijaną dla poszczególnych dni, tak aby po rozwinięciu dnia było widać partie, highlighty, średni CPL i najważniejsze motywy błędów tylko dla tej daty
+- [x] Dodać walidację spójności przed renderem, tak aby liczby w profilu, opisy trendu i sumy sekcji nie mogły sobie widocznie przeczyć
+- [x] Poprawić prezentację otwarć, używając bardziej ludzkich nazw i sensownych fallbacków, np. `B00 - King's Pawn setups after 1.e4` zamiast surowych lub mało pomocnych nazw `Uncommon ...`
+- [x] Zrobić z tygodniowego planu sekcję opcjonalną, pokazywaną dopiero po rozwinięciu albo po akcji typu `Show training plan`
+- [x] Dalej odchudzać formularze i separować logikę UI od pipeline analizy
+- [x] Dopracować responsywność i skalowanie okien pomocniczych
 
 Cel sprintu:
 żeby coraz mocniejsza logika analityczna była też wygodna w codziennym użyciu, a profil dawał się zrozumieć w 10-15 sekund zamiast wyglądać jak raport debugowy.
@@ -1138,33 +1138,45 @@ Założenie architektoniczne:
 - system zachowuje pełny fallback offline.
 
 ### Sprint 16 - Przykłady Do Profilu
-- [ ] Dodać do profilu `example positions` dla dominujących motywów błędów.
-- [ ] Dla każdej rekomendacji pokazywać 2-3 konkretne przykłady z własnych partii użytkownika.
-- [ ] Przy każdym przykładzie pokazać: label, CPL, fazę partii, opening i lepszy ruch.
-- [ ] Dodać ranking przykładów: najczęstszy, najdroższy, najbardziej reprezentatywny.
-- [ ] Umożliwić przejście `profil -> przykład -> plansza -> analiza`.
-- [ ] Spiąć przykłady z przebudowanym widokiem profilu, aby każda rozwijana sekcja i każdy rozwijany dzień mogły pokazywać własne przykłady oraz szybkie przejścia do partii.
-- [ ] Sprawić, aby sekcje `Summary` i `What to fix first` korzystały z tej samej puli przykładów, tak aby każde ogólne stwierdzenie dało się prześledzić do konkretnych pozycji.
+- [x] Dodać do profilu `example positions` dla dominujących motywów błędów.
+- [x] Dla każdej rekomendacji pokazywać 2-3 konkretne przykłady z własnych partii użytkownika.
+- [x] Przy każdym przykładzie pokazać: label, CPL, fazę partii, opening i lepszy ruch.
+- [x] Dodać ranking przykładów: najczęstszy, najdroższy, najbardziej reprezentatywny.
+- [x] Umożliwić przejście `profil -> przykład -> plansza -> analiza`.
+- [x] Spiąć przykłady z przebudowanym widokiem profilu, aby każda rozwijana sekcja i każdy rozwijany dzień mogły pokazywać własne przykłady oraz szybkie przejścia do partii.
+- [x] Sprawić, aby sekcje `Summary` i `What to fix first` korzystały z tej samej puli przykładów, tak aby każde ogólne stwierdzenie dało się prześledzić do konkretnych pozycji.
+
+Stan po bieżącej iteracji:
+- `ProfileMistakeExample` dostarcza już do profilu konkretne pozycje dla dominujących motywów błędów wraz z FEN, CPL, SAN, `best move` i openingiem,
+- sprint pozostaje częściowo otwarty po stronie prezentacji UI, rankingu przykładów i pełnego spięcia z nawigacją `profil -> przykład -> plansza -> analiza`.
 
 Cel sprintu:
 żeby profil przestał być tylko zestawem agregatów i zaczął pokazywać rzeczywiste momenty z partii, które stoją za rekomendacjami.
 
 ### Sprint 17 - Silnik Planu Treningowego v1
-- [ ] Wydzielić `TrainingPlanService`.
-- [ ] Zbudować `TrainingPlanReport` na podstawie `PlayerProfileReport`.
-- [ ] Wyliczać priorytety z połączenia: częstość, koszt CPL, trend i faza partii.
-- [ ] Rozdzielić tematy na `core weakness`, `secondary weakness`, `maintenance topic`.
-- [ ] Dodać prosty budżet czasu treningowego na tydzień.
+- [x] Wydzielić `TrainingPlanService`.
+- [x] Zbudować `TrainingPlanReport` na podstawie `PlayerProfileReport`.
+- [x] Wyliczać priorytety z połączenia: częstość, koszt CPL, trend i faza partii.
+- [x] Rozdzielić tematy na `core weakness`, `secondary weakness`, `maintenance topic`.
+- [x] Dodać prosty budżet czasu treningowego na tydzień.
+
+Stan po bieżącej iteracji:
+- profil układa już deterministyczny tygodniowy plan treningowy z dniami, aktywnościami i kryterium ukończenia,
+- istnieje więc funkcjonalny zalążek tego sprintu, ale nadal do domknięcia pozostaje wydzielenie osobnej warstwy `TrainingPlanService` / `TrainingPlanReport` oraz dopracowanie modelu priorytetów i budżetu czasu.
 
 Cel sprintu:
 żeby użytkownik dostawał realny tygodniowy plan pracy, a nie tylko opis swoich słabości.
 
 ### Sprint 18 - Trening Słabości v2
-- [ ] Dodać typy bloków treningowych: `tactics`, `opening review`, `endgame drill`, `game review`, `slow play focus`.
-- [ ] Mapować etykiety błędów na konkretne typy ćwiczeń.
-- [ ] Rozdzielić ćwiczenia na naprawcze, utrwalające i checklisty do gry.
-- [ ] Dodać prostą adaptację priorytetów na podstawie trendu poprawy lub regresu.
-- [ ] Dodać `why this topic now` dla każdej pozycji w planie.
+- [x] Dodać typy bloków treningowych: `tactics`, `opening review`, `endgame drill`, `game review`, `slow play focus`.
+- [x] Mapować etykiety błędów na konkretne typy ćwiczeń.
+- [x] Rozdzielić ćwiczenia na naprawcze, utrwalające i checklisty do gry.
+- [x] Dodać prostą adaptację priorytetów na podstawie trendu poprawy lub regresu.
+- [x] Dodać `why this topic now` dla każdej pozycji w planie.
+
+Stan po bieżącej iteracji:
+- rekomendacje treningowe mapują już kategorie błędów na typy treningu oraz pokazują checklistę i sugerowane ćwiczenia,
+- sprint pozostaje częściowo otwarty, bo w planie nadal brakuje jawnych typów bloków treningowych, rozdziału na ćwiczenia naprawcze i utrwalające oraz pola `why this topic now`.
 
 Cel sprintu:
 żeby plan treningowy był praktyczny i tłumaczył, czemu dany temat jest teraz ważny.

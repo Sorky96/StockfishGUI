@@ -70,6 +70,30 @@ internal static class PlayerProfileTextFormatter
         };
     }
 
+    public static string FormatTrainingBlockKind(TrainingBlockKind kind)
+    {
+        return kind switch
+        {
+            TrainingBlockKind.Tactics => "Tactics",
+            TrainingBlockKind.OpeningReview => "Opening review",
+            TrainingBlockKind.EndgameDrill => "Endgame drill",
+            TrainingBlockKind.GameReview => "Game review",
+            TrainingBlockKind.SlowPlayFocus => "Slow play focus",
+            _ => kind.ToString()
+        };
+    }
+
+    public static string FormatTrainingBlockPurpose(TrainingBlockPurpose purpose)
+    {
+        return purpose switch
+        {
+            TrainingBlockPurpose.Repair => "Repair",
+            TrainingBlockPurpose.Maintain => "Maintain",
+            TrainingBlockPurpose.Checklist => "Checklist",
+            _ => purpose.ToString()
+        };
+    }
+
     public static string TrimSentence(string text)
     {
         return string.IsNullOrWhiteSpace(text)

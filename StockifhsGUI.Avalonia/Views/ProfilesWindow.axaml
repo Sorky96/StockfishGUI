@@ -1,0 +1,66 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:StockifhsGUI.Avalonia.ViewModels"
+        xmlns:controls="using:Avalonia.Controls"
+        x:Class="StockifhsGUI.Avalonia.Views.ProfilesWindow"
+        Width="1240"
+        Height="820"
+        MinWidth="980"
+        MinHeight="680"
+        Title="Player Profiles"
+        Background="{DynamicResource ChromeBrush}">
+  <Grid RowDefinitions="Auto,*" Margin="18">
+    <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+      <StackPanel Orientation="Horizontal" Spacing="12">
+        <TextBlock VerticalAlignment="Center" FontSize="24" FontWeight="Bold" Text="Player Profiles" />
+        <TextBox x:Name="FilterTextBox"
+                 Width="320"
+                 VerticalAlignment="Center"
+                 Watermark="Filter by analyzed player..."
+                 TextChanged="FilterTextBox_OnTextChanged" />
+        <Button Content="Close" Click="CloseButton_Click" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="1" ColumnDefinitions="340,*" Margin="0,14,0,0">
+      <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+        <StackPanel Spacing="10">
+          <TextBlock FontSize="18" FontWeight="SemiBold" Text="Players" />
+          <ListBox x:Name="ProfilesListBox"
+                   Background="Transparent"
+                   SelectionChanged="ProfilesListBox_OnSelectionChanged">
+            <ListBox.Styles>
+              <Style Selector="ListBoxItem">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Background" Value="Transparent" />
+              </Style>
+              <Style Selector="ListBoxItem:pointerover">
+                <Setter Property="Background" Value="#284556" />
+              </Style>
+              <Style Selector="ListBoxItem:selected">
+                <Setter Property="Background" Value="#355D73" />
+              </Style>
+            </ListBox.Styles>
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:PlayerProfileSummaryItemViewModel">
+                <Border Margin="0,0,0,8" Padding="10" CornerRadius="10" Background="#203542">
+                  <StackPanel>
+                    <TextBlock FontWeight="SemiBold" Text="{Binding Header}" />
+                    <TextBlock Foreground="#D7E2EA" Text="{Binding Meta}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </StackPanel>
+      </Border>
+
+      <Border Grid.Column="1" Margin="14,0,0,0" Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+          <StackPanel x:Name="DetailsPanel" Spacing="14" />
+        </ScrollViewer>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>
