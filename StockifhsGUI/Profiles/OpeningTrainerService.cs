@@ -77,7 +77,18 @@ public sealed class OpeningTrainerService
             positions.AddRange(built);
         }
 
+        if (effectiveOptions.TargetOpenings is { Count: > 0 } targetOpenings)
+        {
+            HashSet<string> targetEco = targetOpenings
+                .Select(NormalizeEco)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            positions = positions
+                .Where(position => targetEco.Contains(NormalizeEco(position.Eco)))
+                .ToList();
+        }
+
         positions = positions
+            .Where(position => effectiveOptions.Modes!.Contains(position.Mode))
             .OrderByDescending(position => position.Priority)
             .ThenBy(position => position.Ply)
             .ThenBy(position => position.OpeningName, StringComparer.OrdinalIgnoreCase)
@@ -110,6 +121,68 @@ public sealed class OpeningTrainerService
         return positions.Count > 0;
     }
 
+    public OpeningTrainingAttemptResult EvaluateMove(OpeningTrainingPosition position, string submittedMoveText)
+    {
+        ArgumentNullException.ThrowIfNull(position);
+
+        IReadOnlyList<OpeningTrainingMoveOption> preferredReferences = GetPreferredReferences(position);
+        IReadOnlyList<OpeningTrainingMoveOption> playableReferences = GetPlayableReferences(position, preferredReferences);
+        IReadOnlyList<OpeningTrainingMoveOption> expectedMoves = preferredReferences
+            .Concat(playableReferences)
+            .DistinctBy(option => BuildMoveKey(option.Uci, option.DisplayText))
+            .ToList();
+
+        if (!TryResolveMoveInput(position.Fen, submittedMoveText, out AppliedMoveInfo? resolvedMove, out string? error)
+            || resolvedMove is null)
+        {
+            string invalidMoveExplanation = string.IsNullOrWhiteSpace(error)
+                ? "The submitted move could not be matched to a legal move in this position."
+                : error;
+
+            return new OpeningTrainingAttemptResult(
+                position.PositionId,
+                position.Mode,
+                position.SourceKind,
+                submittedMoveText,
+                null,
+                null,
+                expectedMoves,
+                OpeningTrainingScore.Wrong,
+                invalidMoveExplanation,
+                [],
+                preferredReferences,
+                playableReferences);
+        }
+
+        IReadOnlyList<OpeningTrainingMoveOption> matchingReferences = position.CandidateMoves
+            .Where(option => MovesMatch(option, resolvedMove))
+            .ToList();
+        bool matchedPreferred = matchingReferences.Any(match =>
+            preferredReferences.Any(reference => MoveOptionsMatch(reference, match)));
+        bool matchedPlayable = matchingReferences.Any(match =>
+            playableReferences.Any(reference => MoveOptionsMatch(reference, match)));
+        OpeningTrainingScore score = matchedPreferred
+            ? OpeningTrainingScore.Correct
+            : matchedPlayable
+                ? OpeningTrainingScore.Playable
+                : OpeningTrainingScore.Wrong;
+        string explanation = BuildAttemptExplanation(position, score, matchingReferences, preferredReferences, playableReferences);
+
+        return new OpeningTrainingAttemptResult(
+            position.PositionId,
+            position.Mode,
+            position.SourceKind,
+            submittedMoveText,
+            resolvedMove.San,
+            resolvedMove.Uci,
+            expectedMoves,
+            score,
+            explanation,
+            matchingReferences,
+            preferredReferences,
+            playableReferences);
+    }
+
     public OpeningLineRecallAttemptResult EvaluateLineRecallMove(OpeningTrainingPosition position, string submittedMoveText)
     {
         ArgumentNullException.ThrowIfNull(position);
@@ -119,64 +192,18 @@ public sealed class OpeningTrainerService
             throw new ArgumentException("Line recall evaluation is available only for line recall positions.", nameof(position));
         }
 
-        IReadOnlyList<OpeningTrainingMoveOption> preferredReferences = position.CandidateMoves
-            .Where(option => option.IsPreferred)
-            .ToList();
-        IReadOnlyList<OpeningTrainingMoveOption> playableReferences = position.CandidateMoves
-            .Where(option => !option.IsPreferred)
-            .ToList();
-
-        if (!TryResolveMoveInput(position.Fen, submittedMoveText, out AppliedMoveInfo? resolvedMove, out string? error)
-            || resolvedMove is null)
-        {
-            return new OpeningLineRecallAttemptResult(
-                position.PositionId,
-                submittedMoveText,
-                null,
-                null,
-                OpeningLineRecallGrade.Wrong,
-                string.IsNullOrWhiteSpace(error)
-                    ? "The submitted move could not be matched to a legal move in this position."
-                    : error,
-                [],
-                preferredReferences,
-                playableReferences);
-        }
-
-        IReadOnlyList<OpeningTrainingMoveOption> matchingReferences = position.CandidateMoves
-            .Where(option => MovesMatch(option, resolvedMove))
-            .ToList();
-
-        OpeningLineRecallGrade grade;
-        string summary;
-        if (matchingReferences.Any(option => option.IsPreferred))
-        {
-            grade = OpeningLineRecallGrade.Correct;
-            summary = $"Accepted as correct. The move matches a preferred local reference: {FormatMatchedReferences(matchingReferences.Where(option => option.IsPreferred).ToList())}.";
-        }
-        else if (matchingReferences.Count > 0)
-        {
-            grade = OpeningLineRecallGrade.Playable;
-            summary = $"Accepted as playable. The move appears in local references, but it is not the strongest preferred continuation here: {FormatMatchedReferences(matchingReferences)}.";
-        }
-        else
-        {
-            grade = OpeningLineRecallGrade.Wrong;
-            summary = preferredReferences.Count == 0
-                ? "Marked as wrong because the move does not match any local reference move for this position."
-                : $"Marked as wrong because the move does not match the preferred local references: {FormatMatchedReferences(preferredReferences)}.";
-        }
+        OpeningTrainingAttemptResult result = EvaluateMove(position, submittedMoveText);
 
         return new OpeningLineRecallAttemptResult(
-            position.PositionId,
-            submittedMoveText,
-            resolvedMove.San,
-            resolvedMove.Uci,
-            grade,
-            summary,
-            matchingReferences,
-            preferredReferences,
-            playableReferences);
+            result.PositionId,
+            result.SubmittedMoveText,
+            result.ResolvedSan,
+            result.ResolvedUci,
+            ToLineRecallGrade(result.Score),
+            result.ShortExplanation,
+            result.MatchingReferences,
+            result.PreferredReferences,
+            result.PlayableReferences);
     }
 
     public OpeningMistakeRepairAttemptResult EvaluateMistakeRepairMove(OpeningTrainingPosition position, string submittedMoveText)
@@ -188,69 +215,150 @@ public sealed class OpeningTrainerService
             throw new ArgumentException("Mistake repair evaluation is available only for mistake repair positions.", nameof(position));
         }
 
-        IReadOnlyList<OpeningTrainingMoveOption> preferredReferences = position.CandidateMoves
-            .Where(option => option.IsPreferred)
-            .ToList();
-        IReadOnlyList<OpeningTrainingMoveOption> playableReferences = position.CandidateMoves
-            .Where(option => !option.IsPreferred && option.Role == OpeningTrainingMoveRole.Repair)
-            .ToList();
-
+        OpeningTrainingAttemptResult result = EvaluateMove(position, submittedMoveText);
+        IReadOnlyList<OpeningTrainingMoveOption> preferredReferences = result.PreferredReferences;
+        IReadOnlyList<OpeningTrainingMoveOption> playableReferences = result.PlayableReferences;
         string betterMoveSummary = BuildBetterMoveSummary(position, preferredReferences);
         string whyBetter = BuildWhyBetterSummary(position, preferredReferences, playableReferences);
 
-        if (!TryResolveMoveInput(position.Fen, submittedMoveText, out AppliedMoveInfo? resolvedMove, out string? error)
-            || resolvedMove is null)
-        {
-            return new OpeningMistakeRepairAttemptResult(
-                position.PositionId,
-                submittedMoveText,
-                null,
-                null,
-                OpeningMistakeRepairGrade.Wrong,
-                string.IsNullOrWhiteSpace(error)
-                    ? "The submitted move could not be matched to a legal move in this position."
-                    : error,
-                betterMoveSummary,
-                whyBetter,
-                [],
-                preferredReferences,
-                playableReferences);
-        }
-
-        IReadOnlyList<OpeningTrainingMoveOption> matchingReferences = position.CandidateMoves
-            .Where(option => MovesMatch(option, resolvedMove))
-            .ToList();
-
-        OpeningMistakeRepairGrade grade;
-        string summary;
-        if (matchingReferences.Any(option => option.IsPreferred))
-        {
-            grade = OpeningMistakeRepairGrade.Correct;
-            summary = $"Correct repair. {betterMoveSummary} {whyBetter}";
-        }
-        else if (matchingReferences.Any(option => option.Role == OpeningTrainingMoveRole.Repair))
-        {
-            grade = OpeningMistakeRepairGrade.Playable;
-            summary = $"Playable repair. {betterMoveSummary} {whyBetter}";
-        }
-        else
-        {
-            grade = OpeningMistakeRepairGrade.Wrong;
-            summary = $"Wrong repair. {betterMoveSummary} {whyBetter}";
-        }
-
         return new OpeningMistakeRepairAttemptResult(
-            position.PositionId,
-            submittedMoveText,
-            resolvedMove.San,
-            resolvedMove.Uci,
-            grade,
-            summary,
+            result.PositionId,
+            result.SubmittedMoveText,
+            result.ResolvedSan,
+            result.ResolvedUci,
+            ToMistakeRepairGrade(result.Score),
+            result.ShortExplanation,
             betterMoveSummary,
             whyBetter,
-            matchingReferences,
-            preferredReferences,
-            playableReferences);
+            result.MatchingReferences,
+            result.PreferredReferences,
+            result.PlayableReferences);
+    }
+
+    private static IReadOnlyList<OpeningTrainingMoveOption> GetPreferredReferences(OpeningTrainingPosition position)
+    {
+        if (position.Mode != OpeningTrainingMode.BranchAwareness)
+        {
+            return position.CandidateMoves
+                .Where(option => option.IsPreferred)
+                .ToList();
+        }
+
+        OpeningTrainingBranch? primaryBranch = position.Branches?
+            .OrderByDescending(branch => branch.Frequency)
+            .ThenBy(branch => branch.OpponentMove, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        if (primaryBranch is null)
+        {
+            return [];
+        }
+
+        OpeningTrainingMoveOption? primaryOption = position.CandidateMoves.FirstOrDefault(option =>
+            option.Role == OpeningTrainingMoveRole.Alternative
+            && MoveOptionMatchesTextAndUci(option, primaryBranch.OpponentMove, primaryBranch.OpponentMoveUci));
+
+        return primaryOption is null ? [] : [primaryOption];
+    }
+
+    private static IReadOnlyList<OpeningTrainingMoveOption> GetPlayableReferences(
+        OpeningTrainingPosition position,
+        IReadOnlyList<OpeningTrainingMoveOption> preferredReferences)
+    {
+        IEnumerable<OpeningTrainingMoveOption> playable = position.Mode switch
+        {
+            OpeningTrainingMode.MistakeRepair => position.CandidateMoves
+                .Where(option => !option.IsPreferred && option.Role == OpeningTrainingMoveRole.Repair),
+            OpeningTrainingMode.BranchAwareness => position.CandidateMoves
+                .Where(option => option.Role == OpeningTrainingMoveRole.Alternative),
+            _ => position.CandidateMoves.Where(option => !option.IsPreferred)
+        };
+
+        return playable
+            .Where(option => !preferredReferences.Any(reference => MoveOptionsMatch(reference, option)))
+            .ToList();
+    }
+
+    private static string BuildAttemptExplanation(
+        OpeningTrainingPosition position,
+        OpeningTrainingScore score,
+        IReadOnlyList<OpeningTrainingMoveOption> matchingReferences,
+        IReadOnlyList<OpeningTrainingMoveOption> preferredReferences,
+        IReadOnlyList<OpeningTrainingMoveOption> playableReferences)
+    {
+        return position.Mode switch
+        {
+            OpeningTrainingMode.MistakeRepair => BuildMistakeRepairAttemptExplanation(position, score, preferredReferences, playableReferences),
+            OpeningTrainingMode.BranchAwareness => BuildBranchAwarenessAttemptExplanation(score, matchingReferences, preferredReferences, playableReferences),
+            _ => BuildLineRecallAttemptExplanation(score, matchingReferences, preferredReferences)
+        };
+    }
+
+    private static string BuildLineRecallAttemptExplanation(
+        OpeningTrainingScore score,
+        IReadOnlyList<OpeningTrainingMoveOption> matchingReferences,
+        IReadOnlyList<OpeningTrainingMoveOption> preferredReferences)
+    {
+        return score switch
+        {
+            OpeningTrainingScore.Correct => $"Accepted as correct. The move matches a preferred local reference: {FormatMatchedReferences(matchingReferences.Where(option => option.IsPreferred).ToList())}.",
+            OpeningTrainingScore.Playable => $"Accepted as playable. The move appears in local references, but it is not the strongest preferred continuation here: {FormatMatchedReferences(matchingReferences)}.",
+            _ => preferredReferences.Count == 0
+                ? "Marked as wrong because the move does not match any local reference move for this position."
+                : $"Marked as wrong because the move does not match the preferred local references: {FormatMatchedReferences(preferredReferences)}."
+        };
+    }
+
+    private static string BuildMistakeRepairAttemptExplanation(
+        OpeningTrainingPosition position,
+        OpeningTrainingScore score,
+        IReadOnlyList<OpeningTrainingMoveOption> preferredReferences,
+        IReadOnlyList<OpeningTrainingMoveOption> playableReferences)
+    {
+        string betterMoveSummary = BuildBetterMoveSummary(position, preferredReferences);
+        string whyBetter = BuildWhyBetterSummary(position, preferredReferences, playableReferences);
+
+        return score switch
+        {
+            OpeningTrainingScore.Correct => $"Correct repair. {betterMoveSummary} {whyBetter}",
+            OpeningTrainingScore.Playable => $"Playable repair. {betterMoveSummary} {whyBetter}",
+            _ => $"Wrong repair. {betterMoveSummary} {whyBetter}"
+        };
+    }
+
+    private static string BuildBranchAwarenessAttemptExplanation(
+        OpeningTrainingScore score,
+        IReadOnlyList<OpeningTrainingMoveOption> matchingReferences,
+        IReadOnlyList<OpeningTrainingMoveOption> preferredReferences,
+        IReadOnlyList<OpeningTrainingMoveOption> playableReferences)
+    {
+        return score switch
+        {
+            OpeningTrainingScore.Correct => $"Correct branch. This is the highest-priority local opponent reply: {FormatMatchedReferences(preferredReferences)}.",
+            OpeningTrainingScore.Playable => $"Playable branch. This opponent reply appears in local branches: {FormatMatchedReferences(matchingReferences)}. Primary branch: {FormatMatchedReferences(preferredReferences)}.",
+            _ => preferredReferences.Count == 0 && playableReferences.Count == 0
+                ? "Marked as wrong because no saved local opponent branches are available for this position."
+                : $"Marked as wrong because the move does not match the saved local opponent branches: {FormatMatchedReferences(preferredReferences.Concat(playableReferences).ToList())}."
+        };
+    }
+
+    private static OpeningLineRecallGrade ToLineRecallGrade(OpeningTrainingScore score)
+    {
+        return score switch
+        {
+            OpeningTrainingScore.Correct => OpeningLineRecallGrade.Correct,
+            OpeningTrainingScore.Playable => OpeningLineRecallGrade.Playable,
+            _ => OpeningLineRecallGrade.Wrong
+        };
+    }
+
+    private static OpeningMistakeRepairGrade ToMistakeRepairGrade(OpeningTrainingScore score)
+    {
+        return score switch
+        {
+            OpeningTrainingScore.Correct => OpeningMistakeRepairGrade.Correct,
+            OpeningTrainingScore.Playable => OpeningMistakeRepairGrade.Playable,
+            _ => OpeningMistakeRepairGrade.Wrong
+        };
     }
 
     private static OpeningTrainingSessionOptions NormalizeOptions(OpeningTrainingSessionOptions? options)
@@ -267,7 +375,12 @@ public sealed class OpeningTrainerService
             sources,
             Math.Max(1, options?.MaxPositions ?? 18),
             Math.Max(1, options?.MaxPositionsPerSource ?? 6),
-            Math.Clamp(options?.MaxContinuationMoves ?? 6, 1, 12));
+            Math.Clamp(options?.MaxContinuationMoves ?? 6, 1, 12),
+            options?.TargetOpenings?
+                .Where(opening => !string.IsNullOrWhiteSpace(opening))
+                .Select(NormalizeEco)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList());
     }
 
     private List<OpeningTrainerSnapshot> LoadSnapshots(string? filterText, int limit)
@@ -1332,6 +1445,36 @@ public sealed class OpeningTrainerService
         return string.Equals(
             SanNotation.NormalizeSan(option.DisplayText),
             SanNotation.NormalizeSan(resolvedMove.San),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MoveOptionsMatch(OpeningTrainingMoveOption left, OpeningTrainingMoveOption right)
+    {
+        if (!string.IsNullOrWhiteSpace(left.Uci)
+            && !string.IsNullOrWhiteSpace(right.Uci)
+            && string.Equals(left.Uci, right.Uci, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(
+            SanNotation.NormalizeSan(left.DisplayText),
+            SanNotation.NormalizeSan(right.DisplayText),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MoveOptionMatchesTextAndUci(OpeningTrainingMoveOption option, string displayText, string? uci)
+    {
+        if (!string.IsNullOrWhiteSpace(option.Uci)
+            && !string.IsNullOrWhiteSpace(uci)
+            && string.Equals(option.Uci, uci, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(
+            SanNotation.NormalizeSan(option.DisplayText),
+            SanNotation.NormalizeSan(displayText),
             StringComparison.OrdinalIgnoreCase);
     }
 

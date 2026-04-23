@@ -8,23 +8,22 @@
         Title="Imported Game Analysis"
         Background="{DynamicResource ChromeBrush}">
   <Grid Margin="18" RowDefinitions="Auto,Auto,*">
-    <Grid ColumnDefinitions="220,180,180,*,170,150">
+    <Grid ColumnDefinitions="220,180,*,170,150">
       <ComboBox x:Name="SideComboBox" />
       <ComboBox x:Name="QualityFilterComboBox" Grid.Column="1" Margin="12,0,0,0" />
-      <ComboBox x:Name="ExplanationLevelComboBox" Grid.Column="2" Margin="12,0,0,0" />
       <TextBlock x:Name="SummaryTextBlock"
-                 Grid.Column="3"
+                 Grid.Column="2"
                  Margin="16,0,0,0"
                  VerticalAlignment="Center"
                  Foreground="White"
                  TextWrapping="Wrap" />
       <Button x:Name="AnalyzeButton"
-              Grid.Column="4"
+              Grid.Column="3"
               Margin="16,0,0,0"
               Click="AnalyzeButton_Click"
               Content="Run Analysis" />
       <Button x:Name="ShowOnBoardButton"
-              Grid.Column="5"
+              Grid.Column="4"
               Margin="12,0,0,0"
               Click="ShowOnBoardButton_Click"
               Content="Show On Board" />

@@ -12,6 +12,7 @@ public static class AdvicePromptFormatter
 
         // System instruction — role and tone.
         builder.AppendLine(BuildSystemBlock(request.ExplanationLevel));
+        builder.AppendLine(BuildNarrationStyleBlock(request.NarrationStyle));
         builder.AppendLine();
 
         // Position context.
@@ -176,6 +177,42 @@ public static class AdvicePromptFormatter
                 Be concrete: name pieces, squares and the key idea behind the mistake.
                 Keep the tone instructive but not overly technical.
                 The training hint should be a specific check or habit to prevent this mistake.
+                """
+        };
+    }
+
+    private static string BuildNarrationStyleBlock(AdviceNarrationStyle style)
+    {
+        return style switch
+        {
+            AdviceNarrationStyle.LevyRozman =>
+                """
+                Narration style: energetic online chess educator inspired by Levy Rozman's public teaching style.
+                Be lively, direct, and practical. Make the tone clearly different from a generic coach.
+                You may use light humor, but do not imitate exact catchphrases.
+                """,
+            AdviceNarrationStyle.HikaruNakamura =>
+                """
+                Narration style: fast, calculation-focused grandmaster commentary inspired by Hikaru Nakamura.
+                Make the tone clearly different from a generic coach.
+                Emphasize candidate moves, tactics, speed of recognition, and concrete reasons.
+                """,
+            AdviceNarrationStyle.BotezLive =>
+                """
+                Narration style: upbeat streaming chess sisters energy inspired by BotezLive.
+                Make the tone clearly different from a generic coach.
+                Keep it encouraging, conversational, and slightly playful while still giving precise chess advice.
+                """,
+            AdviceNarrationStyle.WittyAlien =>
+                """
+                Narration style: witty alien chess goblin coach.
+                Make the tone clearly different from a generic coach.
+                Use oddball humor in the spirit of phrases like "sacrifice the pony" and "everyone wants free candy", but keep the advice clear and do not overdo the jokes.
+                """,
+            _ =>
+                """
+                Narration style: regular trainer.
+                Use the same practical coaching tone as the default application advice.
                 """
         };
     }

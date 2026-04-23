@@ -22,12 +22,17 @@ public sealed class GameAnalysisService
         this.mistakeSelector = mistakeSelector ?? new MistakeSelector();
     }
 
-    public GameAnalysisResult AnalyzeGame(ImportedGame game, PlayerSide analyzedSide, EngineAnalysisOptions options)
+    public GameAnalysisResult AnalyzeGame(
+        ImportedGame game,
+        PlayerSide analyzedSide,
+        EngineAnalysisOptions options,
+        IProgress<GameAnalysisProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(game);
         ArgumentNullException.ThrowIfNull(options);
 
         IReadOnlyList<ReplayPly> replay = replayService.Replay(game);
+        List<ReplayPly> analyzedPlies = replay.Where(item => item.Side == analyzedSide).ToList();
         List<MoveAnalysisResult> moveAnalyses = new();
         Dictionary<EngineCacheKey, EngineAnalysis> analysisCache = new();
 
@@ -35,9 +40,25 @@ public sealed class GameAnalysisService
         string? analyzedPlayerName = analyzedSide == PlayerSide.White ? game.WhitePlayer : game.BlackPlayer;
         PlayerMistakeProfile? playerProfile = PlayerMistakeProfileProvider.TryBuild(analyzedPlayerName);
 
-        foreach (ReplayPly ply in replay.Where(item => item.Side == analyzedSide))
+        for (int i = 0; i < analyzedPlies.Count; i++)
         {
+            ReplayPly ply = analyzedPlies[i];
+            int currentAnalyzedMove = i + 1;
+            progress?.Report(new GameAnalysisProgress(
+                ply,
+                ply.FenBefore,
+                GameAnalysisProgressStage.BeforeMove,
+                currentAnalyzedMove,
+                analyzedPlies.Count));
+
             EngineAnalysis beforeAnalysis = AnalyzeCached(ply.FenBefore, options, analysisCache);
+            progress?.Report(new GameAnalysisProgress(
+                ply,
+                ply.FenAfter,
+                GameAnalysisProgressStage.AfterMove,
+                currentAnalyzedMove,
+                analyzedPlies.Count));
+
             EngineAnalysis afterAnalysis = AnalyzeCached(ply.FenAfter, options, analysisCache);
 
             EngineLine? bestLine = beforeAnalysis.Lines.FirstOrDefault();

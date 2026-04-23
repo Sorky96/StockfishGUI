@@ -88,6 +88,20 @@ public sealed class OpeningTrainerServiceTests
         OpeningTrainingSourceSummary weaknessSummary = Assert.Single(session.SourceSummaries, item => item.SourceKind == OpeningTrainingSourceKind.OpeningWeakness);
         Assert.True(weaknessSummary.PositionCount >= 1);
         Assert.Contains("C20", weaknessSummary.RelatedOpenings);
+
+        Assert.True(service.TryBuildSession("Alpha", out OpeningTrainingSession? branchOnlySession, new OpeningTrainingSessionOptions(
+            Modes: [OpeningTrainingMode.BranchAwareness])));
+        Assert.NotNull(branchOnlySession);
+        Assert.All(branchOnlySession!.Positions, position => Assert.Equal(OpeningTrainingMode.BranchAwareness, position.Mode));
+        Assert.Equal([OpeningTrainingMode.BranchAwareness], branchOnlySession.SupportedModes);
+
+        Assert.True(service.TryBuildSession("Alpha", out OpeningTrainingSession? b01Session, new OpeningTrainingSessionOptions(
+            TargetOpenings: ["B01"],
+            MaxPositions: 6,
+            MaxPositionsPerSource: 6)));
+        Assert.NotNull(b01Session);
+        Assert.NotEmpty(b01Session!.Positions);
+        Assert.All(b01Session.Positions, position => Assert.Equal("B01", position.Eco));
     }
 
     [Fact]
@@ -221,6 +235,82 @@ public sealed class OpeningTrainerServiceTests
         Assert.Equal(OpeningMistakeRepairGrade.Wrong, wrong.Grade);
         Assert.NotNull(wrong.ResolvedSan);
         Assert.DoesNotContain(wrong.MatchingReferences, option => option.Role == OpeningTrainingMoveRole.Repair);
+    }
+
+    [Fact]
+    public void OpeningTrainerService_EvaluatesAllModesThroughCommonAttemptResult()
+    {
+        GameAnalysisResult gameA = CreateResult(
+            "Omega",
+            "Beta",
+            PlayerSide.White,
+            "C20",
+            "2026.04.01",
+            ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "c3", "Nf6"],
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [
+                new AnalyzedMoveSpec(1, 20, null, "e2e4", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(3, 18, null, "g1f3", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(5, 22, null, "f1c4", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(7, 95, "opening_principles", "d2d4")
+            ]);
+        GameAnalysisResult gameB = CreateResult(
+            "Omega",
+            "Gamma",
+            PlayerSide.White,
+            "C20",
+            "2026.04.08",
+            ["e4", "e5", "Nf3", "d6", "Bc4", "Nf6", "h3", "Be7"],
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [
+                new AnalyzedMoveSpec(1, 20, null, "e2e4", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(3, 16, null, "g1f3", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(5, 20, null, "f1c4", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(7, 85, "opening_principles", "d2d4")
+            ]);
+        GameAnalysisResult gameC = CreateResult(
+            "Omega",
+            "Delta",
+            PlayerSide.White,
+            "B01",
+            "2026.04.16",
+            ["Nf3", "d5", "h4", "Nc6"],
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [
+                new AnalyzedMoveSpec(1, 22, null, "g1f3", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(3, 90, "opening_principles", "d2d4")
+            ]);
+
+        OpeningTrainerService service = new(new FakeAnalysisStore([gameA, gameB, gameC]));
+        Assert.True(service.TryBuildSession("Omega", out OpeningTrainingSession? session));
+
+        OpeningTrainingPosition lineRecall = session!.Positions.First(position => position.Mode == OpeningTrainingMode.LineRecall);
+        OpeningTrainingAttemptResult lineResult = service.EvaluateMove(lineRecall, lineRecall.CandidateMoves.First(option => option.IsPreferred).Uci!);
+
+        Assert.Equal(OpeningTrainingMode.LineRecall, lineResult.Mode);
+        Assert.Equal(lineRecall.SourceKind, lineResult.PositionSource);
+        Assert.Equal(OpeningTrainingScore.Correct, lineResult.Score);
+        Assert.NotEmpty(lineResult.ExpectedMoves);
+        Assert.False(string.IsNullOrWhiteSpace(lineResult.ShortExplanation));
+
+        OpeningTrainingPosition repair = session.Positions.First(position => position.Mode == OpeningTrainingMode.MistakeRepair);
+        OpeningTrainingAttemptResult repairResult = service.EvaluateMove(repair, repair.CandidateMoves.First(option => option.IsPreferred).Uci!);
+
+        Assert.Equal(OpeningTrainingMode.MistakeRepair, repairResult.Mode);
+        Assert.Equal(repair.SourceKind, repairResult.PositionSource);
+        Assert.Equal(OpeningTrainingScore.Correct, repairResult.Score);
+        Assert.Contains(repairResult.ExpectedMoves, option => option.Role == OpeningTrainingMoveRole.Repair);
+        Assert.Contains("Correct repair", repairResult.ShortExplanation);
+
+        OpeningTrainingPosition branch = session.Positions.First(position => position.Mode == OpeningTrainingMode.BranchAwareness);
+        OpeningTrainingBranch primaryBranch = branch.Branches!.OrderByDescending(item => item.Frequency).ThenBy(item => item.OpponentMove).First();
+        OpeningTrainingAttemptResult branchResult = service.EvaluateMove(branch, primaryBranch.OpponentMoveUci ?? primaryBranch.OpponentMove);
+
+        Assert.Equal(OpeningTrainingMode.BranchAwareness, branchResult.Mode);
+        Assert.Equal(branch.SourceKind, branchResult.PositionSource);
+        Assert.Equal(OpeningTrainingScore.Correct, branchResult.Score);
+        Assert.Contains(branchResult.ExpectedMoves, option => option.Role == OpeningTrainingMoveRole.Alternative);
+        Assert.Contains("Correct branch", branchResult.ShortExplanation);
     }
 
     private static GameAnalysisResult CreateResult(

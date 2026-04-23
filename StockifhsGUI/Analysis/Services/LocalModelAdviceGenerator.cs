@@ -29,6 +29,9 @@ public sealed class LocalModelAdviceGenerator : IAdviceGenerator, IAdviceGenerat
         ExplanationLevel level = ExplanationLevel.Intermediate,
         AdviceGenerationContext? context = null)
     {
+        AdviceNarrationStyle narrationStyle = context?.NarrationStyle
+            ?? AdviceNarrationStyle.RegularTrainer;
+
         LocalModelAdviceRequest request = new(
             replay,
             quality,
@@ -37,7 +40,8 @@ public sealed class LocalModelAdviceGenerator : IAdviceGenerator, IAdviceGenerat
             centipawnLoss,
             level,
             context,
-            string.Empty);
+            string.Empty,
+            narrationStyle);
         request = request with { Prompt = AdvicePromptFormatter.BuildPrompt(request) };
 
         if (!localModel.IsAvailable)

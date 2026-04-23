@@ -485,7 +485,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return null;
         }
 
-        return new AnalysisWindow(importedGame, engine, NavigateToAnalysisMistakeAsync, SelectedAnalysisSide);
+        return new AnalysisWindow(importedGame, engine, NavigateToAnalysisMistakeAsync, ShowAnalysisProgressOnBoard, SelectedAnalysisSide);
     }
 
     public bool HasAnalysisEngine()
@@ -574,9 +574,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             AnalysisDetails = "Stockfish is analyzing the imported game. This may take a moment.";
             AnalysisMistakes.Clear();
             SelectedAnalysisMistake = null;
+            IProgress<GameAnalysisProgress> progress = new Progress<GameAnalysisProgress>(ShowAnalysisProgressOnBoard);
 
             GameAnalysisService analysisService = new(engine);
-            cachedAnalysisResult = await Task.Run(() => analysisService.AnalyzeGame(importedGame, SelectedAnalysisSide, new EngineAnalysisOptions()));
+            cachedAnalysisResult = await Task.Run(() => analysisService.AnalyzeGame(
+                importedGame,
+                SelectedAnalysisSide,
+                new EngineAnalysisOptions(),
+                progress));
             ApplyAnalysisFilter();
             StatusMessage = $"Analysis finished for {SelectedAnalysisSide}.";
         }
@@ -590,7 +595,35 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         finally
         {
             IsBusy = false;
+            RefreshEngineSummary();
+            RefreshImportedSummary();
         }
+    }
+
+    private void ShowAnalysisProgressOnBoard(GameAnalysisProgress progress)
+    {
+        if (!chessGame.TryLoadFen(progress.Fen, out _))
+        {
+            return;
+        }
+
+        importedCursor = progress.Stage == GameAnalysisProgressStage.AfterMove
+            ? progress.Replay.Ply
+            : Math.Max(0, progress.Replay.Ply - 1);
+
+        if (progress.Replay.Ply - 1 >= 0 && progress.Replay.Ply - 1 < ImportedMoves.Count)
+        {
+            SelectedImportedMove = ImportedMoves[progress.Replay.Ply - 1];
+        }
+
+        BestMoveArrows = [new BoardArrowViewModel(progress.Replay.FromSquare, progress.Replay.ToSquare, Color.Parse("#D33838"))];
+        ClearSelection();
+        RefreshImportedSummary();
+
+        string positionText = progress.Stage == GameAnalysisProgressStage.BeforeMove
+            ? "before"
+            : "after";
+        StatusMessage = $"Analyzing {progress.CurrentAnalyzedMove}/{progress.TotalAnalyzedMoves}: {positionText} {progress.Replay.MoveNumber}{(progress.Replay.Side == PlayerSide.White ? "." : "...")} {progress.Replay.San}.";
     }
 
     private void ApplyAnalysisFilter()

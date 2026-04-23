@@ -53,6 +53,14 @@ public sealed partial class PlayerProfileService
         return new OpeningWeaknessService(analysisStore).TryBuildReport(playerKeyOrName, out report);
     }
 
+    public bool TryBuildOpeningTrainingSession(
+        string playerKeyOrName,
+        out OpeningTrainingSession? session,
+        OpeningTrainingSessionOptions? options = null)
+    {
+        return new OpeningTrainerService(analysisStore).TryBuildSession(playerKeyOrName, out session, options);
+    }
+
     private List<PlayerProfileSnapshot> LoadSnapshots(string? filterText, int limit)
     {
         IReadOnlyList<StoredMoveAnalysis> storedMoves = analysisStore.ListMoveAnalyses(filterText, Math.Clamp(limit * 64, 500, 50000));

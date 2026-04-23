@@ -30,6 +30,21 @@ public enum ExplanationLevel
     Advanced
 }
 
+public enum AdviceNarrationStyle
+{
+    RegularTrainer,
+    LevyRozman,
+    HikaruNakamura,
+    BotezLive,
+    WittyAlien
+}
+
+public enum GameAnalysisProgressStage
+{
+    BeforeMove,
+    AfterMove
+}
+
 public sealed record ImportedGame(
     string PgnText,
     IReadOnlyList<string> SanMoves,
@@ -165,6 +180,13 @@ public sealed record GameAnalysisResult(
     IReadOnlyList<MoveAnalysisResult> MoveAnalyses,
     IReadOnlyList<SelectedMistake> HighlightedMistakes,
     OpeningPhaseReview? OpeningReview = null);
+
+public sealed record GameAnalysisProgress(
+    ReplayPly Replay,
+    string Fen,
+    GameAnalysisProgressStage Stage,
+    int CurrentAnalyzedMove,
+    int TotalAnalyzedMoves);
 
 public sealed record StoredMoveAnalysis(
     string GameFingerprint,

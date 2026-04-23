@@ -737,6 +737,49 @@ Kxa2 62. Qb2# 1-0
     }
 
     [Fact]
+    public void GameAnalysisService_ReportsAnalyzedPositionsInOrder()
+    {
+        ImportedGame game = PgnGameParser.Parse(MiniPgn);
+        GameReplayService replayService = new();
+        IReadOnlyList<ReplayPly> replay = replayService.Replay(game);
+
+        ReplayPly whiteFirst = replay[0];
+        ReplayPly whiteSecond = replay[2];
+
+        FakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [whiteFirst.FenBefore] = AnalysisFor(whiteFirst.FenBefore, "e2e4", 50, null, "e2e4"),
+            [whiteFirst.FenAfter] = AnalysisFor(whiteFirst.FenAfter, "e7e5", 120, null, "e7e5"),
+            [whiteSecond.FenBefore] = AnalysisFor(whiteSecond.FenBefore, "g2g3", 30, null, "g2g3"),
+            [whiteSecond.FenAfter] = AnalysisFor(whiteSecond.FenAfter, "d8h4", null, 1, "d8h4")
+        });
+        List<GameAnalysisProgress> reported = [];
+        SynchronousProgress<GameAnalysisProgress> progress = new(reported.Add);
+
+        GameAnalysisService service = new(fakeEngine, replayService);
+        service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions(), progress);
+
+        Assert.Equal(4, reported.Count);
+        Assert.Equal(
+            [
+                whiteFirst.FenBefore,
+                whiteFirst.FenAfter,
+                whiteSecond.FenBefore,
+                whiteSecond.FenAfter
+            ],
+            reported.Select(item => item.Fen).ToArray());
+        Assert.Equal(
+            [
+                GameAnalysisProgressStage.BeforeMove,
+                GameAnalysisProgressStage.AfterMove,
+                GameAnalysisProgressStage.BeforeMove,
+                GameAnalysisProgressStage.AfterMove
+            ],
+            reported.Select(item => item.Stage).ToArray());
+        Assert.All(reported, item => Assert.Equal(2, item.TotalAnalyzedMoves));
+    }
+
+    [Fact]
     public void OpeningPhaseReviewBuilder_UsesExactEcoBranchWhenAvailable()
     {
         ImportedGame game = PgnGameParser.Parse("1. e4 e5 2. Bc4 Nc6 3. Qh5");
@@ -2042,6 +2085,18 @@ training_hint: Model training hint
 
             throw new InvalidOperationException($"No fake analysis configured for FEN: {fen}");
         }
+    }
+
+    private sealed class SynchronousProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> handler;
+
+        public SynchronousProgress(Action<T> handler)
+        {
+            this.handler = handler;
+        }
+
+        public void Report(T value) => handler(value);
     }
 
     private sealed class CountingFakeEngineAnalyzer : IEngineAnalyzer

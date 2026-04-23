@@ -11,12 +11,12 @@ namespace StockifhsGUI.Avalonia.Views;
 public partial class ProfilesWindow : Window
 {
     private readonly PlayerProfileService profileService;
-    private readonly OpeningTrainerService openingTrainerService;
     private readonly Func<ProfileMistakeExample, Task>? navigateToProfileExampleAsync;
     private readonly Func<OpeningExampleGame, Task>? navigateToOpeningExampleAsync;
     private readonly Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync;
     private List<PlayerProfileSummaryItemViewModel> items = [];
     private OpeningTrainingSession? currentOpeningTrainingSession;
+    private string? currentProfilePlayerKey;
 
     public ProfilesWindow()
         : this(new PlayerProfileService(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable.")))
@@ -30,7 +30,6 @@ public partial class ProfilesWindow : Window
         Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync = null)
     {
         this.profileService = profileService;
-        openingTrainerService = new OpeningTrainerService(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable."));
         this.navigateToProfileExampleAsync = navigateToProfileExampleAsync;
         this.navigateToOpeningExampleAsync = navigateToOpeningExampleAsync;
         this.navigateToOpeningPositionAsync = navigateToOpeningPositionAsync;
@@ -58,7 +57,7 @@ public partial class ProfilesWindow : Window
         }
 
         profileService.TryBuildOpeningWeaknessReport(item.Summary.PlayerKey, out OpeningWeaknessReport? openingReport);
-        openingTrainerService.TryBuildSession(item.Summary.PlayerKey, out currentOpeningTrainingSession, new OpeningTrainingSessionOptions(
+        profileService.TryBuildOpeningTrainingSession(item.Summary.PlayerKey, out currentOpeningTrainingSession, new OpeningTrainingSessionOptions(
             Modes: [OpeningTrainingMode.BranchAwareness],
             Sources: [OpeningTrainingSourceKind.OpeningWeakness],
             MaxPositions: 12,
@@ -102,6 +101,7 @@ public partial class ProfilesWindow : Window
     private void RenderProfile(PlayerProfileReport report, OpeningWeaknessReport? openingReport)
     {
         DetailsPanel.Children.Clear();
+        currentProfilePlayerKey = report.PlayerKey;
 
         DetailsPanel.Children.Add(CreateHeroCard(report));
         DetailsPanel.Children.Add(CreateSnapshotCard(report));
@@ -969,6 +969,10 @@ public partial class ProfilesWindow : Window
             $"{opening.Eco} | {FormatOpeningFrequency(opening.Count, openingGamesAnalyzed)} | Avg opening CPL {opening.AverageOpeningCentipawnLoss?.ToString() ?? "n/a"}",
             "#D7E2EA"));
         panel.Children.Add(CreateBodyText(
+            $"{FormatOpeningWeaknessCategory(opening.Category)} | {FormatTrendHeadline(opening.TrendDirection)}",
+            "#9EB5C5"));
+        panel.Children.Add(CreateBodyText(opening.CategoryReason, "#9EB5C5"));
+        panel.Children.Add(CreateBodyText(
             $"First recurring mistake: {FormatMistakeLabel(opening.FirstRecurringMistakeType ?? "unclassified")} ({opening.FirstRecurringMistakeCount} examples).",
             "#D7E2EA"));
 
@@ -1033,6 +1037,30 @@ public partial class ProfilesWindow : Window
             }
         };
         actions.Children.Add(branchButton);
+
+        Button trainingButton = new()
+        {
+            Content = "Start opening training",
+            IsEnabled = !string.IsNullOrWhiteSpace(currentProfilePlayerKey),
+            Margin = new Thickness(0, 0, 8, 0),
+            MinWidth = 220
+        };
+        trainingButton.Click += async (_, _) =>
+        {
+            trainingButton.IsEnabled = false;
+            try
+            {
+                await ShowOpeningTrainingWindowAsync(opening);
+            }
+            finally
+            {
+                if (!IsClosed())
+                {
+                    trainingButton.IsEnabled = !string.IsNullOrWhiteSpace(currentProfilePlayerKey);
+                }
+            }
+        };
+        actions.Children.Add(trainingButton);
         actions.Children.Add(CreateBodyText(
             openingBranches.Count == 0
                 ? "No stable local branch sample yet for this opening."
@@ -1041,6 +1069,154 @@ public partial class ProfilesWindow : Window
         panel.Children.Add(actions);
 
         card.Child = panel;
+        return card;
+    }
+
+    private async Task ShowOpeningTrainingWindowAsync(OpeningWeaknessEntry opening)
+    {
+        if (string.IsNullOrWhiteSpace(currentProfilePlayerKey))
+        {
+            return;
+        }
+
+        OpeningTrainingSessionOptions options = new(
+            TargetOpenings: [opening.Eco],
+            MaxPositions: 12,
+            MaxPositionsPerSource: 6,
+            MaxContinuationMoves: 4);
+
+        if (!profileService.TryBuildOpeningTrainingSession(currentProfilePlayerKey, out OpeningTrainingSession? session, options)
+            || session is null
+            || session.Positions.Count == 0)
+        {
+            OpenSectionWindow(
+                $"Opening training - {opening.OpeningDisplayName}",
+                [
+                    CreateBodyText("No local training positions are available yet for this opening.", "#D7E2EA")
+                ]);
+            return;
+        }
+
+        Window window = new()
+        {
+            Title = $"Opening training - {opening.OpeningDisplayName}",
+            Width = 1160,
+            Height = 840,
+            MinWidth = 900,
+            MinHeight = 620,
+            Background = Brush.Parse("#23313B")
+        };
+
+        StackPanel content = new()
+        {
+            Spacing = 12
+        };
+
+        content.Children.Add(CreateSectionCard(
+            "Opening training",
+            [
+                CreateBodyText($"{opening.OpeningDisplayName} | {FormatOpeningWeaknessCategory(opening.Category)}", "#D7E2EA"),
+                CreateBodyText("This session is filtered to the selected opening and built only from stored profile weaknesses and local analysis.", "#D7E2EA")
+            ]));
+
+        foreach (OpeningTrainingPosition position in session.Positions)
+        {
+            content.Children.Add(CreateOpeningTrainingPositionCard(position));
+        }
+
+        window.Content = new Border
+        {
+            Padding = new Thickness(18),
+            Child = new ScrollViewer
+            {
+                Content = content
+            }
+        };
+
+        await window.ShowDialog(this);
+    }
+
+    private Control CreateOpeningTrainingPositionCard(OpeningTrainingPosition position)
+    {
+        if (position.Mode == OpeningTrainingMode.BranchAwareness)
+        {
+            return CreateBranchAwarenessCard(position);
+        }
+
+        Border card = new()
+        {
+            Background = Brush.Parse("#182B37"),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+
+        Grid grid = new()
+        {
+            ColumnDefinitions = new ColumnDefinitions("120,*")
+        };
+
+        Border boardHost = new()
+        {
+            Width = 120,
+            Height = 120,
+            CornerRadius = new CornerRadius(10),
+            ClipToBounds = true
+        };
+        boardHost.Child = new ChessBoardView
+        {
+            Width = 120,
+            Height = 120,
+            Fen = position.Fen,
+            IsHitTestVisible = false
+        };
+        grid.Children.Add(boardHost);
+
+        StackPanel panel = new()
+        {
+            Margin = new Thickness(14, 0, 0, 0),
+            Spacing = 6
+        };
+        Grid.SetColumn(panel, 1);
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"{FormatOpeningTrainingMode(position.Mode)} | {position.Prompt}",
+            FontSize = 17,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap
+        });
+        panel.Children.Add(CreateBodyText(position.Instruction, "#D7E2EA"));
+
+        if (!string.IsNullOrWhiteSpace(position.PlayedMove))
+        {
+            panel.Children.Add(CreateBodyText($"Played in game: {position.PlayedMove}", "#9EB5C5"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(position.BetterMove))
+        {
+            panel.Children.Add(CreateBodyText($"Target repair: {position.BetterMove}", "#D7E2EA"));
+        }
+
+        IReadOnlyList<string> candidateMoves = position.CandidateMoves
+            .OrderByDescending(move => move.IsPreferred)
+            .ThenBy(move => move.DisplayText, StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .Select(move => move.IsPreferred ? $"{move.DisplayText} (preferred)" : move.DisplayText)
+            .ToList();
+        if (candidateMoves.Count > 0)
+        {
+            panel.Children.Add(CreateBodyText($"Local references: {string.Join(", ", candidateMoves)}", "#9EB5C5"));
+        }
+
+        if (position.Continuation.Count > 0)
+        {
+            panel.Children.Add(CreateBodyText($"Continuation: {string.Join(" -> ", position.Continuation.Select(move => move.San))}", "#9EB5C5"));
+        }
+
+        grid.Children.Add(panel);
+        card.Child = grid;
         return card;
     }
 
@@ -1553,6 +1729,28 @@ public partial class ProfilesWindow : Window
             TrainingBlockPurpose.Maintain => "Maintain",
             TrainingBlockPurpose.Checklist => "Checklist",
             _ => purpose.ToString()
+        };
+    }
+
+    private static string FormatOpeningWeaknessCategory(OpeningWeaknessCategory category)
+    {
+        return category switch
+        {
+            OpeningWeaknessCategory.FixNow => "Opening to fix now",
+            OpeningWeaknessCategory.ReviewLater => "Opening to review later",
+            OpeningWeaknessCategory.Stable => "Opening stable",
+            _ => category.ToString()
+        };
+    }
+
+    private static string FormatOpeningTrainingMode(OpeningTrainingMode mode)
+    {
+        return mode switch
+        {
+            OpeningTrainingMode.LineRecall => "Line recall",
+            OpeningTrainingMode.MistakeRepair => "Mistake repair",
+            OpeningTrainingMode.BranchAwareness => "Branch awareness",
+            _ => mode.ToString()
         };
     }
 

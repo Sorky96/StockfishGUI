@@ -15,11 +15,15 @@
                    Margin="0,12,0,0"
                    Foreground="#D7E2EA"
                    TextWrapping="Wrap"
-                   Text="Choose how aggressively llama.cpp should use GPU layers when the local advice model starts." />
-        <CheckBox x:Name="FullGpuPowerCheckBox"
-                  Grid.Row="2"
-                  Margin="0,12,0,0"
-                  Content="Use full GPU power for the local model" />
+                   Text="Choose how the local advice model should explain analysis positions." />
+        <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="10">
+          <CheckBox x:Name="FullGpuPowerCheckBox"
+                    Content="Use full GPU power for the local model" />
+          <TextBlock Foreground="#D7E2EA" Text="Explanation level" />
+          <ComboBox x:Name="ExplanationLevelComboBox" />
+          <TextBlock Foreground="#D7E2EA" Text="Narration style" />
+          <ComboBox x:Name="NarrationStyleComboBox" />
+        </StackPanel>
         <TextBlock x:Name="ModeDescriptionTextBlock"
                    Grid.Row="3"
                    Margin="0,12,0,0"

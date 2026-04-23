@@ -207,7 +207,8 @@ public sealed class OpeningWeaknessService
         IReadOnlyList<OpeningWeaknessEntry> weakOpenings = snapshots
             .GroupBy(snapshot => snapshot.Eco, StringComparer.OrdinalIgnoreCase)
             .Select(BuildOpeningEntry)
-            .OrderByDescending(item => item.Count)
+            .OrderBy(item => GetCategoryOrder(item.Category))
+            .ThenByDescending(item => item.Count)
             .ThenByDescending(item => item.FirstRecurringMistakeCount)
             .ThenByDescending(item => item.AverageOpeningCentipawnLoss ?? 0)
             .ThenBy(item => item.Eco, StringComparer.OrdinalIgnoreCase)
@@ -271,6 +272,14 @@ public sealed class OpeningWeaknessService
         int firstRecurringMistakeCount = string.IsNullOrWhiteSpace(firstRecurringMistakeType)
             ? 0
             : issues.Count(item => string.Equals(item.Move.MistakeLabel ?? "unclassified", firstRecurringMistakeType, StringComparison.Ordinal));
+        int? averageOpeningCentipawnLoss = TryAverage(snapshots.SelectMany(snapshot => snapshot.OpeningMoves).Select(move => move.CentipawnLoss));
+        ProfileProgressDirection trendDirection = BuildOpeningTrend(snapshots);
+        OpeningWeaknessCategory category = ClassifyOpening(
+            snapshots.Count,
+            averageOpeningCentipawnLoss,
+            firstRecurringMistakeCount,
+            trendDirection);
+        string categoryReason = BuildCategoryReason(category, snapshots.Count, averageOpeningCentipawnLoss, firstRecurringMistakeCount, trendDirection);
 
         IReadOnlyList<OpeningMistakeSequenceStat> sequences = snapshots
             .Select(BuildSequenceCandidate)
@@ -337,9 +346,12 @@ public sealed class OpeningWeaknessService
             openingName,
             OpeningCatalog.Describe(eco),
             snapshots.Count,
-            TryAverage(snapshots.SelectMany(snapshot => snapshot.OpeningMoves).Select(move => move.CentipawnLoss)),
+            averageOpeningCentipawnLoss,
             firstRecurringMistakeType,
             firstRecurringMistakeCount,
+            category,
+            trendDirection,
+            categoryReason,
             sequences,
             exampleGames,
             betterMoves);
@@ -460,6 +472,127 @@ public sealed class OpeningWeaknessService
         return knownValues.Count == 0
             ? null
             : (int)Math.Round(knownValues.Average());
+    }
+
+    private static ProfileProgressDirection BuildOpeningTrend(IReadOnlyList<OpeningSnapshot> snapshots)
+    {
+        List<OpeningSnapshot> ordered = snapshots
+            .OrderBy(snapshot => ParseGameDate(snapshot.DateText) ?? snapshot.AnalysisUpdatedUtc)
+            .ThenBy(snapshot => snapshot.GameFingerprint, StringComparer.Ordinal)
+            .ToList();
+
+        int window = Math.Min(3, ordered.Count / 2);
+        if (window < 2)
+        {
+            return ProfileProgressDirection.InsufficientData;
+        }
+
+        List<OpeningSnapshot> previous = ordered
+            .Skip(Math.Max(0, ordered.Count - (window * 2)))
+            .Take(window)
+            .ToList();
+        List<OpeningSnapshot> recent = ordered
+            .TakeLast(window)
+            .ToList();
+
+        int? previousAverageCpl = TryAverage(previous.SelectMany(snapshot => snapshot.OpeningMoves).Select(move => move.CentipawnLoss));
+        int? recentAverageCpl = TryAverage(recent.SelectMany(snapshot => snapshot.OpeningMoves).Select(move => move.CentipawnLoss));
+        double previousIssueRate = previous.Count == 0 ? 0.0 : (double)previous.Count(snapshot => BuildIssues(snapshot).Count > 0) / previous.Count;
+        double recentIssueRate = recent.Count == 0 ? 0.0 : (double)recent.Count(snapshot => BuildIssues(snapshot).Count > 0) / recent.Count;
+
+        int cplDelta = (recentAverageCpl ?? 0) - (previousAverageCpl ?? 0);
+        double issueRateDelta = recentIssueRate - previousIssueRate;
+
+        if (recentAverageCpl.HasValue && previousAverageCpl.HasValue && (cplDelta >= 25 || (cplDelta >= 15 && issueRateDelta >= 0.4)))
+        {
+            return ProfileProgressDirection.Regressing;
+        }
+
+        if (recentAverageCpl.HasValue && previousAverageCpl.HasValue && (cplDelta <= -25 || (cplDelta <= -15 && issueRateDelta <= -0.4)))
+        {
+            return ProfileProgressDirection.Improving;
+        }
+
+        return ProfileProgressDirection.Stable;
+    }
+
+    private static OpeningWeaknessCategory ClassifyOpening(
+        int frequency,
+        int? averageOpeningCentipawnLoss,
+        int firstRecurringMistakeCount,
+        ProfileProgressDirection trendDirection)
+    {
+        int cpl = averageOpeningCentipawnLoss ?? 0;
+
+        if ((frequency >= 2 && (cpl >= 90 || firstRecurringMistakeCount >= 2))
+            || (trendDirection == ProfileProgressDirection.Regressing && cpl >= 70)
+            || (frequency == 1 && cpl >= 140))
+        {
+            return OpeningWeaknessCategory.FixNow;
+        }
+
+        if ((frequency >= 2 && (cpl >= 50 || firstRecurringMistakeCount > 0))
+            || cpl >= 70
+            || firstRecurringMistakeCount > 0
+            || trendDirection == ProfileProgressDirection.Regressing)
+        {
+            return OpeningWeaknessCategory.ReviewLater;
+        }
+
+        return OpeningWeaknessCategory.Stable;
+    }
+
+    private static string BuildCategoryReason(
+        OpeningWeaknessCategory category,
+        int frequency,
+        int? averageOpeningCentipawnLoss,
+        int firstRecurringMistakeCount,
+        ProfileProgressDirection trendDirection)
+    {
+        string cpl = averageOpeningCentipawnLoss?.ToString() ?? "n/a";
+        string trend = trendDirection == ProfileProgressDirection.InsufficientData
+            ? "trend unavailable"
+            : $"trend {trendDirection.ToString().ToLowerInvariant()}";
+
+        return category switch
+        {
+            OpeningWeaknessCategory.FixNow => $"Opening to fix now: frequency {frequency}, avg opening CPL {cpl}, first recurring mistake count {firstRecurringMistakeCount}, {trend}.",
+            OpeningWeaknessCategory.ReviewLater => $"Opening to review later: frequency {frequency}, avg opening CPL {cpl}, first recurring mistake count {firstRecurringMistakeCount}, {trend}.",
+            _ => $"Opening stable: frequency {frequency}, avg opening CPL {cpl}, first recurring mistake count {firstRecurringMistakeCount}, {trend}."
+        };
+    }
+
+    private static int GetCategoryOrder(OpeningWeaknessCategory category)
+    {
+        return category switch
+        {
+            OpeningWeaknessCategory.FixNow => 0,
+            OpeningWeaknessCategory.ReviewLater => 1,
+            OpeningWeaknessCategory.Stable => 2,
+            _ => 3
+        };
+    }
+
+    private static DateTime? ParseGameDate(string? dateText)
+    {
+        if (string.IsNullOrWhiteSpace(dateText))
+        {
+            return null;
+        }
+
+        string[] formats =
+        [
+            "yyyy.MM.dd",
+            "yyyy-MM-dd",
+            "yyyy/MM/dd",
+            "yyyy.MM",
+            "yyyy-MM",
+            "yyyy/MM"
+        ];
+
+        return DateTime.TryParseExact(dateText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed)
+            ? parsed
+            : null;
     }
 
     private static string FormatBetterMove(string fenBefore, string? bestMoveUci)

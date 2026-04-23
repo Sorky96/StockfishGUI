@@ -1211,7 +1211,20 @@ uruchomić pierwszą wersję trenera debiutowego opartego na własnych partiach 
 Cel sprintu:
 żeby trener debiutowy stał się naturalną częścią całego workflow treningowego, a nie osobnym modułem.
 
-### Sprint 22 - LLM Formatter Profilu Gracza
+### Sprint 22 - Real Opening Book I Teoria Debiutowa
+- [ ] Dodać import realnej bazy debiutowej / książki otwarć w formacie PGN lub Polyglot `.bin`.
+- [ ] Zbudować lokalny indeks teorii debiutowej po FEN / pozycji kanonicznej: `position -> candidate theory moves`.
+- [ ] Rozpoznawać nazwę debiutu, wariant i subwariant na podstawie realnej sekwencji ruchów, a nie tylko kodu ECO z importowanej partii.
+- [ ] Oznaczać moment wyjścia z teorii przez porównanie ruchu użytkownika z zaimportowaną książką otwarć.
+- [ ] Rozróżniać lokalną kontynuację z partii użytkownika od realnej kontynuacji teoretycznej.
+- [ ] Rozszerzyć scoring opening trainera tak, aby `correct`, `playable` i `wrong` mogły brać pod uwagę zarówno lokalne dane użytkownika, jak i ruchy z książki otwarć.
+- [ ] Dodać metadane źródła ruchu: `user_game`, `engine_best_move`, `opening_book`, `eco_reference`.
+- [ ] Zapewnić pełny fallback offline/local-only, gdy użytkownik nie zaimportował książki debiutowej.
+
+Cel sprintu:
+żeby opening trainer przestał opierać się wyłącznie na własnych partiach użytkownika i lokalnych analizach, a potrafił porównywać je z realnymi debiutami, wariantami i kontynuacjami teoretycznymi.
+
+### Sprint 23 - LLM Formatter Profilu Gracza
 - [ ] Przygotować strukturalny input do LLM z gotowego `PlayerProfileReport`.
 - [ ] Dodać wyjścia: `profile_summary`, `strengths_and_weaknesses`, `what_to_focus_next`, `tone_adapted_version`.
 - [ ] Dodać poziomy odbiorcy: `Beginner`, `Intermediate`, `Advanced`.
@@ -1222,7 +1235,7 @@ Cel sprintu:
 Cel sprintu:
 używać lokalnego LLM do formatowania i upraszczania profilu, ale nie do ustalania logiki diagnozy.
 
-### Sprint 23 - LLM Formatter Planu Treningowego
+### Sprint 24 - LLM Formatter Planu Treningowego
 - [ ] Przygotować strukturalny input do LLM z gotowego `TrainingPlanReport`.
 - [ ] Generować krótką i rozszerzoną wersję planu tygodniowego.
 - [ ] Dodawać zrozumiałe uzasadnienie priorytetów dla użytkownika.
@@ -1232,7 +1245,7 @@ używać lokalnego LLM do formatowania i upraszczania profilu, ale nie do ustala
 Cel sprintu:
 sprawić, żeby plan treningowy był bardziej ludzki, czytelny i motywujący, bez utraty deterministycznego rdzenia.
 
-### Sprint 24 - Zamknięcie Pętli Treningowej
+### Sprint 25 - Zamknięcie Pętli Treningowej
 - [ ] Zapisywać wykonane sesje treningowe i wyniki z opening trainera.
 - [ ] Łączyć wyniki treningu z profilem gracza i planem.
 - [ ] Aktualizować priorytety tematów na podstawie realnych wyników, a nie tylko nowych analiz partii.
@@ -1249,9 +1262,10 @@ zamknąć pętlę między analizą partii, profilem, planem treningowym i trenin
 4. Sprint 19 - Fundament Pod Opening Trainer
 5. Sprint 20 - Opening Trainer v1
 6. Sprint 21 - Opening Trainer v2 + Integracja Z Planem
-7. Sprint 22 - LLM Formatter Profilu Gracza
-8. Sprint 23 - LLM Formatter Planu Treningowego
-9. Sprint 24 - Zamknięcie Pętli Treningowej
+7. Sprint 22 - Real Opening Book I Teoria Debiutowa
+8. Sprint 23 - LLM Formatter Profilu Gracza
+9. Sprint 24 - LLM Formatter Planu Treningowego
+10. Sprint 25 - Zamknięcie Pętli Treningowej
 
 ### Uwaga Końcowa
 Najpierw warto domknąć dane, przykłady i deterministyczny plan treningowy, a dopiero potem dołożyć warstwę LLM do formatowania. Dzięki temu model będzie poprawiał UX i personalizację języka, ale nie stanie się pojedynczym punktem awarii ani źródłem halucynacji w logice treningowej.

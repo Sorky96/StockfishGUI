@@ -38,7 +38,8 @@ public sealed record LocalModelAdviceRequest(
     int? CentipawnLoss,
     ExplanationLevel ExplanationLevel,
     AdviceGenerationContext? Context,
-    string Prompt);
+    string Prompt,
+    AdviceNarrationStyle NarrationStyle = AdviceNarrationStyle.RegularTrainer);
 
 public sealed record LocalModelAdviceResponse(
     string ShortText,
@@ -49,7 +50,8 @@ public sealed record AdviceGenerationContext(
     string Source,
     string? GameFingerprint,
     PlayerSide? AnalyzedSide = null,
-    AdvicePromptContext? PromptContext = null);
+    AdvicePromptContext? PromptContext = null,
+    AdviceNarrationStyle? NarrationStyle = null);
 
 public sealed record AdviceGenerationTrace(
     DateTime TimestampUtc,

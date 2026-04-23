@@ -1,6 +1,12 @@
 namespace StockifhsGUI;
 
-public sealed record LlamaGpuSettings(bool UseFullGpuPower)
+public sealed record LlamaGpuSettings(
+    bool UseFullGpuPower,
+    ExplanationLevel DefaultExplanationLevel = ExplanationLevel.Intermediate,
+    AdviceNarrationStyle NarrationStyle = AdviceNarrationStyle.RegularTrainer)
 {
-    public static LlamaGpuSettings Default { get; } = new(false);
+    public static LlamaGpuSettings Default { get; } = new(
+        false,
+        ExplanationLevel.Intermediate,
+        AdviceNarrationStyle.RegularTrainer);
 }

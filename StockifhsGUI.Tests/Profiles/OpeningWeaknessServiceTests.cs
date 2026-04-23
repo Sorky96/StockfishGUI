@@ -54,6 +54,8 @@ public sealed class OpeningWeaknessServiceTests
         Assert.Equal(2, c20.Count);
         Assert.Equal("opening_principles", c20.FirstRecurringMistakeType);
         Assert.Equal(2, c20.FirstRecurringMistakeCount);
+        Assert.Equal(OpeningWeaknessCategory.FixNow, c20.Category);
+        Assert.Contains("Opening to fix now", c20.CategoryReason);
         Assert.True((c20.AverageOpeningCentipawnLoss ?? 0) >= 100);
         Assert.NotEmpty(c20.ExampleGames);
         Assert.NotEmpty(c20.ExampleBetterMoves);
@@ -69,6 +71,59 @@ public sealed class OpeningWeaknessServiceTests
             item => item.Key == "opening_principles -> king_safety");
         Assert.Equal(2, sequence.Count);
         Assert.Equal("C20", sequence.RepresentativeEco);
+    }
+
+    [Fact]
+    public void OpeningWeaknessService_ClassifiesOpeningsByFrequencyCostMistakeAndTrend()
+    {
+        GameAnalysisResult stableA = CreateResult(
+            "Alpha",
+            "Beta",
+            PlayerSide.White,
+            "A00",
+            "2026.04.01",
+            [],
+            [CreateMoveAnalysis(GamePhase.Opening, 30, "opening_principles", moveNumber: 2, san: "Nf3", bestMoveUci: "g1f3")]);
+        GameAnalysisResult stableB = CreateResult(
+            "Alpha",
+            "Gamma",
+            PlayerSide.White,
+            "A00",
+            "2026.04.02",
+            [],
+            [CreateMoveAnalysis(GamePhase.Opening, 35, "opening_principles", moveNumber: 2, san: "Nc3", bestMoveUci: "b1c3")]);
+        GameAnalysisResult review = CreateResult(
+            "Alpha",
+            "Delta",
+            PlayerSide.White,
+            "B01",
+            "2026.04.03",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 80, "opening_principles", moveNumber: 3, san: "h4", bestMoveUci: "g1f3")]);
+        GameAnalysisResult fixA = CreateResult(
+            "Alpha",
+            "Epsilon",
+            PlayerSide.White,
+            "C20",
+            "2026.04.04",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 100, "opening_principles", moveNumber: 2, san: "h3", bestMoveUci: "g1f3")]);
+        GameAnalysisResult fixB = CreateResult(
+            "Alpha",
+            "Zeta",
+            PlayerSide.White,
+            "C20",
+            "2026.04.05",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 95, "opening_principles", moveNumber: 2, san: "a3", bestMoveUci: "g1f3")]);
+
+        OpeningWeaknessService service = new(new FakeAnalysisStore([stableA, stableB, review, fixA, fixB]));
+
+        Assert.True(service.TryBuildReport("Alpha", out OpeningWeaknessReport? report));
+
+        Assert.Equal(OpeningWeaknessCategory.FixNow, report!.WeakOpenings.Single(item => item.Eco == "C20").Category);
+        Assert.Equal(OpeningWeaknessCategory.ReviewLater, report.WeakOpenings.Single(item => item.Eco == "B01").Category);
+        Assert.Equal(OpeningWeaknessCategory.Stable, report.WeakOpenings.Single(item => item.Eco == "A00").Category);
     }
 
     [Fact]
@@ -171,7 +226,9 @@ public sealed class OpeningWeaknessServiceTests
 
         MoveQualityBucket quality = cpl >= 200
             ? MoveQualityBucket.Blunder
-            : MoveQualityBucket.Mistake;
+            : cpl >= 70
+                ? MoveQualityBucket.Mistake
+                : MoveQualityBucket.Good;
 
         return new MoveAnalysisResult(
             replay,

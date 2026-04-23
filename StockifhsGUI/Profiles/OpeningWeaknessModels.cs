@@ -1,5 +1,12 @@
 namespace StockifhsGUI;
 
+public enum OpeningWeaknessCategory
+{
+    FixNow,
+    ReviewLater,
+    Stable
+}
+
 public sealed record OpeningWeaknessReport(
     string PlayerKey,
     string DisplayName,
@@ -17,6 +24,9 @@ public sealed record OpeningWeaknessEntry(
     int? AverageOpeningCentipawnLoss,
     string? FirstRecurringMistakeType,
     int FirstRecurringMistakeCount,
+    OpeningWeaknessCategory Category,
+    ProfileProgressDirection TrendDirection,
+    string CategoryReason,
     IReadOnlyList<OpeningMistakeSequenceStat> RecurringMistakeSequences,
     IReadOnlyList<OpeningExampleGame> ExampleGames,
     IReadOnlyList<OpeningMoveRecommendation> ExampleBetterMoves);

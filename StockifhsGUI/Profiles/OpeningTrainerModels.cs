@@ -37,6 +37,13 @@ public enum OpeningMistakeRepairGrade
     Wrong
 }
 
+public enum OpeningTrainingScore
+{
+    Correct,
+    Playable,
+    Wrong
+}
+
 public enum OpeningLineRecallReferenceKind
 {
     BetterMove,
@@ -50,7 +57,8 @@ public sealed record OpeningTrainingSessionOptions(
     IReadOnlyList<OpeningTrainingSourceKind>? Sources = null,
     int MaxPositions = 18,
     int MaxPositionsPerSource = 6,
-    int MaxContinuationMoves = 6);
+    int MaxContinuationMoves = 6,
+    IReadOnlyList<string>? TargetOpenings = null);
 
 public sealed record OpeningTrainingSession(
     string SessionId,
@@ -154,6 +162,20 @@ public sealed record OpeningTrainingReference(
     string SourceLabel,
     int? FirstMistakePly,
     string? MistakeLabel);
+
+public sealed record OpeningTrainingAttemptResult(
+    string PositionId,
+    OpeningTrainingMode Mode,
+    OpeningTrainingSourceKind PositionSource,
+    string SubmittedMoveText,
+    string? ResolvedSan,
+    string? ResolvedUci,
+    IReadOnlyList<OpeningTrainingMoveOption> ExpectedMoves,
+    OpeningTrainingScore Score,
+    string ShortExplanation,
+    IReadOnlyList<OpeningTrainingMoveOption> MatchingReferences,
+    IReadOnlyList<OpeningTrainingMoveOption> PreferredReferences,
+    IReadOnlyList<OpeningTrainingMoveOption> PlayableReferences);
 
 public sealed record OpeningLineRecallAttemptResult(
     string PositionId,

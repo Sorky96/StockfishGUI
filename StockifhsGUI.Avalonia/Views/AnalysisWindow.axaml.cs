@@ -12,9 +12,10 @@ public partial class AnalysisWindow : Window
     private readonly ImportedGame? importedGame;
     private readonly IEngineAnalyzer? engineAnalyzer;
     private readonly Func<MoveAnalysisResult, Task>? navigateToMoveAsync;
+    private readonly Action<GameAnalysisProgress>? analysisProgress;
     private readonly PlayerSide initialSide;
     private readonly Dictionary<string, MoveExplanation> explanationCache = [];
-    private IAdviceGenerator adviceGenerator = AdviceGeneratorFactory.CreateInteractiveGenerator();
+    private IAdviceGenerator adviceGenerator = CreateSettingsBackedAdviceGenerator(AdviceGeneratorFactory.CreateInteractiveGenerator());
     private GameAnalysisResult? currentResult;
     private bool currentResultIsCached;
     private int explanationRequestId;
@@ -28,11 +29,13 @@ public partial class AnalysisWindow : Window
         ImportedGame importedGame,
         IEngineAnalyzer engineAnalyzer,
         Func<MoveAnalysisResult, Task> navigateToMoveAsync,
+        Action<GameAnalysisProgress>? analysisProgress,
         PlayerSide initialSide)
     {
         this.importedGame = importedGame;
         this.engineAnalyzer = engineAnalyzer;
         this.navigateToMoveAsync = navigateToMoveAsync;
+        this.analysisProgress = analysisProgress;
         this.initialSide = initialSide;
 
         InitializeComponent();
@@ -48,19 +51,10 @@ public partial class AnalysisWindow : Window
             new FilterOption("Mistakes only", MoveQualityBucket.Mistake),
             new FilterOption("Inaccuracies only", MoveQualityBucket.Inaccuracy)
         };
-        ExplanationLevelComboBox.ItemsSource = new[]
-        {
-            new ExplanationLevelOption(ExplanationLevel.Beginner, "Beginner"),
-            new ExplanationLevelOption(ExplanationLevel.Intermediate, "Intermediate"),
-            new ExplanationLevelOption(ExplanationLevel.Advanced, "Advanced")
-        };
-
         SideComboBox.SelectedIndex = initialSide == PlayerSide.Black ? 1 : 0;
         QualityFilterComboBox.SelectedIndex = 0;
-        ExplanationLevelComboBox.SelectedIndex = 1;
         SideComboBox.SelectionChanged += (_, _) => TryLoadCachedResultForSelectedSide();
         QualityFilterComboBox.SelectionChanged += (_, _) => ApplyFilter();
-        ExplanationLevelComboBox.SelectionChanged += (_, _) => UpdateDetails();
         ShowOnBoardButton.IsEnabled = false;
         DetailsTextBlock.Text = "Run analysis to inspect highlighted mistakes.";
         RefreshAdviceRuntimeState();
@@ -69,7 +63,6 @@ public partial class AnalysisWindow : Window
         {
             SideComboBox.SelectedIndex = state.SelectedSide == PlayerSide.Black ? 1 : 0;
             QualityFilterComboBox.SelectedIndex = Math.Clamp(state.QualityFilterIndex, 0, QualityFilterComboBox.ItemCount - 1);
-            ExplanationLevelComboBox.SelectedIndex = Math.Clamp(state.ExplanationLevelIndex, 0, ExplanationLevelComboBox.ItemCount - 1);
         }
 
         TryLoadCachedResultForSelectedSide();
@@ -129,7 +122,6 @@ public partial class AnalysisWindow : Window
         TestAdviceButton.IsEnabled = false;
         SideComboBox.IsEnabled = false;
         QualityFilterComboBox.IsEnabled = false;
-        ExplanationLevelComboBox.IsEnabled = false;
         StatusTextBlock.Text = $"Analyzing imported game for {selectedSide.Side}...";
         SummaryTextBlock.Text = string.Empty;
         MistakesListBox.ItemsSource = null;
@@ -138,8 +130,13 @@ public partial class AnalysisWindow : Window
 
         try
         {
-            GameAnalysisService analysisService = new(engineAnalyzer, adviceGenerator: AdviceGeneratorFactory.CreateBulkAnalysisGenerator());
-            currentResult = await Task.Run(() => analysisService.AnalyzeGame(importedGame, selectedSide.Side, DefaultAnalysisOptions));
+            GameAnalysisService analysisService = new(
+                engineAnalyzer,
+                adviceGenerator: CreateSettingsBackedAdviceGenerator(AdviceGeneratorFactory.CreateBulkAnalysisGenerator()));
+            IProgress<GameAnalysisProgress>? progress = analysisProgress is null
+                ? null
+                : new Progress<GameAnalysisProgress>(analysisProgress);
+            currentResult = await Task.Run(() => analysisService.AnalyzeGame(importedGame, selectedSide.Side, DefaultAnalysisOptions, progress));
             GameAnalysisCache.StoreResult(cacheKey, currentResult);
             currentResultIsCached = false;
             ApplyFilter();
@@ -159,7 +156,6 @@ public partial class AnalysisWindow : Window
             TestAdviceButton.IsEnabled = true;
             SideComboBox.IsEnabled = true;
             QualityFilterComboBox.IsEnabled = true;
-            ExplanationLevelComboBox.IsEnabled = true;
             RefreshAdviceRuntimeState();
         }
     }
@@ -178,10 +174,10 @@ public partial class AnalysisWindow : Window
             return;
         }
 
-        ExplanationLevel level = ExplanationLevelComboBox.SelectedItem is ExplanationLevelOption option
-            ? option.Level
-            : ExplanationLevel.Intermediate;
-        string cacheKey = BuildExplanationCacheKey(item.LeadMove, level);
+        LlamaGpuSettings settings = LlamaGpuSettingsStore.Load();
+        ExplanationLevel level = settings.DefaultExplanationLevel;
+        AdviceNarrationStyle narrationStyle = settings.NarrationStyle;
+        string cacheKey = BuildExplanationCacheKey(item.LeadMove, level, narrationStyle);
         MoveExplanation explanation = item.LeadMove.Explanation
             ?? new MoveExplanation("Explanation is loading...", "Training hint is loading...");
 
@@ -286,7 +282,8 @@ public partial class AnalysisWindow : Window
                 new AdviceGenerationContext(
                     "avalonia-analysis-window",
                     GameFingerprint.Compute(importedGame.PgnText),
-                    currentResult?.AnalyzedSide)));
+                    currentResult?.AnalyzedSide,
+                    NarrationStyle: LlamaGpuSettingsStore.Load().NarrationStyle)));
         }
         catch (Exception ex)
         {
@@ -405,9 +402,12 @@ public partial class AnalysisWindow : Window
     private void RefreshAdviceRuntimeState()
     {
         AdviceRuntimeStatus status = AdviceRuntimeCatalog.GetStatus();
-        adviceGenerator = AdviceGeneratorFactory.CreateInteractiveGenerator();
+        adviceGenerator = CreateSettingsBackedAdviceGenerator(AdviceGeneratorFactory.CreateInteractiveGenerator());
         AdviceStatusTextBlock.Text = status.StatusText;
     }
+
+    private static IAdviceGenerator CreateSettingsBackedAdviceGenerator(IAdviceGenerator inner)
+        => new SettingsBackedAdviceGenerator(inner);
 
     private bool TryLoadCachedResultForSelectedSide()
     {
@@ -449,7 +449,7 @@ public partial class AnalysisWindow : Window
                 new AnalysisWindowState(
                     selectedSide.Side,
                     QualityFilterComboBox.SelectedIndex,
-                    ExplanationLevelComboBox.SelectedIndex));
+                    1));
         }
 
         base.OnClosed(e);
@@ -565,11 +565,6 @@ public partial class AnalysisWindow : Window
         public override string ToString() => Label;
     }
 
-    private sealed record ExplanationLevelOption(ExplanationLevel Level, string Label)
-    {
-        public override string ToString() => Label;
-    }
-
     private sealed class SelectedMistakeViewItem
     {
         public SelectedMistakeViewItem(SelectedMistake mistake)
@@ -594,6 +589,81 @@ public partial class AnalysisWindow : Window
         }
     }
 
-    private static string BuildExplanationCacheKey(MoveAnalysisResult lead, ExplanationLevel explanationLevel)
-        => $"{lead.Replay.Ply}:{lead.Replay.Uci}:{explanationLevel}";
+    private static string BuildExplanationCacheKey(
+        MoveAnalysisResult lead,
+        ExplanationLevel explanationLevel,
+        AdviceNarrationStyle narrationStyle)
+        => $"{lead.Replay.Ply}:{lead.Replay.Uci}:{explanationLevel}:{narrationStyle}";
+
+    private sealed class SettingsBackedAdviceGenerator(IAdviceGenerator inner) : IAdviceGenerator
+    {
+        public MoveExplanation Generate(
+            ReplayPly replay,
+            MoveQualityBucket quality,
+            MistakeTag? tag,
+            string? bestMoveUci,
+            int? centipawnLoss,
+            ExplanationLevel level = ExplanationLevel.Intermediate,
+            AdviceGenerationContext? context = null)
+        {
+            LlamaGpuSettings settings = LlamaGpuSettingsStore.Load();
+            AdviceGenerationContext enrichedContext = context is null
+                ? new AdviceGenerationContext("avalonia-analysis-window", null, NarrationStyle: settings.NarrationStyle)
+                : context with { NarrationStyle = settings.NarrationStyle };
+
+            MoveExplanation explanation = inner.Generate(
+                replay,
+                quality,
+                tag,
+                bestMoveUci,
+                centipawnLoss,
+                settings.DefaultExplanationLevel,
+                enrichedContext);
+
+            return ApplyNarrationStyle(explanation, settings.NarrationStyle);
+        }
+
+        private static MoveExplanation ApplyNarrationStyle(MoveExplanation explanation, AdviceNarrationStyle style)
+        {
+            return style switch
+            {
+                AdviceNarrationStyle.LevyRozman => explanation with
+                {
+                    ShortText = AddPrefix(explanation.ShortText, "Here is the practical idea: "),
+                    DetailedText = AddPrefix(explanation.DetailedText, "Coach recap: "),
+                    TrainingHint = AddPrefix(explanation.TrainingHint, "Levy-style drill: ")
+                },
+                AdviceNarrationStyle.HikaruNakamura => explanation with
+                {
+                    ShortText = AddPrefix(explanation.ShortText, "Candidate-move check: "),
+                    DetailedText = AddPrefix(explanation.DetailedText, "Calculation note: "),
+                    TrainingHint = AddPrefix(explanation.TrainingHint, "Speed drill: ")
+                },
+                AdviceNarrationStyle.BotezLive => explanation with
+                {
+                    ShortText = AddPrefix(explanation.ShortText, "Okay, tiny chess crisis, very fixable: "),
+                    DetailedText = AddPrefix(explanation.DetailedText, "Stream recap: "),
+                    TrainingHint = AddPrefix(explanation.TrainingHint, "Next-game challenge: ")
+                },
+                AdviceNarrationStyle.WittyAlien => explanation with
+                {
+                    ShortText = AddPrefix(explanation.ShortText, "Alien coach says the pony wandered into danger: "),
+                    DetailedText = AddPrefix(explanation.DetailedText, "Free-candy scanner report: "),
+                    TrainingHint = AddPrefix(explanation.TrainingHint, "Do not grab free candy rule: ")
+                },
+                _ => explanation
+            };
+        }
+
+        private static string AddPrefix(string text, string prefix)
+        {
+            if (string.IsNullOrWhiteSpace(text)
+                || text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return text;
+            }
+
+            return $"{prefix}{text}";
+        }
+    }
 }
