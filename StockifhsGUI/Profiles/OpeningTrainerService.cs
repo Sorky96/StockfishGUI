@@ -16,10 +16,14 @@ public sealed class OpeningTrainerService
     };
 
     private readonly IAnalysisStore analysisStore;
+    private readonly OpeningTheoryQueryService? openingTheory;
 
     public OpeningTrainerService(IAnalysisStore analysisStore)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
+        openingTheory = analysisStore is IOpeningTheoryStore theoryStore
+            ? new OpeningTheoryQueryService(theoryStore)
+            : null;
     }
 
     public bool TryBuildSession(string playerKeyOrName, out OpeningTrainingSession? session, OpeningTrainingSessionOptions? options = null)
@@ -57,7 +61,6 @@ public sealed class OpeningTrainerService
             .Select(group => group.Key)
             .First();
         IReadOnlyList<SavedOpeningReplay> savedReplays = LoadSavedOpeningReplays(snapshots);
-        Dictionary<string, List<StoredMoveAnalysis>> fenReferenceIndex = BuildFenReferenceIndex(snapshots);
 
         Dictionary<SnapshotKey, OpeningTrainerSnapshot> snapshotIndex = snapshots
             .ToDictionary(snapshot => new SnapshotKey(snapshot.GameFingerprint, snapshot.Side));
@@ -68,9 +71,9 @@ public sealed class OpeningTrainerService
         {
             IReadOnlyList<OpeningTrainingPosition> built = source switch
             {
-                OpeningTrainingSourceKind.ExampleGame => BuildExampleGamePositions(weaknessReport, snapshotIndex, linesById, fenReferenceIndex, effectiveOptions),
-                OpeningTrainingSourceKind.OpeningWeakness => BuildOpeningWeaknessPositions(weaknessReport, snapshotIndex, savedReplays, linesById, effectiveOptions),
-                OpeningTrainingSourceKind.FirstOpeningMistake => BuildFirstMistakePositions(snapshots, weaknessReport, linesById, effectiveOptions),
+                OpeningTrainingSourceKind.ExampleGame => BuildExampleGamePositions(weaknessReport, snapshotIndex, linesById, effectiveOptions, openingTheory),
+                OpeningTrainingSourceKind.OpeningWeakness => BuildOpeningWeaknessPositions(weaknessReport, snapshotIndex, savedReplays, linesById, effectiveOptions, openingTheory),
+                OpeningTrainingSourceKind.FirstOpeningMistake => BuildFirstMistakePositions(snapshots, linesById, effectiveOptions, openingTheory),
                 _ => []
             };
 
@@ -535,8 +538,8 @@ public sealed class OpeningTrainerService
         OpeningWeaknessReport weaknessReport,
         IReadOnlyDictionary<SnapshotKey, OpeningTrainerSnapshot> snapshotIndex,
         IDictionary<string, OpeningTrainingLine> linesById,
-        IReadOnlyDictionary<string, List<StoredMoveAnalysis>> fenReferenceIndex,
-        OpeningTrainingSessionOptions options)
+        OpeningTrainingSessionOptions options,
+        OpeningTheoryQueryService? openingTheory)
     {
         List<(OpeningWeaknessEntry Entry, OpeningExampleGame Example)> examples = weaknessReport.WeakOpenings
             .SelectMany(entry => entry.ExampleGames.Select(example => (Entry: entry, Example: example)))
@@ -566,12 +569,18 @@ public sealed class OpeningTrainerService
                 .Take(options.MaxContinuationMoves)
                 .ToList();
             string lineId = BuildLineId(OpeningTrainingSourceKind.ExampleGame, snapshot.GameFingerprint, anchorMove.Ply);
+            IReadOnlyList<OpeningTrainingMoveOption> candidateMoves = BuildLineRecallOptions(anchorMove, openingTheory);
+            if (!candidateMoves.Any(option => option.IsPreferred))
+            {
+                continue;
+            }
+
             linesById[lineId] = CreateLine(
                 lineId,
                 OpeningTrainingSourceKind.ExampleGame,
                 snapshot,
                 anchorMove,
-                "Recall the stable line from your own example game.",
+                "Recall the stable line from imported opening theory around this example game.",
                 lineMoves,
                 firstIssue);
 
@@ -585,15 +594,15 @@ public sealed class OpeningTrainerService
                 anchorMove.Ply,
                 anchorMove.MoveNumber,
                 snapshot.Side,
-                "Recall the move you want to have available from this example line.",
-                "Use your own game as the reference line. Name the move and then replay the next few opening moves.",
+                "Recall the move that imported opening theory recommends in this example position.",
+                "Use the imported opening book as the source of truth, then replay the surrounding example line for context.",
                 (example.FirstMistakeCentipawnLoss ?? 0) + 25,
                 firstIssue?.Move.MistakeLabel,
                 anchorMove.San,
                 firstIssue is null ? null : FormatMove(firstIssue.Move.FenBefore, firstIssue.Move.BestMoveUci),
                 firstIssue is null ? null : BuildRepairReason(firstIssue.Move),
                 BuildTags(snapshot.Eco, firstIssue?.Move.MistakeLabel, "example-game", "line-recall"),
-                BuildLineRecallOptions(anchorMove, fenReferenceIndex),
+                candidateMoves,
                 lineMoves.Select((move, index) => ToTrainingMove(move, index == 0 ? OpeningTrainingMoveRole.Expected : OpeningTrainingMoveRole.Continuation, index == 0)).ToList(),
                 CreateReference(snapshot, "Example game", firstIssue),
                 lineId));
@@ -607,7 +616,8 @@ public sealed class OpeningTrainerService
         IReadOnlyDictionary<SnapshotKey, OpeningTrainerSnapshot> snapshotIndex,
         IReadOnlyList<SavedOpeningReplay> savedReplays,
         IDictionary<string, OpeningTrainingLine> linesById,
-        OpeningTrainingSessionOptions options)
+        OpeningTrainingSessionOptions options,
+        OpeningTheoryQueryService? openingTheory)
     {
         List<(OpeningWeaknessEntry Entry, BranchRoot root)> roots = weaknessReport.WeakOpenings
             .SelectMany(entry => BuildBranchRoots(entry, snapshotIndex, savedReplays))
@@ -619,6 +629,26 @@ public sealed class OpeningTrainerService
 
         foreach ((OpeningWeaknessEntry entry, BranchRoot root) in roots)
         {
+            IReadOnlyList<OpeningTrainingBranch> theoryBranches = BuildTheoryBranches(root.RootFen, openingTheory);
+            if (theoryBranches.Count == 0)
+            {
+                continue;
+            }
+
+            OpeningTrainingMoveOption? primaryRecommendedResponse = theoryBranches
+                .Select(branch => branch.RecommendedResponse)
+                .FirstOrDefault(option => option is not null);
+            IReadOnlyList<OpeningTrainingMoveOption> candidateMoves = theoryBranches
+                .Select(branch => new OpeningTrainingMoveOption(
+                    branch.OpponentMove,
+                    branch.OpponentMoveUci,
+                    OpeningTrainingMoveRole.Alternative,
+                    false,
+                    branch.SourceSummary,
+                    OpeningLineRecallReferenceKind.ReferenceLine))
+                .ToList();
+            string branchSelectionSummary = BuildTheoryBranchSelectionSummary(theoryBranches);
+            IReadOnlyList<OpeningTrainingMove> primaryContinuation = theoryBranches[0].Continuation;
             OpeningIssue? issue = root.FirstIssue;
             string lineId = BuildLineId(OpeningTrainingSourceKind.OpeningWeakness, root.Snapshot.GameFingerprint, root.AnchorPly);
             linesById[lineId] = CreateLine(
@@ -640,20 +670,20 @@ public sealed class OpeningTrainerService
                 root.AnchorPly + 1,
                 root.AnchorMove.MoveNumber,
                 Opponent(root.Snapshot.Side),
-                "Review the typical opponent replies in this opening and keep one stable local reaction ready.",
-                "Use only local evidence: example games, recurring mistake patterns, and saved continuations from your own games.",
+                "Review the typical opponent replies from imported opening theory and keep one theory-backed reaction ready.",
+                "Use the imported opening tree as the source of truth for the opponent branches in this position.",
                 root.Priority,
                 root.ThemeLabel,
                 root.AnchorMove.San,
-                root.PrimaryRecommendedResponse?.DisplayText,
-                root.BranchSelectionSummary,
+                primaryRecommendedResponse?.DisplayText,
+                primaryRecommendedResponse?.Note,
                 BuildTags(entry.Eco, root.ThemeLabel, "opening-weakness", "branch-awareness"),
-                root.CandidateMoves,
-                root.PrimaryContinuation,
+                candidateMoves,
+                primaryContinuation,
                 CreateReference(root.Snapshot, "Opening weakness", issue),
                 lineId,
-                root.Branches,
-                root.BranchSelectionSummary));
+                theoryBranches,
+                branchSelectionSummary));
         }
 
         return positions;
@@ -661,11 +691,10 @@ public sealed class OpeningTrainerService
 
     private static IReadOnlyList<OpeningTrainingPosition> BuildFirstMistakePositions(
         IReadOnlyList<OpeningTrainerSnapshot> snapshots,
-        OpeningWeaknessReport weaknessReport,
         IDictionary<string, OpeningTrainingLine> linesById,
-        OpeningTrainingSessionOptions options)
+        OpeningTrainingSessionOptions options,
+        OpeningTheoryQueryService? openingTheory)
     {
-        Dictionary<string, List<OpeningMoveRecommendation>> repairIndex = BuildRepairIndex(weaknessReport);
         List<(OpeningTrainerSnapshot Snapshot, OpeningIssue Issue)> issues = snapshots
             .Select(snapshot => (Snapshot: snapshot, Issue: FindFirstIssue(snapshot, null)))
             .Where(item => item.Issue is not null)
@@ -679,6 +708,12 @@ public sealed class OpeningTrainerService
         foreach ((OpeningTrainerSnapshot snapshot, OpeningIssue issue) in issues)
         {
             string lineId = BuildLineId(OpeningTrainingSourceKind.FirstOpeningMistake, snapshot.GameFingerprint, issue.Move.Ply);
+            IReadOnlyList<OpeningTrainingMoveOption> candidateMoves = BuildRepairOptions(issue.Move, openingTheory);
+            if (!candidateMoves.Any(option => option.Role == OpeningTrainingMoveRole.Repair))
+            {
+                continue;
+            }
+
             linesById[lineId] = CreateLine(
                 lineId,
                 OpeningTrainingSourceKind.FirstOpeningMistake,
@@ -699,14 +734,14 @@ public sealed class OpeningTrainerService
                 issue.Move.MoveNumber,
                 snapshot.Side,
                 "Repair the first opening mistake from this game before it repeats again.",
-                "Replace the played move with the stronger repair move and use the label as the study theme.",
+                "Replace the played move with the stronger repair move from imported opening theory and use the label as the study theme.",
                 (issue.Move.CentipawnLoss ?? 0) + 100,
                 issue.Move.MistakeLabel,
                 issue.Move.San,
                 FormatMove(issue.Move.FenBefore, issue.Move.BestMoveUci),
                 BuildRepairReason(issue.Move),
                 BuildTags(snapshot.Eco, issue.Move.MistakeLabel, "first-opening-mistake", "mistake-repair"),
-                BuildRepairOptions(issue.Move, snapshot.Eco, repairIndex),
+                candidateMoves,
                 [ToTrainingMove(issue.Move, OpeningTrainingMoveRole.Alternative, false)],
                 CreateReference(snapshot, "First opening mistake", issue),
                 lineId));
@@ -738,57 +773,35 @@ public sealed class OpeningTrainerService
             CreateReference(snapshot, sourceKind.ToString(), issue));
     }
 
-    private static Dictionary<string, List<StoredMoveAnalysis>> BuildFenReferenceIndex(IReadOnlyList<OpeningTrainerSnapshot> snapshots)
-    {
-        return snapshots
-            .SelectMany(snapshot => snapshot.OpeningMoves)
-            .GroupBy(move => move.FenBefore, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.OrderBy(move => move.Ply).ToList(), StringComparer.Ordinal);
-    }
-
     private static IReadOnlyList<OpeningTrainingMoveOption> BuildLineRecallOptions(
         StoredMoveAnalysis anchorMove,
-        IReadOnlyDictionary<string, List<StoredMoveAnalysis>> fenReferenceIndex)
+        OpeningTheoryQueryService? openingTheory)
     {
-        Dictionary<string, OpeningTrainingMoveOption> options = new(StringComparer.OrdinalIgnoreCase);
-
-        AddOrUpgradeOption(
-            options,
-            new OpeningTrainingMoveOption(
-                anchorMove.San,
-                anchorMove.Uci,
-                OpeningTrainingMoveRole.Expected,
-                true,
-                "Reference line from your own opening game",
-                OpeningLineRecallReferenceKind.ReferenceLine));
-
-        if (!string.IsNullOrWhiteSpace(anchorMove.BestMoveUci))
+        IReadOnlyList<OpeningTheoryMove> theoryMoves = GetTheoryMoves(openingTheory, anchorMove.FenBefore);
+        if (theoryMoves.Count == 0)
         {
+            return [];
+        }
+
+        Dictionary<string, OpeningTrainingMoveOption> options = new(StringComparer.OrdinalIgnoreCase);
+        bool hasMainMove = theoryMoves.Any(move => move.IsMainMove);
+
+        foreach ((OpeningTheoryMove move, int index) in theoryMoves.Select((move, index) => (move, index)))
+        {
+            bool isPreferred = move.IsMainMove || (!hasMainMove && index == 0);
             AddOrUpgradeOption(
                 options,
                 new OpeningTrainingMoveOption(
-                    FormatMove(anchorMove.FenBefore, anchorMove.BestMoveUci),
-                    anchorMove.BestMoveUci,
-                    OpeningTrainingMoveRole.Expected,
-                    true,
-                    "Best move from saved local analysis",
-                    OpeningLineRecallReferenceKind.BestMove));
-        }
-
-        if (fenReferenceIndex.TryGetValue(anchorMove.FenBefore, out List<StoredMoveAnalysis>? references))
-        {
-            foreach (StoredMoveAnalysis referenceMove in references)
-            {
-                AddOrUpgradeOption(
-                    options,
-                    new OpeningTrainingMoveOption(
-                        referenceMove.San,
-                        referenceMove.Uci,
-                        OpeningTrainingMoveRole.Historical,
-                        false,
-                        "Seen in your local opening references",
-                        OpeningLineRecallReferenceKind.HistoricalGame));
-            }
+                    move.MoveSan,
+                    move.MoveUci,
+                    isPreferred ? OpeningTrainingMoveRole.Expected : OpeningTrainingMoveRole.Alternative,
+                    isPreferred,
+                    isPreferred
+                        ? "Main move from imported opening theory"
+                        : "Playable move from imported opening theory",
+                    isPreferred
+                        ? OpeningLineRecallReferenceKind.ReferenceLine
+                        : OpeningLineRecallReferenceKind.BetterMove));
         }
 
         return options.Values
@@ -831,25 +844,16 @@ public sealed class OpeningTrainerService
             move.MistakeLabel);
     }
 
-    private static Dictionary<string, List<OpeningMoveRecommendation>> BuildRepairIndex(OpeningWeaknessReport weaknessReport)
-    {
-        return weaknessReport.WeakOpenings
-            .SelectMany(entry => entry.ExampleBetterMoves)
-            .Where(item => !string.IsNullOrWhiteSpace(item.BetterMove))
-            .GroupBy(item => item.FenBefore, StringComparer.Ordinal)
-            .ToDictionary(
-                group => group.Key,
-                group => group.OrderByDescending(item => item.CentipawnLoss ?? 0)
-                    .ThenBy(item => item.Ply)
-                    .ToList(),
-                StringComparer.Ordinal);
-    }
-
     private static IReadOnlyList<OpeningTrainingMoveOption> BuildRepairOptions(
         StoredMoveAnalysis move,
-        string eco,
-        IReadOnlyDictionary<string, List<OpeningMoveRecommendation>> repairIndex)
+        OpeningTheoryQueryService? openingTheory)
     {
+        IReadOnlyList<OpeningTheoryMove> theoryMoves = GetTheoryMoves(openingTheory, move.FenBefore);
+        if (theoryMoves.Count == 0)
+        {
+            return [];
+        }
+
         Dictionary<string, OpeningTrainingMoveOption> options = new(StringComparer.OrdinalIgnoreCase)
         {
             [BuildMoveKey(move.Uci, move.San)] = new(
@@ -860,40 +864,22 @@ public sealed class OpeningTrainerService
                 "Played move to replace",
                 OpeningLineRecallReferenceKind.HistoricalGame)
         };
+        bool hasMainMove = theoryMoves.Any(item => item.IsMainMove);
 
-        if (!string.IsNullOrWhiteSpace(move.BestMoveUci))
+        foreach ((OpeningTheoryMove theoryMove, int index) in theoryMoves.Select((item, index) => (item, index)))
         {
+            bool isPreferred = theoryMove.IsMainMove || (!hasMainMove && index == 0);
             AddOrUpgradeOption(
                 options,
                 new OpeningTrainingMoveOption(
-                    FormatMove(move.FenBefore, move.BestMoveUci),
-                    move.BestMoveUci,
+                    theoryMove.MoveSan,
+                    theoryMove.MoveUci,
                     OpeningTrainingMoveRole.Repair,
-                    true,
-                    BuildRepairReason(move),
+                    isPreferred,
+                    isPreferred
+                        ? "Best repair from imported opening theory"
+                        : "Playable repair from imported opening theory",
                     OpeningLineRecallReferenceKind.BetterMove));
-        }
-
-        if (repairIndex.TryGetValue(move.FenBefore, out List<OpeningMoveRecommendation>? recommendations))
-        {
-            foreach (OpeningMoveRecommendation recommendation in recommendations.Where(item =>
-                         item.GameFingerprint != move.GameFingerprint
-                         && string.Equals(item.Eco, eco, StringComparison.OrdinalIgnoreCase)))
-            {
-                AppliedMoveInfo? repairMove = TryResolveStoredBetterMove(move.FenBefore, recommendation.BetterMove);
-
-                AddOrUpgradeOption(
-                    options,
-                    new OpeningTrainingMoveOption(
-                        repairMove is null
-                            ? recommendation.BetterMove
-                            : ChessMoveDisplayHelper.FormatSanAndUci(repairMove.San, repairMove.Uci),
-                        repairMove?.Uci,
-                        OpeningTrainingMoveRole.Repair,
-                        false,
-                        "Playable repair seen in your opening weakness examples",
-                        OpeningLineRecallReferenceKind.BetterMove));
-            }
         }
 
         return options.Values
@@ -901,27 +887,6 @@ public sealed class OpeningTrainerService
             .ThenBy(option => option.Role)
             .ThenBy(option => option.DisplayText, StringComparer.OrdinalIgnoreCase)
             .ToList();
-    }
-
-    private static AppliedMoveInfo? TryResolveStoredBetterMove(string fen, string storedBetterMove)
-    {
-        if (TryResolveMoveInput(fen, storedBetterMove, out AppliedMoveInfo? resolvedMove, out _)
-            && resolvedMove is not null)
-        {
-            return resolvedMove;
-        }
-
-        int separatorIndex = storedBetterMove.LastIndexOf("(", StringComparison.Ordinal);
-        if (separatorIndex < 0 || !storedBetterMove.EndsWith(")", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        string uci = storedBetterMove[(separatorIndex + 1)..^1].Trim();
-        return TryResolveMoveInput(fen, uci, out resolvedMove, out _)
-            && resolvedMove is not null
-            ? resolvedMove
-            : null;
     }
 
     private IReadOnlyList<SavedOpeningReplay> LoadSavedOpeningReplays(IReadOnlyList<OpeningTrainerSnapshot> snapshots)
@@ -1255,6 +1220,16 @@ public sealed class OpeningTrainerService
         return string.Join(" | ", parts);
     }
 
+    private static string BuildTheoryBranchSelectionSummary(IReadOnlyList<OpeningTrainingBranch> branches)
+    {
+        if (branches.Count == 0)
+        {
+            return "No imported theory branches were found for this setup.";
+        }
+
+        return $"Showing {branches.Count} imported opponent branch(es). Ordered by imported-game frequency.";
+    }
+
     private static string BuildBranchSelectionSummary(IReadOnlyList<OpeningTrainingBranch> branches)
     {
         if (branches.Count == 0)
@@ -1263,6 +1238,89 @@ public sealed class OpeningTrainerService
         }
 
         return $"Showing {branches.Count} local opponent branch(es). Ordered by saved-game frequency, then recurring-mistake support.";
+    }
+
+    private static IReadOnlyList<OpeningTheoryMove> GetTheoryMoves(
+        OpeningTheoryQueryService? openingTheory,
+        string fen,
+        int limit = 6)
+    {
+        if (openingTheory is null || string.IsNullOrWhiteSpace(fen))
+        {
+            return [];
+        }
+
+        IReadOnlyList<OpeningTheoryMove> playableMoves = openingTheory.GetPlayableMovesForFen(fen, limit);
+        return playableMoves.Count > 0
+            ? playableMoves
+            : openingTheory.GetTopMovesForFen(fen, limit);
+    }
+
+    private static IReadOnlyList<OpeningTrainingBranch> BuildTheoryBranches(
+        string rootFen,
+        OpeningTheoryQueryService? openingTheory)
+    {
+        IReadOnlyList<OpeningTheoryMove> opponentMoves = GetTheoryMoves(openingTheory, rootFen, limit: 3);
+        if (opponentMoves.Count == 0)
+        {
+            return [];
+        }
+
+        bool hasMainMove = opponentMoves.Any(move => move.IsMainMove);
+
+        return opponentMoves
+            .Select((move, index) =>
+            {
+                IReadOnlyList<OpeningTheoryMove> replyMoves = GetTheoryMoves(openingTheory, move.ToFen, limit: 1);
+                OpeningTheoryMove? reply = replyMoves.FirstOrDefault();
+                OpeningTrainingMoveOption? recommendedResponse = reply is null
+                    ? null
+                    : new OpeningTrainingMoveOption(
+                        reply.MoveSan,
+                        reply.MoveUci,
+                        OpeningTrainingMoveRole.Expected,
+                        reply.IsMainMove || (!replyMoves.Any(item => item.IsMainMove) && replyMoves.Count == 1),
+                        "Recommended response from imported opening theory",
+                        reply.IsMainMove
+                            ? OpeningLineRecallReferenceKind.ReferenceLine
+                            : OpeningLineRecallReferenceKind.BetterMove);
+                List<OpeningTrainingMove> continuation =
+                [
+                    new OpeningTrainingMove(
+                        0,
+                        0,
+                        PlayerSide.White,
+                        move.MoveSan,
+                        move.MoveUci,
+                        OpeningTrainingMoveRole.Continuation,
+                        false)
+                ];
+                if (recommendedResponse is not null)
+                {
+                    continuation.Add(new OpeningTrainingMove(
+                        0,
+                        0,
+                        PlayerSide.Black,
+                        recommendedResponse.DisplayText,
+                        recommendedResponse.Uci,
+                        OpeningTrainingMoveRole.Expected,
+                        true,
+                        recommendedResponse.Note));
+                }
+
+                bool isPreferred = move.IsMainMove || (!hasMainMove && index == 0);
+                return new OpeningTrainingBranch(
+                    move.MoveSan,
+                    move.MoveUci,
+                    Math.Max(1, move.DistinctGameCount),
+                    isPreferred
+                        ? $"Main imported branch | games: {Math.Max(1, move.DistinctGameCount)} | occurrences: {Math.Max(1, move.OccurrenceCount)}"
+                        : $"Imported branch | games: {Math.Max(1, move.DistinctGameCount)} | occurrences: {Math.Max(1, move.OccurrenceCount)}",
+                    recommendedResponse,
+                    continuation,
+                    []);
+            })
+            .ToList();
     }
 
     private static OpeningIssue? FindFirstIssue(OpeningTrainerSnapshot snapshot, int? preferredPly)

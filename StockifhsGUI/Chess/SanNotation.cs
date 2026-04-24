@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace StockifhsGUI;
@@ -7,12 +8,23 @@ namespace StockifhsGUI;
 public static class SanNotation
 {
     private static readonly Regex SanCleanupRegex = new(@"[!?]+", RegexOptions.Compiled);
+    private static readonly Regex MoveNumberPrefixRegex = new(@"^\d+\.(\.\.)?", RegexOptions.Compiled);
     private static readonly Regex SanTokenRegex = new(
-        @"^(?:O-O-O|O-O|0-0-0|0-0|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|[a-h]x[a-h][1-8](?:=[QRBN])?[+#]?|[a-h][1-8](?:=[QRBN])?[+#]?)$",
+        @"^(?:(?:O-O-O|O-O|0-0-0|0-0)[+#]?|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|[a-h]x[a-h][1-8](?:=[QRBN])?[+#]?|[a-h][1-8](?:=[QRBN])?[+#]?)$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static List<string> ParsePgnMoves(string pgnText)
     {
+        return ParsePgnMoves(pgnText, maxMoves: null);
+    }
+
+    public static List<string> ParsePgnMoves(string pgnText, int? maxMoves)
+    {
+        if (maxMoves.HasValue)
+        {
+            return ParsePgnMovesWithLimit(pgnText, Math.Max(0, maxMoves.Value));
+        }
+
         string text = Regex.Replace(pgnText, @"\[.*?\]", " ");
         text = Regex.Replace(text, @"\{.*?\}", " ");
         text = Regex.Replace(text, @"\(.*?\)", " ");
@@ -22,18 +34,7 @@ public static class SanNotation
         List<string> moves = new();
         foreach (string rawToken in text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
         {
-            string token = Regex.Replace(rawToken.Trim(), @"^\d+\.(\.\.)?", string.Empty);
-            if (string.IsNullOrWhiteSpace(token) || token is "$" or "1-0" or "0-1" or "1/2-1/2" or "*")
-            {
-                continue;
-            }
-
-            if (token.StartsWith('$'))
-            {
-                continue;
-            }
-
-            if (SanTokenRegex.IsMatch(token))
+            if (TryReadSanToken(rawToken, out string token))
             {
                 moves.Add(token);
             }
@@ -63,6 +64,12 @@ public static class SanNotation
         }
 
         return normalized;
+    }
+
+    public static string RemoveCheckSuffix(string san)
+    {
+        string normalized = NormalizeSan(san);
+        return Regex.Replace(normalized, @"[+#]+$", string.Empty);
     }
 
     public static bool HasExplicitPiecePrefix(string normalizedSan)
@@ -95,5 +102,148 @@ public static class SanNotation
         }
 
         return true;
+    }
+
+    private static List<string> ParsePgnMovesWithLimit(string pgnText, int maxMoves)
+    {
+        List<string> moves = new(maxMoves);
+        if (maxMoves == 0)
+        {
+            return moves;
+        }
+
+        bool inHeader = false;
+        bool inComment = false;
+        int variationDepth = 0;
+        bool inLineComment = false;
+        StringBuilder tokenBuilder = new(32);
+
+        for (int i = 0; i < pgnText.Length; i++)
+        {
+            char c = pgnText[i];
+            if (inLineComment)
+            {
+                if (c is '\r' or '\n')
+                {
+                    inLineComment = false;
+                }
+
+                continue;
+            }
+
+            if (inHeader)
+            {
+                if (c == ']')
+                {
+                    inHeader = false;
+                }
+
+                continue;
+            }
+
+            if (inComment)
+            {
+                if (c == '}')
+                {
+                    inComment = false;
+                }
+
+                continue;
+            }
+
+            if (variationDepth > 0)
+            {
+                if (c == '(')
+                {
+                    variationDepth++;
+                }
+                else if (c == ')')
+                {
+                    variationDepth--;
+                }
+
+                continue;
+            }
+
+            if (c == '[')
+            {
+                FlushToken();
+                inHeader = true;
+                continue;
+            }
+
+            if (c == '{')
+            {
+                FlushToken();
+                inComment = true;
+                continue;
+            }
+
+            if (c == '(')
+            {
+                FlushToken();
+                variationDepth = 1;
+                continue;
+            }
+
+            if (c == ';')
+            {
+                FlushToken();
+                inLineComment = true;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(c))
+            {
+                FlushToken();
+                if (moves.Count >= maxMoves)
+                {
+                    break;
+                }
+
+                continue;
+            }
+
+            tokenBuilder.Append(c);
+
+            if (i == pgnText.Length - 1)
+            {
+                FlushToken();
+            }
+        }
+
+        return moves;
+
+        void FlushToken()
+        {
+            if (tokenBuilder.Length == 0 || moves.Count >= maxMoves)
+            {
+                tokenBuilder.Clear();
+                return;
+            }
+
+            string rawToken = tokenBuilder.ToString();
+            tokenBuilder.Clear();
+            if (TryReadSanToken(rawToken, out string token))
+            {
+                moves.Add(token);
+            }
+        }
+    }
+
+    private static bool TryReadSanToken(string rawToken, out string token)
+    {
+        token = MoveNumberPrefixRegex.Replace(rawToken.Trim(), string.Empty);
+        if (string.IsNullOrWhiteSpace(token) || token is "$" or "1-0" or "0-1" or "1/2-1/2" or "*")
+        {
+            return false;
+        }
+
+        if (token.StartsWith('$'))
+        {
+            return false;
+        }
+
+        return SanTokenRegex.IsMatch(token);
     }
 }

@@ -37,7 +37,27 @@ namespace StockifhsGUI
             // see https://aka.ms/applicationconfiguration.
             ApplicationConfiguration.Initialize();
             Application.ApplicationExit += (_, _) => LlamaCppServerManager.Instance.Shutdown();
+            EnsureBundledOpeningSeedImported();
             Application.Run(new MainForm());
+        }
+
+        private static void EnsureBundledOpeningSeedImported()
+        {
+            try
+            {
+                OpeningSeedBootstrapper bootstrapper = new(
+                    SqliteAnalysisStore.GetDefaultDatabasePath(),
+                    OpeningSeedBootstrapper.GetDefaultBundledSeedPath());
+                bootstrapper.EnsureSeedImported();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"The built-in opening library could not be prepared.{Environment.NewLine}{Environment.NewLine}{ex.Message}",
+                    "Opening Library Setup",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
         }
     }
 }

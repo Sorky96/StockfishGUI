@@ -159,4 +159,81 @@ Kxa2 $6 62. Qb2# 1-0
         Assert.Contains("No legal move matches", error);
     }
 
+    [Fact]
+    public void GetLegalMoves_AllowsKc7InStauntonMemPosition()
+    {
+        ChessGame game = new();
+        string[] moves =
+        {
+            "d4", "Nf6", "c4", "g6", "Nc3", "Bg7", "e4", "d6", "f3", "e5",
+            "dxe5", "dxe5", "Qxd8+", "Kxd8", "Be3", "c6", "O-O-O+"
+        };
+
+        foreach (string move in moves)
+        {
+            game.ApplySan(move);
+        }
+
+        IReadOnlyList<LegalMoveInfo> legalMoves = game.GetLegalMoves();
+
+        Assert.Contains(legalMoves, move => move.San == "Kc7");
+    }
+
+    [Fact]
+    public void GetLegalMoves_AllowsKe7InHunChampionshipPosition()
+    {
+        ChessGame game = new();
+        string[] moves =
+        {
+            "e4", "e5", "Bc4", "Nc6", "Nc3", "Bc5", "d3", "d6", "Na4", "Na5",
+            "Nxc5", "Nxc4", "dxc4", "dxc5", "Qxd8+", "Kxd8", "Be3", "b6", "O-O-O+"
+        };
+
+        foreach (string move in moves)
+        {
+            game.ApplySan(move);
+        }
+
+        IReadOnlyList<LegalMoveInfo> legalMoves = game.GetLegalMoves();
+
+        Assert.Contains(legalMoves, move => move.San == "Ke7");
+    }
+
+    [Fact]
+    public void GetLegalMoves_AllowsNf6CheckInNewOrleansPosition()
+    {
+        ChessGame game = new();
+        string[] moves =
+        {
+            "e4", "e5", "f4", "exf4", "Nf3", "d5", "Nc3", "dxe4", "Nxe4", "Bg4", "Qe2", "Bxf3"
+        };
+
+        foreach (string move in moves)
+        {
+            game.ApplySan(move);
+        }
+
+        IReadOnlyList<LegalMoveInfo> legalMoves = game.GetLegalMoves();
+
+        LegalMoveInfo knightMove = Assert.Single(legalMoves, move => move.Uci == "e4f6");
+        Assert.Equal("Nf6#", knightMove.San);
+    }
+
+    [Fact]
+    public void ApplySan_AcceptsCheckSuffixWhenEngineEvaluatesMate()
+    {
+        ChessGame game = new();
+        string[] moves =
+        {
+            "e4", "e5", "f4", "exf4", "Nf3", "d5", "Nc3", "dxe4", "Nxe4", "Bg4", "Qe2", "Bxf3", "Nf6+"
+        };
+
+        foreach (string san in moves)
+        {
+            game.ApplySan(san);
+        }
+
+        Assert.Equal("rn1qkbnr/ppp2ppp/5N2/8/5p2/5b2/PPPPQ1PP/R1B1KB1R b KQkq - 1 7", game.GetFen());
+    }
+
 }

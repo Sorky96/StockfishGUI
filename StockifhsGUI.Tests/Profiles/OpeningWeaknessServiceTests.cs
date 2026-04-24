@@ -287,6 +287,7 @@ public sealed class OpeningWeaknessServiceTests
         public bool DeleteImportedGame(string gameFingerprint) => throw new NotSupportedException();
         public IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText = null, int limit = 200) => [];
         public void SaveImportedGame(ImportedGame game) => throw new NotSupportedException();
+        public void SaveImportedGames(IReadOnlyList<ImportedGame> games) => throw new NotSupportedException();
         public bool TryLoadImportedGame(string gameFingerprint, out ImportedGame? game) => throw new NotSupportedException();
         public bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result) => throw new NotSupportedException();
         public void SaveResult(GameAnalysisCacheKey key, GameAnalysisResult result) => throw new NotSupportedException();

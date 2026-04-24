@@ -260,27 +260,12 @@ public sealed class ChessGame
     private bool TryResolveSan(string san, List<MoveCandidate> legalMoves, out MoveCandidate candidate, out string? error)
     {
         string normalizedSan = SanNotation.NormalizeSan(san);
+        string normalizedSanWithoutCheckSuffix = SanNotation.RemoveCheckSuffix(san);
 
-        List<MoveCandidate> generatedMatches = new();
-        foreach (MoveCandidate move in legalMoves)
-        {
-            if (SanNotation.NormalizeSan(GenerateSan(move, legalMoves)) == normalizedSan)
-            {
-                generatedMatches.Add(move);
-            }
-        }
-
-        if (generatedMatches.Count == 1)
-        {
-            candidate = generatedMatches[0];
-            error = null;
-            return true;
-        }
-
-        if (normalizedSan == "O-O" || normalizedSan == "O-O-O")
+        if (normalizedSanWithoutCheckSuffix == "O-O" || normalizedSanWithoutCheckSuffix == "O-O-O")
         {
             int rank = whiteToMove ? 7 : 0;
-            int targetFile = normalizedSan == "O-O" ? 6 : 2;
+            int targetFile = normalizedSanWithoutCheckSuffix == "O-O" ? 6 : 2;
 
             foreach (MoveCandidate move in legalMoves)
             {
@@ -416,10 +401,59 @@ public sealed class ChessGame
             }
         }
 
+        if (TryResolveGeneratedSanFallback(san, normalizedSan, normalizedSanWithoutCheckSuffix, legalMoves, out candidate))
+        {
+            error = null;
+            return true;
+        }
+
         candidate = default;
         error = matches.Count == 0
             ? $"No legal move matches SAN '{san}' in the current position."
             : $"SAN '{san}' is ambiguous in the current position.";
+        return false;
+    }
+
+    private bool TryResolveGeneratedSanFallback(
+        string san,
+        string normalizedSan,
+        string normalizedSanWithoutCheckSuffix,
+        List<MoveCandidate> legalMoves,
+        out MoveCandidate candidate)
+    {
+        List<MoveCandidate> generatedMatches = new();
+        foreach (MoveCandidate move in legalMoves)
+        {
+            if (SanNotation.NormalizeSan(GenerateSan(move, legalMoves)) == normalizedSan)
+            {
+                generatedMatches.Add(move);
+            }
+        }
+
+        if (generatedMatches.Count == 1)
+        {
+            candidate = generatedMatches[0];
+            return true;
+        }
+
+        if (generatedMatches.Count == 0)
+        {
+            foreach (MoveCandidate move in legalMoves)
+            {
+                if (SanNotation.RemoveCheckSuffix(GenerateSan(move, legalMoves)) == normalizedSanWithoutCheckSuffix)
+                {
+                    generatedMatches.Add(move);
+                }
+            }
+
+            if (generatedMatches.Count == 1)
+            {
+                candidate = generatedMatches[0];
+                return true;
+            }
+        }
+
+        candidate = default;
         return false;
     }
 

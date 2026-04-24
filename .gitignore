@@ -19,6 +19,12 @@ out/
 # Logs
 *.log
 
+# Generated opening seed artifacts
+*.db
+*.db-shm
+*.db-wal
+!StockifhsGUI/OpeningSeed/opening-seed.db
+
 # OS files
 Thumbs.db
 Desktop.ini
@@ -26,3 +32,4 @@ Desktop.ini
 # NuGet
 packages/
 *.nupkg
+/opening_tree_import_plan.md
