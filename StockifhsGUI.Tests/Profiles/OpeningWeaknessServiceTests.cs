@@ -40,7 +40,8 @@ public sealed class OpeningWeaknessServiceTests
             [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
             [CreateMoveAnalysis(GamePhase.Opening, 90, "opening_principles", moveNumber: 3, san: "h4", bestMoveUci: "g1f3")]);
 
-        OpeningWeaknessService service = new(new FakeAnalysisStore([gameA, gameB, gameC]));
+        ImportedGame theoryGame = CreateTheoryGame("C20", ["Nf3"]);
+        OpeningWeaknessService service = new(new FakeAnalysisStore([gameA, gameB, gameC], theoryGames: [theoryGame]));
 
         bool found = service.TryBuildReport("Alpha", out OpeningWeaknessReport? report);
 
@@ -64,6 +65,7 @@ public sealed class OpeningWeaknessServiceTests
             Assert.False(string.IsNullOrWhiteSpace(item.BetterMove));
             Assert.False(string.IsNullOrWhiteSpace(item.FenBefore));
             Assert.Equal(PlayerSide.White, item.Side);
+            Assert.Contains("Nf3", item.BetterMove, StringComparison.OrdinalIgnoreCase);
         });
 
         OpeningMistakeSequenceStat sequence = Assert.Single(
@@ -71,6 +73,32 @@ public sealed class OpeningWeaknessServiceTests
             item => item.Key == "opening_principles -> king_safety");
         Assert.Equal(2, sequence.Count);
         Assert.Equal("C20", sequence.RepresentativeEco);
+    }
+
+    [Fact]
+    public void OpeningWeaknessService_SkipsNonTheoryPositionsButStillShowsLaterTheoryMatchedExamples()
+    {
+        GameAnalysisResult game = CreateResult(
+            "Sorky 1996",
+            "Beta",
+            PlayerSide.White,
+            "C23",
+            "2026.04.01",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [
+                CreateMoveAnalysis(GamePhase.Opening, 220, "missed_tactics", moveNumber: 5, san: "Qh5", bestMoveUci: "g1f3"),
+                CreateMoveAnalysis(GamePhase.Opening, 95, "opening_principles", moveNumber: 3, san: "Bc4", bestMoveUci: "g1f3")
+            ]);
+
+        ImportedGame theoryGame = CreateTheoryGame("C23", ["e4", "e5", "Bc4", "Bc5"]);
+        OpeningWeaknessService service = new(new FakeAnalysisStore([game], theoryGames: [theoryGame]));
+
+        Assert.True(service.TryBuildReport("Sorky 1996", out OpeningWeaknessReport? report));
+        Assert.NotNull(report);
+
+        OpeningWeaknessEntry c23 = Assert.Single(report!.WeakOpenings, item => item.Eco == "C23");
+        Assert.NotEmpty(c23.ExampleBetterMoves);
+        Assert.All(c23.ExampleBetterMoves, item => Assert.False(string.IsNullOrWhiteSpace(item.BetterMove)));
     }
 
     [Fact]
@@ -245,15 +273,50 @@ public sealed class OpeningWeaknessServiceTests
             new MoveExplanation("Short", "Hint", "Detailed"));
     }
 
-    private sealed class FakeAnalysisStore : IAnalysisStore
+    private static ImportedGame CreateTheoryGame(string eco, IReadOnlyList<string> sanMoves, string dateText = "2026.04.30")
+    {
+        return new ImportedGame(
+            BuildPgn("TheoryBook", "TheoryLine", dateText, eco, sanMoves),
+            sanMoves,
+            "TheoryBook",
+            "TheoryLine",
+            null,
+            null,
+            dateText,
+            "1-0",
+            eco,
+            "Imported");
+    }
+
+    private static string BuildPgn(string whitePlayer, string blackPlayer, string dateText, string eco, IReadOnlyList<string> tokens)
+    {
+        return string.Join(Environment.NewLine,
+        [
+            $"[White \"{whitePlayer}\"]",
+            $"[Black \"{blackPlayer}\"]",
+            $"[Date \"{dateText}\"]",
+            $"[Result \"1-0\"]",
+            $"[ECO \"{eco}\"]",
+            string.Empty,
+            $"{string.Join(' ', tokens)} 1-0"
+        ]);
+    }
+
+    private sealed class FakeAnalysisStore : IAnalysisStore, IOpeningTheoryStore
     {
         private readonly IReadOnlyList<GameAnalysisResult> results;
         private readonly IReadOnlyList<StoredMoveAnalysis> moveAnalyses;
+        private readonly Dictionary<string, OpeningTheoryPosition> theoryPositions;
+        private readonly Dictionary<string, IReadOnlyList<OpeningTheoryMove>> theoryMoves;
 
-        public FakeAnalysisStore(IReadOnlyList<GameAnalysisResult> results, IReadOnlyList<StoredMoveAnalysis>? moveAnalyses = null)
+        public FakeAnalysisStore(
+            IReadOnlyList<GameAnalysisResult> results,
+            IReadOnlyList<StoredMoveAnalysis>? moveAnalyses = null,
+            IReadOnlyList<ImportedGame>? theoryGames = null)
         {
             this.results = results;
             this.moveAnalyses = moveAnalyses ?? BuildStoredMoves(results);
+            (theoryPositions, theoryMoves) = BuildTheoryData(theoryGames ?? []);
         }
 
         public IReadOnlyList<GameAnalysisResult> ListResults(string? filterText = null, int limit = 500)
@@ -289,10 +352,150 @@ public sealed class OpeningWeaknessServiceTests
         public void SaveImportedGame(ImportedGame game) => throw new NotSupportedException();
         public void SaveImportedGames(IReadOnlyList<ImportedGame> games) => throw new NotSupportedException();
         public bool TryLoadImportedGame(string gameFingerprint, out ImportedGame? game) => throw new NotSupportedException();
+        public bool TryGetOpeningPositionByKey(string positionKey, out OpeningTheoryPosition? position)
+        {
+            bool found = theoryPositions.TryGetValue(positionKey, out OpeningTheoryPosition? value);
+            position = value;
+            return found;
+        }
+        public IReadOnlyList<OpeningTheoryMove> GetOpeningMovesByPositionKey(string positionKey, int limit = 10, bool playableOnly = false)
+        {
+            if (!theoryMoves.TryGetValue(positionKey, out IReadOnlyList<OpeningTheoryMove>? moves))
+            {
+                return [];
+            }
+
+            IEnumerable<OpeningTheoryMove> filtered = playableOnly
+                ? moves.Where(move => move.IsPlayableMove)
+                : moves;
+
+            return filtered.Take(limit).ToList();
+        }
         public bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result) => throw new NotSupportedException();
         public void SaveResult(GameAnalysisCacheKey key, GameAnalysisResult result) => throw new NotSupportedException();
         public bool TryLoadWindowState(string gameFingerprint, out AnalysisWindowState? state) => throw new NotSupportedException();
         public void SaveWindowState(string gameFingerprint, AnalysisWindowState state) => throw new NotSupportedException();
+    }
+
+    private static (Dictionary<string, OpeningTheoryPosition> Positions, Dictionary<string, IReadOnlyList<OpeningTheoryMove>> Moves) BuildTheoryData(
+        IReadOnlyList<ImportedGame> games)
+    {
+        Dictionary<string, TheoryPositionAccumulator> positions = new(StringComparer.Ordinal);
+        int nextOrder = 0;
+
+        foreach (ImportedGame game in games)
+        {
+            IReadOnlyList<ReplayPly> replay = new GameReplayService().Replay(game)
+                .Where(item => item.Phase == GamePhase.Opening)
+                .OrderBy(item => item.Ply)
+                .ToList();
+
+            foreach (ReplayPly ply in replay)
+            {
+                string fromKey = OpeningPositionKeyBuilder.Build(ply.FenBefore);
+                string toKey = OpeningPositionKeyBuilder.Build(ply.FenAfter);
+                if (!positions.TryGetValue(fromKey, out TheoryPositionAccumulator? position))
+                {
+                    position = new TheoryPositionAccumulator(fromKey, ply.FenBefore, ply.Ply, ply.MoveNumber, ply.Side == PlayerSide.White ? "w" : "b", game.Eco);
+                    positions[fromKey] = position;
+                }
+
+                position.DistinctGameFingerprints.Add(GameFingerprint.Compute(game.PgnText));
+                string edgeKey = $"{ply.Uci}|{toKey}";
+                if (!position.Moves.TryGetValue(edgeKey, out TheoryMoveAccumulator? move))
+                {
+                    move = new TheoryMoveAccumulator(ply.Uci, ply.San, toKey, ply.FenAfter, game.Eco, nextOrder++);
+                    position.Moves[edgeKey] = move;
+                }
+
+                move.OccurrenceCount++;
+                move.DistinctGameFingerprints.Add(GameFingerprint.Compute(game.PgnText));
+            }
+        }
+
+        Dictionary<string, OpeningTheoryPosition> theoryPositions = new(StringComparer.Ordinal);
+        Dictionary<string, IReadOnlyList<OpeningTheoryMove>> theoryMoves = new(StringComparer.Ordinal);
+
+        foreach ((string positionKey, TheoryPositionAccumulator position) in positions)
+        {
+            OpeningGameMetadata metadata = new(position.Eco ?? string.Empty, OpeningCatalog.GetName(position.Eco), string.Empty);
+            theoryPositions[positionKey] = new OpeningTheoryPosition(
+                Guid.NewGuid(),
+                position.PositionKey,
+                position.Fen,
+                position.Ply,
+                position.MoveNumber,
+                position.SideToMove,
+                position.Moves.Values.Sum(item => item.OccurrenceCount),
+                position.DistinctGameFingerprints.Count,
+                metadata);
+
+            IReadOnlyList<OpeningTheoryMove> moves = position.Moves.Values
+                .OrderByDescending(item => item.OccurrenceCount)
+                .ThenBy(item => item.FirstSeenOrder)
+                .Select((item, index) => new OpeningTheoryMove(
+                    Guid.NewGuid(),
+                    theoryPositions[positionKey].Id,
+                    Guid.NewGuid(),
+                    item.MoveUci,
+                    item.MoveSan,
+                    item.OccurrenceCount,
+                    item.DistinctGameFingerprints.Count,
+                    index == 0,
+                    index < 2,
+                    index + 1,
+                    item.ToPositionKey,
+                    item.ToFen,
+                    new OpeningGameMetadata(item.Eco ?? string.Empty, OpeningCatalog.GetName(item.Eco), string.Empty)))
+                .ToList();
+            theoryMoves[positionKey] = moves;
+        }
+
+        return (theoryPositions, theoryMoves);
+    }
+
+    private sealed class TheoryPositionAccumulator
+    {
+        public TheoryPositionAccumulator(string positionKey, string fen, int ply, int moveNumber, string sideToMove, string? eco)
+        {
+            PositionKey = positionKey;
+            Fen = fen;
+            Ply = ply;
+            MoveNumber = moveNumber;
+            SideToMove = sideToMove;
+            Eco = eco;
+        }
+
+        public string PositionKey { get; }
+        public string Fen { get; }
+        public int Ply { get; }
+        public int MoveNumber { get; }
+        public string SideToMove { get; }
+        public string? Eco { get; }
+        public HashSet<string> DistinctGameFingerprints { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, TheoryMoveAccumulator> Moves { get; } = new(StringComparer.Ordinal);
+    }
+
+    private sealed class TheoryMoveAccumulator
+    {
+        public TheoryMoveAccumulator(string moveUci, string moveSan, string toPositionKey, string toFen, string? eco, int firstSeenOrder)
+        {
+            MoveUci = moveUci;
+            MoveSan = moveSan;
+            ToPositionKey = toPositionKey;
+            ToFen = toFen;
+            Eco = eco;
+            FirstSeenOrder = firstSeenOrder;
+        }
+
+        public string MoveUci { get; }
+        public string MoveSan { get; }
+        public string ToPositionKey { get; }
+        public string ToFen { get; }
+        public string? Eco { get; }
+        public int FirstSeenOrder { get; }
+        public int OccurrenceCount { get; set; }
+        public HashSet<string> DistinctGameFingerprints { get; } = new(StringComparer.Ordinal);
     }
 
     private static IReadOnlyList<StoredMoveAnalysis> BuildStoredMoves(IReadOnlyList<GameAnalysisResult> results)

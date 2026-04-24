@@ -403,7 +403,7 @@ public sealed class PlayerProfilesForm : MaterialForm
             {
                 currentPlayerKey = null;
                 ClearAndDisposeControls(detailsContainer);
-                detailsContainer.Controls.Add(CreateStatusContent("No analyzed players match the current filter.", showSpinner: false));
+                detailsContainer.Controls.Add(CreateStatusContent(BuildEmptyStateMessage(filterText), showSpinner: false));
             }
         }
         finally
@@ -414,6 +414,22 @@ public sealed class PlayerProfilesForm : MaterialForm
         }
 
         EnsureInitialSelectionLoaded();
+    }
+
+    private string BuildEmptyStateMessage(string? filterText)
+    {
+        ProfileDataAvailability availability = profileService.GetDataAvailability(filterText);
+        if (availability.AnalyzedProfiles > 0)
+        {
+            return "No analyzed players match the current filter.";
+        }
+
+        if (availability.ImportedGames > 0 || availability.OpeningTreePositions > 0)
+        {
+            return "Imported opening data exists, but player profiles are built only from analyzed games. Load a saved game and analyze it first, then open Profiles again.";
+        }
+
+        return "No analyzed players match the current filter.";
     }
 
     private void UpdateDetails()

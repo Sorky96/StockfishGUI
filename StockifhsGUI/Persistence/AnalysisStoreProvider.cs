@@ -43,11 +43,20 @@ public static class AnalysisStoreProvider
     {
         try
         {
+            EnsureBundledOpeningSeedImported();
             return SqliteAnalysisStore.CreateDefault();
         }
         catch
         {
             return null;
         }
+    }
+
+    private static void EnsureBundledOpeningSeedImported()
+    {
+        OpeningSeedBootstrapper bootstrapper = new(
+            SqliteAnalysisStore.GetDefaultDatabasePath(),
+            OpeningSeedBootstrapper.GetDefaultBundledSeedPath());
+        bootstrapper.EnsureSeedImported();
     }
 }

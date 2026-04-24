@@ -24,6 +24,17 @@ public sealed partial class PlayerProfileService
             .ToList();
     }
 
+    public ProfileDataAvailability GetDataAvailability(string? filterText = null)
+    {
+        int importedGames = analysisStore.ListImportedGames(filterText, 1).Count;
+        int analyzedProfiles = ListProfiles(filterText, 1).Count;
+        int openingTreePositions = analysisStore is IOpeningTreeStore openingTreeStore
+            ? openingTreeStore.GetOpeningTreeSummary().NodeCount
+            : 0;
+
+        return new ProfileDataAvailability(importedGames, analyzedProfiles, openingTreePositions);
+    }
+
     public bool TryBuildProfile(string playerKeyOrName, out PlayerProfileReport? report)
     {
         if (string.IsNullOrWhiteSpace(playerKeyOrName))
@@ -512,6 +523,11 @@ public sealed partial class PlayerProfileService
             trainingPlan);
     }
 }
+
+public sealed record ProfileDataAvailability(
+    int ImportedGames,
+    int AnalyzedProfiles,
+    int OpeningTreePositions);
 
 public sealed partial class PlayerProfileService
 {

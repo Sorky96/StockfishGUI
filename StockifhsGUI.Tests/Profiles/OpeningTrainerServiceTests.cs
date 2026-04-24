@@ -303,6 +303,102 @@ public sealed class OpeningTrainerServiceTests
     }
 
     [Fact]
+    public void OpeningTrainerService_UsesOnlyImportedTheoryBranchesForBranchAwareness()
+    {
+        GameAnalysisResult gameA = CreateResult(
+            "Sorky 1996",
+            "Beta",
+            PlayerSide.White,
+            "C23",
+            "2026.04.01",
+            ["e4", "e5", "Bc4", "Bc5", "Qh5", "Nc6"],
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [
+                new AnalyzedMoveSpec(1, 18, null, "e2e4", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(3, 20, null, "f1c4", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(5, 95, "opening_principles", "g1f3")
+            ]);
+        GameAnalysisResult gameB = CreateResult(
+            "Sorky 1996",
+            "Gamma",
+            PlayerSide.White,
+            "C23",
+            "2026.04.08",
+            ["e4", "e5", "Bc4", "Nf6", "Qh5", "Nc6"],
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [
+                new AnalyzedMoveSpec(1, 18, null, "e2e4", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(3, 20, null, "f1c4", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(5, 90, "opening_principles", "g1f3")
+            ]);
+
+        OpeningTrainerService service = new(new FakeAnalysisStore(
+            [gameA, gameB],
+            theoryGames:
+            [
+                CreateTheoryGame("C23", ["e4", "e5", "Bc4", "Bc5"])
+            ]));
+
+        bool found = service.TryBuildSession("Sorky 1996", out OpeningTrainingSession? session, new OpeningTrainingSessionOptions(
+            Modes: [OpeningTrainingMode.BranchAwareness],
+            Sources: [OpeningTrainingSourceKind.OpeningWeakness],
+            TargetOpenings: ["C23"]));
+
+        Assert.True(found);
+        Assert.NotNull(session);
+        Assert.NotEmpty(session!.Positions);
+        Assert.All(session.Positions, position =>
+        {
+            Assert.Equal(OpeningTrainingMode.BranchAwareness, position.Mode);
+            Assert.Equal("C23", position.Eco);
+            Assert.Contains("imported opponent branch", position.BranchSelectionSummary ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(position.Branches);
+            Assert.NotEmpty(position.Branches!);
+            Assert.DoesNotContain(position.Branches!, branch => branch.OpponentMove is "Nf6" or "Nc6");
+        });
+    }
+
+    [Fact]
+    public void OpeningTrainerService_UsesImportedTheoryMoveAsDisplayedBetterMove()
+    {
+        GameAnalysisResult game = CreateResult(
+            "TheoryDisplay",
+            "Beta",
+            PlayerSide.White,
+            "C20",
+            "2026.04.01",
+            ["e4", "e5", "h3", "Nc6", "Bc4", "Bc5"],
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [
+                new AnalyzedMoveSpec(1, 20, null, "e2e4", MoveQualityBucket.Good),
+                new AnalyzedMoveSpec(3, 95, "opening_principles", "g1f3"),
+                new AnalyzedMoveSpec(5, 90, "opening_principles", "d2d4")
+            ]);
+
+        OpeningTrainerService service = new(new FakeAnalysisStore(
+            [game],
+            theoryGames:
+            [
+                CreateTheoryGame("C20", ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5"])
+            ]));
+
+        Assert.True(service.TryBuildSession("TheoryDisplay", out OpeningTrainingSession? session, new OpeningTrainingSessionOptions(
+            Sources: [OpeningTrainingSourceKind.ExampleGame, OpeningTrainingSourceKind.FirstOpeningMistake],
+            Modes: [OpeningTrainingMode.LineRecall, OpeningTrainingMode.MistakeRepair],
+            MaxPositions: 8,
+            MaxPositionsPerSource: 8)));
+        Assert.NotNull(session);
+
+        OpeningTrainingPosition lineRecall = session!.Positions.First(position => position.Mode == OpeningTrainingMode.LineRecall);
+        OpeningTrainingPosition repair = session.Positions.First(position => position.Mode == OpeningTrainingMode.MistakeRepair);
+        string expectedLineRecallMove = lineRecall.CandidateMoves.First(option => option.IsPreferred).DisplayText;
+        string expectedRepairMove = repair.CandidateMoves.First(option => option.IsPreferred).DisplayText;
+
+        Assert.Equal(expectedLineRecallMove, lineRecall.BetterMove);
+        Assert.Equal(expectedRepairMove, repair.BetterMove);
+    }
+
+    [Fact]
     public void OpeningTrainerService_EvaluatesAllModesThroughCommonAttemptResult()
     {
         GameAnalysisResult gameA = CreateResult(

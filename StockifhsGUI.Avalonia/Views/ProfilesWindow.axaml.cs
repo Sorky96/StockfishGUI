@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -15,7 +16,6 @@ public partial class ProfilesWindow : Window
     private readonly Func<OpeningExampleGame, Task>? navigateToOpeningExampleAsync;
     private readonly Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync;
     private List<PlayerProfileSummaryItemViewModel> items = [];
-    private OpeningTrainingSession? currentOpeningTrainingSession;
     private string? currentProfilePlayerKey;
 
     public ProfilesWindow()
@@ -57,12 +57,6 @@ public partial class ProfilesWindow : Window
         }
 
         profileService.TryBuildOpeningWeaknessReport(item.Summary.PlayerKey, out OpeningWeaknessReport? openingReport);
-        profileService.TryBuildOpeningTrainingSession(item.Summary.PlayerKey, out currentOpeningTrainingSession, new OpeningTrainingSessionOptions(
-            Modes: [OpeningTrainingMode.BranchAwareness],
-            Sources: [OpeningTrainingSourceKind.OpeningWeakness],
-            MaxPositions: 12,
-            MaxPositionsPerSource: 12,
-            MaxContinuationMoves: 4));
         RenderProfile(report, openingReport);
     }
 
@@ -84,8 +78,30 @@ public partial class ProfilesWindow : Window
         }
         else
         {
-            ShowStatus("No analyzed players match the current filter.");
+            ShowStatus(BuildEmptyStateMessage());
         }
+    }
+
+    private string BuildEmptyStateMessage()
+    {
+        ProfileDataAvailability availability = profileService.GetDataAvailability(FilterTextBox.Text);
+        ProfileDataAvailability totalAvailability = profileService.GetDataAvailability();
+        if (availability.AnalyzedProfiles > 0)
+        {
+            return "No analyzed players match the current filter.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(FilterTextBox.Text) && totalAvailability.AnalyzedProfiles > 0)
+        {
+            return "No analyzed players match the current filter.";
+        }
+
+        if (totalAvailability.ImportedGames > 0 || totalAvailability.OpeningTreePositions > 0)
+        {
+            return "Imported opening data exists, but player profiles are built only from analyzed games. Load one of the saved games and run analysis first, then reopen Profiles.";
+        }
+
+        return "No analyzed players match the current filter.";
     }
 
     private void ShowStatus(string text)
@@ -1008,16 +1024,11 @@ public partial class ProfilesWindow : Window
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 4, 0, 0)
         };
-        IReadOnlyList<OpeningTrainingPosition> openingBranches = currentOpeningTrainingSession?.Positions
-            .Where(position => position.Mode == OpeningTrainingMode.BranchAwareness
-                && string.Equals(position.Eco, opening.Eco, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(position => position.Priority)
-            .ToList()
-            ?? [];
+        IReadOnlyList<OpeningTrainingPosition> openingBranches = GetBranchAwarenessPositionsForOpening(opening.Eco);
         Button branchButton = new()
         {
             Content = openingBranches.Count == 0 ? "Branch awareness unavailable" : "Open branch awareness",
-            IsEnabled = openingBranches.Count > 0,
+            IsEnabled = !string.IsNullOrWhiteSpace(currentProfilePlayerKey),
             Margin = new Thickness(0, 0, 8, 0),
             MinWidth = 220
         };
@@ -1026,13 +1037,25 @@ public partial class ProfilesWindow : Window
             branchButton.IsEnabled = false;
             try
             {
-                await ShowBranchAwarenessWindowAsync(opening, openingBranches);
+                IReadOnlyList<OpeningTrainingPosition> positions = GetBranchAwarenessPositionsForOpening(opening.Eco);
+                if (positions.Count == 0)
+                {
+                    OpenSectionWindow(
+                        "Branch awareness",
+                        [
+                            CreateBodyText($"{opening.OpeningDisplayName} | {opening.Eco}", "#D7E2EA"),
+                            CreateBodyText("No imported-theory branch entries are available yet for this opening at the positions highlighted by the profile.", "#D7E2EA")
+                        ]);
+                    return;
+                }
+
+                await ShowBranchAwarenessWindowAsync(opening, positions);
             }
             finally
             {
                 if (!IsClosed())
                 {
-                    branchButton.IsEnabled = openingBranches.Count > 0;
+                    branchButton.IsEnabled = !string.IsNullOrWhiteSpace(currentProfilePlayerKey);
                 }
             }
         };
@@ -1063,8 +1086,8 @@ public partial class ProfilesWindow : Window
         actions.Children.Add(trainingButton);
         actions.Children.Add(CreateBodyText(
             openingBranches.Count == 0
-                ? "No stable local branch sample yet for this opening."
-                : "Shows the most common local opponent replies and one recommended local reaction.",
+                ? "Branch awareness appears only when imported opening theory contains replies for the highlighted position in this opening."
+                : "Shows the most common opponent replies from imported opening theory and one recommended theory-backed reaction.",
             "#9EB5C5"));
         panel.Children.Add(actions);
 
@@ -1092,7 +1115,7 @@ public partial class ProfilesWindow : Window
             OpenSectionWindow(
                 $"Opening training - {opening.OpeningDisplayName}",
                 [
-                    CreateBodyText("No local training positions are available yet for this opening.", "#D7E2EA")
+                    CreateBodyText("No imported-theory training positions are available yet for this opening.", "#D7E2EA")
                 ]);
             return;
         }
@@ -1116,12 +1139,12 @@ public partial class ProfilesWindow : Window
             "Opening training",
             [
                 CreateBodyText($"{opening.OpeningDisplayName} | {FormatOpeningWeaknessCategory(opening.Category)}", "#D7E2EA"),
-                CreateBodyText("This session is filtered to the selected opening and built only from stored profile weaknesses and local analysis.", "#D7E2EA")
+                CreateBodyText("This session is filtered to the selected opening. Branches and book moves come from the imported opening database, while the profile weakness only decides which positions to review.", "#D7E2EA")
             ]));
 
         foreach (OpeningTrainingPosition position in session.Positions)
         {
-            content.Children.Add(CreateOpeningTrainingPositionCard(position));
+            content.Children.Add(CreateOpeningTrainingPositionCard(position, window));
         }
 
         window.Content = new Border
@@ -1136,11 +1159,11 @@ public partial class ProfilesWindow : Window
         await window.ShowDialog(this);
     }
 
-    private Control CreateOpeningTrainingPositionCard(OpeningTrainingPosition position)
+    private Control CreateOpeningTrainingPositionCard(OpeningTrainingPosition position, Window? ownerWindowToClose = null)
     {
         if (position.Mode == OpeningTrainingMode.BranchAwareness)
         {
-            return CreateBranchAwarenessCard(position);
+            return CreateBranchAwarenessCard(position, ownerWindowToClose);
         }
 
         Border card = new()
@@ -1156,20 +1179,19 @@ public partial class ProfilesWindow : Window
             ColumnDefinitions = new ColumnDefinitions("120,*")
         };
 
-        Border boardHost = new()
-        {
-            Width = 120,
-            Height = 120,
-            CornerRadius = new CornerRadius(10),
-            ClipToBounds = true
-        };
-        boardHost.Child = new ChessBoardView
-        {
-            Width = 120,
-            Height = 120,
-            Fen = position.Fen,
-            IsHitTestVisible = false
-        };
+        IReadOnlyList<BoardArrowViewModel> arrows = BuildPreviewArrows(
+            position.Fen,
+            (position.PlayedMove, Color.Parse("#F6C453")),
+            (GetPreferredTheoryMove(position), Color.Parse("#58D68D")));
+        Control boardHost = CreateBoardPreview(
+            position.Fen,
+            120,
+            arrows,
+            async () => await ShowBoardPreviewWindowAsync(
+                title: $"{FormatOpeningTrainingMode(position.Mode)} | {position.OpeningName}",
+                fen: position.Fen,
+                arrows: arrows,
+                detailLines: BuildTrainingPreviewDetailLines(position)));
         grid.Children.Add(boardHost);
 
         StackPanel panel = new()
@@ -1191,15 +1213,16 @@ public partial class ProfilesWindow : Window
 
         if (!string.IsNullOrWhiteSpace(position.PlayedMove))
         {
-            panel.Children.Add(CreateBodyText($"Played in game: {position.PlayedMove}", "#9EB5C5"));
+            panel.Children.Add(CreateBodyText($"Your move: {position.PlayedMove}", "#9EB5C5"));
         }
 
-        if (!string.IsNullOrWhiteSpace(position.BetterMove))
+        string? preferredTheoryMove = GetPreferredTheoryMove(position);
+        if (!string.IsNullOrWhiteSpace(preferredTheoryMove))
         {
-            panel.Children.Add(CreateBodyText($"Target repair: {position.BetterMove}", "#D7E2EA"));
+            panel.Children.Add(CreateBodyText($"Best theory move: {preferredTheoryMove}", "#D7E2EA"));
         }
 
-        IReadOnlyList<string> candidateMoves = position.CandidateMoves
+        IReadOnlyList<string> candidateMoves = GetImportedTheoryOptions(position)
             .OrderByDescending(move => move.IsPreferred)
             .ThenBy(move => move.DisplayText, StringComparer.OrdinalIgnoreCase)
             .Take(5)
@@ -1207,13 +1230,15 @@ public partial class ProfilesWindow : Window
             .ToList();
         if (candidateMoves.Count > 0)
         {
-            panel.Children.Add(CreateBodyText($"Local references: {string.Join(", ", candidateMoves)}", "#9EB5C5"));
+            panel.Children.Add(CreateBodyText($"Imported theory options: {string.Join(", ", candidateMoves)}", "#9EB5C5"));
         }
 
         if (position.Continuation.Count > 0)
         {
             panel.Children.Add(CreateBodyText($"Continuation: {string.Join(" -> ", position.Continuation.Select(move => move.San))}", "#9EB5C5"));
         }
+
+        panel.Children.Add(CreateTrainingPositionActionButton(position, ownerWindowToClose));
 
         grid.Children.Add(panel);
         card.Child = grid;
@@ -1241,12 +1266,12 @@ public partial class ProfilesWindow : Window
             "Branch awareness",
             [
                 CreateBodyText($"{opening.OpeningDisplayName} | {opening.Eco}", "#D7E2EA"),
-                CreateBodyText("The branches below come only from local example games, recurring mistake patterns, and saved continuations.", "#D7E2EA")
+                CreateBodyText("The branches below come from the imported opening database for the highlighted profile positions in this opening.", "#D7E2EA")
             ]));
 
         foreach (OpeningTrainingPosition position in positions)
         {
-            content.Children.Add(CreateBranchAwarenessCard(position));
+            content.Children.Add(CreateBranchAwarenessCard(position, window));
         }
 
         window.Content = new Border
@@ -1261,7 +1286,7 @@ public partial class ProfilesWindow : Window
         await window.ShowDialog(this);
     }
 
-    private Control CreateBranchAwarenessCard(OpeningTrainingPosition position)
+    private Control CreateBranchAwarenessCard(OpeningTrainingPosition position, Window? ownerWindowToClose = null)
     {
         Border card = new()
         {
@@ -1276,20 +1301,15 @@ public partial class ProfilesWindow : Window
             ColumnDefinitions = new ColumnDefinitions("170,*")
         };
 
-        Border boardHost = new()
-        {
-            Width = 160,
-            Height = 160,
-            CornerRadius = new CornerRadius(10),
-            ClipToBounds = true
-        };
-        boardHost.Child = new ChessBoardView
-        {
-            Width = 160,
-            Height = 160,
-            Fen = position.Fen,
-            IsHitTestVisible = false
-        };
+        Control boardHost = CreateBoardPreview(
+            position.Fen,
+            160,
+            Array.Empty<BoardArrowViewModel>(),
+            async () => await ShowBoardPreviewWindowAsync(
+                title: $"Branch Awareness | {position.OpeningName}",
+                fen: position.Fen,
+                arrows: Array.Empty<BoardArrowViewModel>(),
+                detailLines: BuildBranchPreviewDetailLines(position)));
         grid.Children.Add(boardHost);
 
         StackPanel panel = new()
@@ -1354,6 +1374,7 @@ public partial class ProfilesWindow : Window
             panel.Children.Add(branchCard);
         }
 
+        panel.Children.Add(CreateTrainingPositionActionButton(position, ownerWindowToClose));
         grid.Children.Add(panel);
         card.Child = grid;
         return card;
@@ -1433,20 +1454,19 @@ public partial class ProfilesWindow : Window
             ColumnDefinitions = new ColumnDefinitions("120,*")
         };
 
-        Border boardHost = new()
-        {
-            Width = 120,
-            Height = 120,
-            CornerRadius = new CornerRadius(10),
-            ClipToBounds = true
-        };
-        boardHost.Child = new ChessBoardView
-        {
-            Width = 120,
-            Height = 120,
-            Fen = recommendation.FenBefore,
-            IsHitTestVisible = false
-        };
+        IReadOnlyList<BoardArrowViewModel> arrows = BuildPreviewArrows(
+            recommendation.FenBefore,
+            (recommendation.PlayedSan, Color.Parse("#F6C453")),
+            (recommendation.BetterMove, Color.Parse("#58D68D")));
+        Control boardHost = CreateBoardPreview(
+            recommendation.FenBefore,
+            120,
+            arrows,
+            async () => await ShowBoardPreviewWindowAsync(
+                title: $"Opening Position | {OpeningCatalog.Describe(recommendation.Eco)}",
+                fen: recommendation.FenBefore,
+                arrows: arrows,
+                detailLines: BuildRecommendationPreviewDetailLines(recommendation)));
         grid.Children.Add(boardHost);
 
         StackPanel panel = new()
@@ -1464,7 +1484,8 @@ public partial class ProfilesWindow : Window
             Foreground = Brushes.White,
             TextWrapping = TextWrapping.Wrap
         });
-        panel.Children.Add(CreateBodyText($"Better move: {recommendation.BetterMove}", "#D7E2EA"));
+        panel.Children.Add(CreateBodyText($"Your move: {recommendation.PlayedSan}", "#9EB5C5"));
+        panel.Children.Add(CreateBodyText($"Best book move: {recommendation.BetterMove}", "#D7E2EA"));
         panel.Children.Add(CreateBodyText(
             $"Theme: {FormatMistakeLabel(recommendation.MistakeType ?? "unclassified")} | CPL {recommendation.CentipawnLoss?.ToString() ?? "n/a"}",
             "#D7E2EA"));
@@ -1531,6 +1552,360 @@ public partial class ProfilesWindow : Window
         };
 
         await window.ShowDialog(this);
+    }
+
+    private async Task NavigateToTrainingPositionAsync(OpeningTrainingPosition position, Window? ownerWindowToClose = null)
+    {
+        if (navigateToOpeningPositionAsync is null)
+        {
+            return;
+        }
+
+        OpeningMoveRecommendation recommendation = new(
+            position.Reference.GameFingerprint,
+            position.Reference.Side,
+            position.Eco,
+            position.Ply,
+            position.MoveNumber,
+            position.PlayedMove ?? "?",
+            GetPreferredTheoryMove(position) ?? position.BetterMove ?? "?",
+            position.ThemeLabel,
+            null,
+            position.Fen);
+
+        await navigateToOpeningPositionAsync(recommendation);
+        ownerWindowToClose?.Close();
+        Close();
+    }
+
+    private IReadOnlyList<OpeningTrainingPosition> GetBranchAwarenessPositionsForOpening(string eco)
+    {
+        if (string.IsNullOrWhiteSpace(currentProfilePlayerKey) || string.IsNullOrWhiteSpace(eco))
+        {
+            return [];
+        }
+
+        OpeningTrainingSessionOptions options = new(
+            Modes: [OpeningTrainingMode.BranchAwareness],
+            Sources: [OpeningTrainingSourceKind.OpeningWeakness],
+            MaxPositions: 24,
+            MaxPositionsPerSource: 24,
+            MaxContinuationMoves: 4,
+            TargetOpenings: [eco]);
+
+        if (!profileService.TryBuildOpeningTrainingSession(currentProfilePlayerKey, out OpeningTrainingSession? session, options)
+            || session is null)
+        {
+            return [];
+        }
+
+        return session.Positions
+            .Where(position => position.Mode == OpeningTrainingMode.BranchAwareness
+                && string.Equals(position.Eco, eco, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(position => position.Priority)
+            .ToList();
+    }
+
+    private static string? GetPreferredTheoryMove(OpeningTrainingPosition position)
+    {
+        return position.CandidateMoves
+            .FirstOrDefault(move => move.IsPreferred && move.ReferenceKind != OpeningLineRecallReferenceKind.HistoricalGame)?.DisplayText
+            ?? position.BetterMove;
+    }
+
+    private static IReadOnlyList<OpeningTrainingMoveOption> GetImportedTheoryOptions(OpeningTrainingPosition position)
+    {
+        return position.CandidateMoves
+            .Where(move => move.ReferenceKind != OpeningLineRecallReferenceKind.HistoricalGame)
+            .ToList();
+    }
+
+    private Button CreateTrainingPositionActionButton(OpeningTrainingPosition position, Window? ownerWindowToClose)
+    {
+        Button button = new()
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Content = "Open position",
+            IsEnabled = navigateToOpeningPositionAsync is not null
+        };
+        button.Click += async (_, _) =>
+        {
+            if (navigateToOpeningPositionAsync is null)
+            {
+                return;
+            }
+
+            button.IsEnabled = false;
+            try
+            {
+                await NavigateToTrainingPositionAsync(position, ownerWindowToClose);
+            }
+            finally
+            {
+                if (!IsClosed())
+                {
+                    button.IsEnabled = true;
+                }
+            }
+        };
+        return button;
+    }
+
+    private static Control CreateBoardPreview(
+        string fen,
+        double size,
+        IReadOnlyList<BoardArrowViewModel> arrows,
+        Func<Task>? onClick = null)
+    {
+        Border boardHost = new()
+        {
+            Width = size,
+            Height = size,
+            CornerRadius = new CornerRadius(10),
+            ClipToBounds = true
+        };
+
+        boardHost.Child = new ChessBoardView
+        {
+            Width = size,
+            Height = size,
+            Fen = fen,
+            Arrows = arrows,
+            IsHitTestVisible = false
+        };
+
+        if (onClick is null)
+        {
+            return boardHost;
+        }
+
+        Button button = new()
+        {
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Content = boardHost
+        };
+        button.Click += async (_, _) => await onClick();
+        return button;
+    }
+
+    private async Task ShowBoardPreviewWindowAsync(
+        string title,
+        string fen,
+        IReadOnlyList<BoardArrowViewModel> arrows,
+        IReadOnlyList<string> detailLines)
+    {
+        Window window = new()
+        {
+            Title = title,
+            Width = 980,
+            Height = 780,
+            MinWidth = 760,
+            MinHeight = 620,
+            Background = Brush.Parse("#23313B")
+        };
+
+        StackPanel rightPanel = new()
+        {
+            Spacing = 8
+        };
+
+        foreach (string line in detailLines.Where(line => !string.IsNullOrWhiteSpace(line)))
+        {
+            rightPanel.Children.Add(CreateBodyText(line, "#D7E2EA"));
+        }
+
+        Grid grid = new()
+        {
+            ColumnDefinitions = new ColumnDefinitions("460,*")
+        };
+
+        Border boardCard = new()
+        {
+            Background = Brush.Parse("#182B37"),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(16),
+            Child = new ChessBoardView
+            {
+                Width = 420,
+                Height = 420,
+                Fen = fen,
+                Arrows = arrows,
+                IsHitTestVisible = false
+            }
+        };
+        grid.Children.Add(boardCard);
+
+        Border detailsCard = new()
+        {
+            Background = Brush.Parse("#182B37"),
+            CornerRadius = new CornerRadius(14),
+            Margin = new Thickness(18, 0, 0, 0),
+            Padding = new Thickness(16),
+            Child = new ScrollViewer
+            {
+                Content = rightPanel
+            }
+        };
+        Grid.SetColumn(detailsCard, 1);
+        grid.Children.Add(detailsCard);
+
+        window.Content = new Border
+        {
+            Padding = new Thickness(18),
+            Child = grid
+        };
+
+        await window.ShowDialog(this);
+    }
+
+    private static IReadOnlyList<string> BuildTrainingPreviewDetailLines(OpeningTrainingPosition position)
+    {
+        List<string> lines = [];
+        lines.Add(position.Prompt);
+        lines.Add(position.Instruction);
+
+        if (!string.IsNullOrWhiteSpace(position.PlayedMove))
+        {
+            lines.Add($"Your move: {position.PlayedMove}");
+        }
+
+        string? preferredTheoryMove = GetPreferredTheoryMove(position);
+        if (!string.IsNullOrWhiteSpace(preferredTheoryMove))
+        {
+            lines.Add($"Best theory move: {preferredTheoryMove}");
+        }
+
+        if (position.Continuation.Count > 0)
+        {
+            lines.Add($"Line: {string.Join(" -> ", position.Continuation.Select(move => move.San))}");
+        }
+
+        return lines;
+    }
+
+    private static IReadOnlyList<string> BuildBranchPreviewDetailLines(OpeningTrainingPosition position)
+    {
+        List<string> lines = [];
+        lines.Add(position.Prompt);
+        lines.Add(position.Instruction);
+
+        if (!string.IsNullOrWhiteSpace(position.BranchSelectionSummary))
+        {
+            lines.Add(position.BranchSelectionSummary);
+        }
+
+        foreach (OpeningTrainingBranch branch in position.Branches ?? [])
+        {
+            lines.Add($"Opponent reply: {branch.OpponentMove} | seen {branch.Frequency} time(s)");
+            if (!string.IsNullOrWhiteSpace(branch.RecommendedResponse?.DisplayText))
+            {
+                lines.Add($"Best theory response: {branch.RecommendedResponse.DisplayText}");
+            }
+
+            if (branch.Continuation.Count > 0)
+            {
+                lines.Add($"Sample line: {string.Join(" -> ", branch.Continuation.Select(move => move.San))}");
+            }
+        }
+
+        return lines;
+    }
+
+    private static IReadOnlyList<string> BuildRecommendationPreviewDetailLines(OpeningMoveRecommendation recommendation)
+    {
+        return
+        [
+            FormatPlyLabel(recommendation.Side, recommendation.Ply, recommendation.PlayedSan),
+            $"Your move: {recommendation.PlayedSan}",
+            $"Best book move: {recommendation.BetterMove}",
+            $"Theme: {FormatMistakeLabel(recommendation.MistakeType ?? "unclassified")} | CPL {recommendation.CentipawnLoss?.ToString() ?? "n/a"}"
+        ];
+    }
+
+    private static IReadOnlyList<BoardArrowViewModel> BuildPreviewArrows(
+        string fen,
+        params (string? MoveText, Color Color)[] moveSpecs)
+    {
+        List<BoardArrowViewModel> arrows = [];
+        foreach ((string? moveText, Color color) in moveSpecs)
+        {
+            if (TryBuildArrow(fen, moveText, color, out BoardArrowViewModel arrow))
+            {
+                arrows.Add(arrow);
+            }
+        }
+
+        return arrows;
+    }
+
+    private static bool TryBuildArrow(string fen, string? moveText, Color color, out BoardArrowViewModel arrow)
+    {
+        arrow = default!;
+        if (string.IsNullOrWhiteSpace(fen) || string.IsNullOrWhiteSpace(moveText))
+        {
+            return false;
+        }
+
+        ChessGame game = new();
+        if (!game.TryLoadFen(fen, out _))
+        {
+            return false;
+        }
+
+        if (TryApplyPreviewMove(game, moveText, out AppliedMoveInfo? appliedMove) && appliedMove is not null)
+        {
+            arrow = new BoardArrowViewModel(appliedMove.FromSquare, appliedMove.ToSquare, color);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryApplyPreviewMove(ChessGame game, string moveText, out AppliedMoveInfo? appliedMove)
+    {
+        appliedMove = null;
+        string trimmed = moveText.Trim();
+        string? uci = TryExtractUci(trimmed);
+        if (!string.IsNullOrWhiteSpace(uci) && game.TryApplyUci(uci, out appliedMove, out _))
+        {
+            return appliedMove is not null;
+        }
+
+        string san = TrimMoveDisplayText(trimmed);
+        try
+        {
+            appliedMove = game.ApplySanWithResult(san);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? TryExtractUci(string moveText)
+    {
+        if (System.Text.RegularExpressions.Regex.IsMatch(moveText, "^[a-h][1-8][a-h][1-8][qrbn]?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            return moveText;
+        }
+
+        System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(
+            moveText,
+            "\\(([a-h][1-8][a-h][1-8][qrbn]?)\\)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    private static string TrimMoveDisplayText(string moveText)
+    {
+        int parenIndex = moveText.IndexOf(" (", StringComparison.Ordinal);
+        return parenIndex > 0 ? moveText[..parenIndex].Trim() : moveText;
     }
 
     private static IReadOnlyList<string> BuildFixFirstItems(PlayerProfileReport report)

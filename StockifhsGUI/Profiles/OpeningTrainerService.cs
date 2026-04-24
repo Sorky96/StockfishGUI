@@ -303,11 +303,11 @@ public sealed class OpeningTrainerService
     {
         return score switch
         {
-            OpeningTrainingScore.Correct => $"Accepted as correct. The move matches a preferred local reference: {FormatMatchedReferences(matchingReferences.Where(option => option.IsPreferred).ToList())}.",
-            OpeningTrainingScore.Playable => $"Accepted as playable. The move appears in local references, but it is not the strongest preferred continuation here: {FormatMatchedReferences(matchingReferences)}.",
+            OpeningTrainingScore.Correct => $"Accepted as correct. The move matches a preferred imported-theory reference: {FormatMatchedReferences(matchingReferences.Where(option => option.IsPreferred).ToList())}.",
+            OpeningTrainingScore.Playable => $"Accepted as playable. The move appears in imported opening theory, but it is not the strongest preferred continuation here: {FormatMatchedReferences(matchingReferences)}.",
             _ => preferredReferences.Count == 0
-                ? "Marked as wrong because the move does not match any local reference move for this position."
-                : $"Marked as wrong because the move does not match the preferred local references: {FormatMatchedReferences(preferredReferences)}."
+                ? "Marked as wrong because the move does not match any imported-theory move for this position."
+                : $"Marked as wrong because the move does not match the preferred imported-theory references: {FormatMatchedReferences(preferredReferences)}."
         };
     }
 
@@ -336,11 +336,11 @@ public sealed class OpeningTrainerService
     {
         return score switch
         {
-            OpeningTrainingScore.Correct => $"Correct branch. This is the highest-priority local opponent reply: {FormatMatchedReferences(preferredReferences)}.",
-            OpeningTrainingScore.Playable => $"Playable branch. This opponent reply appears in local branches: {FormatMatchedReferences(matchingReferences)}. Primary branch: {FormatMatchedReferences(preferredReferences)}.",
+            OpeningTrainingScore.Correct => $"Correct branch. This is the highest-priority imported-theory opponent reply: {FormatMatchedReferences(preferredReferences)}.",
+            OpeningTrainingScore.Playable => $"Playable branch. This opponent reply appears in imported theory: {FormatMatchedReferences(matchingReferences)}. Primary branch: {FormatMatchedReferences(preferredReferences)}.",
             _ => preferredReferences.Count == 0 && playableReferences.Count == 0
-                ? "Marked as wrong because no saved local opponent branches are available for this position."
-                : $"Marked as wrong because the move does not match the saved local opponent branches: {FormatMatchedReferences(preferredReferences.Concat(playableReferences).ToList())}."
+                ? "Marked as wrong because no imported-theory opponent branches are available for this position."
+                : $"Marked as wrong because the move does not match the imported-theory opponent branches: {FormatMatchedReferences(preferredReferences.Concat(playableReferences).ToList())}."
         };
     }
 
@@ -599,7 +599,7 @@ public sealed class OpeningTrainerService
                 (example.FirstMistakeCentipawnLoss ?? 0) + 25,
                 firstIssue?.Move.MistakeLabel,
                 anchorMove.San,
-                firstIssue is null ? null : FormatMove(firstIssue.Move.FenBefore, firstIssue.Move.BestMoveUci),
+                GetPreferredTheoryMoveDisplay(candidateMoves),
                 firstIssue is null ? null : BuildRepairReason(firstIssue.Move),
                 BuildTags(snapshot.Eco, firstIssue?.Move.MistakeLabel, "example-game", "line-recall"),
                 candidateMoves,
@@ -738,7 +738,7 @@ public sealed class OpeningTrainerService
                 (issue.Move.CentipawnLoss ?? 0) + 100,
                 issue.Move.MistakeLabel,
                 issue.Move.San,
-                FormatMove(issue.Move.FenBefore, issue.Move.BestMoveUci),
+                GetPreferredTheoryMoveDisplay(candidateMoves),
                 BuildRepairReason(issue.Move),
                 BuildTags(snapshot.Eco, issue.Move.MistakeLabel, "first-opening-mistake", "mistake-repair"),
                 candidateMoves,
@@ -1547,17 +1547,25 @@ public sealed class OpeningTrainerService
         OpeningTrainingPosition position,
         IReadOnlyList<OpeningTrainingMoveOption> preferredReferences)
     {
+        string? preferredTheoryMove = GetPreferredTheoryMoveDisplay(preferredReferences);
+        if (!string.IsNullOrWhiteSpace(preferredTheoryMove))
+        {
+            return $"Better move: {preferredTheoryMove}.";
+        }
+
         if (!string.IsNullOrWhiteSpace(position.BetterMove))
         {
             return $"Better move: {position.BetterMove}.";
         }
 
-        if (preferredReferences.Count > 0)
-        {
-            return $"Better move: {FormatMatchedReferences(preferredReferences)}.";
-        }
-
         return "Better move: no saved repair move was available.";
+    }
+
+    private static string? GetPreferredTheoryMoveDisplay(IReadOnlyList<OpeningTrainingMoveOption> options)
+    {
+        return options
+            .FirstOrDefault(option => option.IsPreferred)?.DisplayText
+            ?? options.FirstOrDefault()?.DisplayText;
     }
 
     private static string BuildWhyBetterSummary(

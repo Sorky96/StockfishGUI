@@ -16,10 +16,14 @@ public sealed class OpeningWeaknessService
     };
 
     private readonly IAnalysisStore analysisStore;
+    private readonly OpeningTheoryQueryService? openingTheory;
 
     public OpeningWeaknessService(IAnalysisStore analysisStore)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
+        openingTheory = analysisStore is IOpeningTheoryStore theoryStore
+            ? new OpeningTheoryQueryService(theoryStore)
+            : null;
     }
 
     public bool TryBuildReport(string playerKeyOrName, out OpeningWeaknessReport? report)
@@ -194,7 +198,7 @@ public sealed class OpeningWeaknessService
             openingMoves);
     }
 
-    private static OpeningWeaknessReport BuildReport(IReadOnlyList<OpeningSnapshot> snapshots)
+    private OpeningWeaknessReport BuildReport(IReadOnlyList<OpeningSnapshot> snapshots)
     {
         string playerKey = snapshots[0].PlayerKey;
         string displayName = snapshots
@@ -246,7 +250,7 @@ public sealed class OpeningWeaknessService
             recurringSequences);
     }
 
-    private static OpeningWeaknessEntry BuildOpeningEntry(IGrouping<string, OpeningSnapshot> group)
+    private OpeningWeaknessEntry BuildOpeningEntry(IGrouping<string, OpeningSnapshot> group)
     {
         List<OpeningSnapshot> snapshots = group.ToList();
         string eco = NormalizeEco(group.Key);
@@ -322,23 +326,14 @@ public sealed class OpeningWeaknessService
             .ToList();
 
         IReadOnlyList<OpeningMoveRecommendation> betterMoves = issues
-            .Where(item => !string.IsNullOrWhiteSpace(item.Move.BestMoveUci))
             .OrderByDescending(item => item.Move.CentipawnLoss ?? 0)
             .ThenBy(item => item.Move.Ply)
             .GroupBy(item => $"{item.Snapshot.GameFingerprint}|{item.Move.Ply}", StringComparer.Ordinal)
             .Select(grouped => grouped.First())
+            .Select(item => TryCreateOpeningMoveRecommendation(item, eco))
+            .Where(item => item is not null)
+            .Select(item => item!)
             .Take(3)
-            .Select(item => new OpeningMoveRecommendation(
-                item.Snapshot.GameFingerprint,
-                item.Snapshot.Side,
-                eco,
-                item.Move.Ply,
-                item.Move.MoveNumber,
-                item.Move.San,
-                FormatBetterMove(item.Move.FenBefore, item.Move.BestMoveUci),
-                item.Move.MistakeLabel,
-                item.Move.CentipawnLoss,
-                item.Move.FenBefore))
             .ToList();
 
         return new OpeningWeaknessEntry(
@@ -595,19 +590,47 @@ public sealed class OpeningWeaknessService
             : null;
     }
 
-    private static string FormatBetterMove(string fenBefore, string? bestMoveUci)
+    private OpeningMoveRecommendation? TryCreateOpeningMoveRecommendation(OpeningIssue issue, string eco)
     {
-        if (string.IsNullOrWhiteSpace(bestMoveUci))
+        string? betterMove = TryFormatTheoryMove(issue.Move.FenBefore);
+        if (string.IsNullOrWhiteSpace(betterMove))
         {
-            return "Unknown";
+            return null;
+        }
+
+        return new OpeningMoveRecommendation(
+            issue.Snapshot.GameFingerprint,
+            issue.Snapshot.Side,
+            eco,
+            issue.Move.Ply,
+            issue.Move.MoveNumber,
+            issue.Move.San,
+            betterMove,
+            issue.Move.MistakeLabel,
+            issue.Move.CentipawnLoss,
+            issue.Move.FenBefore);
+    }
+
+    private string? TryFormatTheoryMove(string fenBefore)
+    {
+        if (openingTheory is null || string.IsNullOrWhiteSpace(fenBefore))
+        {
+            return null;
+        }
+
+        OpeningTheoryMove? theoryMove = openingTheory.GetMainMoveForFen(fenBefore)
+            ?? openingTheory.GetTopMovesForFen(fenBefore, limit: 1, playableOnly: false).FirstOrDefault();
+        if (theoryMove is null || string.IsNullOrWhiteSpace(theoryMove.MoveUci))
+        {
+            return null;
         }
 
         ChessGame game = new();
         if (!game.TryLoadFen(fenBefore, out _)
-            || !game.TryApplyUci(bestMoveUci, out AppliedMoveInfo? appliedMove, out _)
+            || !game.TryApplyUci(theoryMove.MoveUci, out AppliedMoveInfo? appliedMove, out _)
             || appliedMove is null)
         {
-            return bestMoveUci;
+            return theoryMove.MoveUci;
         }
 
         return ChessMoveDisplayHelper.FormatSanAndUci(appliedMove.San, appliedMove.Uci);
