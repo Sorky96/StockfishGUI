@@ -49,6 +49,32 @@ Kd5 56. h5 c4 57. bxc4+ Kxc4 58. h6 Kxc3 59. h7 Kxc2 60. h8=Q Kb1 61. Rb7+
 Kxa2 62. Qb2# 1-0
 """;
 
+    private const string ChessComClockPgn = """
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.04.24"]
+[Round "-"]
+[White "awasate"]
+[Black "Sorky1996"]
+[Result "1-0"]
+[CurrentPosition "r1b1k2r/pp2bp1p/2n1p3/8/3P4/1B2NNP1/PP3R1P/R2Q2K1 b kq - 0 16"]
+[Timezone "UTC"]
+[ECO "B00"]
+[ECOUrl "https://www.chess.com/openings/Kings-Pawn-Opening"]
+[UTCDate "2026.04.24"]
+[UTCTime "18:46:08"]
+[WhiteElo "691"]
+[BlackElo "662"]
+[TimeControl "600"]
+[Termination "awasate won by resignation"]
+[StartTime "18:46:08"]
+[EndDate "2026.04.24"]
+[EndTime "18:48:57"]
+[Link "https://www.chess.com/game/live/167774345380"]
+
+1. e4 {[%clk 0:09:57.2]} 1... g5 {[%clk 0:09:56.9]} 2. Bc4 {[%clk 0:09:55.6]} 2... g4 {[%clk 0:09:55.1]} 3. f3 {[%clk 0:09:53.3]} 3... d5 {[%clk 0:09:53.8]} 4. exd5 {[%clk 0:09:50.7]} 4... gxf3 {[%clk 0:09:51.7]} 5. Nxf3 {[%clk 0:09:49]} 5... c6 {[%clk 0:09:49.7]} 6. d4 {[%clk 0:09:47.1]} 6... cxd5 {[%clk 0:09:47.5]} 7. Bb3 {[%clk 0:09:41.7]} 7... Nf6 {[%clk 0:09:37.6]} 8. O-O {[%clk 0:09:38.4]} 8... e6 {[%clk 0:09:27.5]} 9. Bg5 {[%clk 0:09:32.6]} 9... Nc6 {[%clk 0:09:19.6]} 10. Bxf6 {[%clk 0:09:29.3]} 10... Qxf6 {[%clk 0:09:15.2]} 11. Nbd2 {[%clk 0:09:20.1]} 11... Qf4 {[%clk 0:09:01]} 12. c4 {[%clk 0:09:15.5]} 12... Bd6 {[%clk 0:08:57.3]} 13. g3 {[%clk 0:09:14.2]} 13... Qe3+ {[%clk 0:08:50.8]} 14. Rf2 {[%clk 0:09:10.1]} 14... dxc4 {[%clk 0:08:44.4]} 15. Nxc4 {[%clk 0:09:05.7]} 15... Be7 {[%clk 0:08:19.9]} 16. Nxe3 {[%clk 0:09:01.6]} 1-0
+""";
+
     [Fact]
     public void PgnGameParser_ParsesHeadersAndMoves()
     {
@@ -61,6 +87,35 @@ Kxa2 62. Qb2# 1-0
         Assert.Equal("A00", game.Eco);
         Assert.Equal(4, game.SanMoves.Count);
         Assert.Equal("Qh4#", game.SanMoves[^1]);
+    }
+
+    [Fact]
+    public void PgnGameParser_AcceptsChessComClockComments()
+    {
+        ImportedGame game = PgnGameParser.Parse(ChessComClockPgn);
+        GameReplayService replayService = new();
+
+        IReadOnlyList<ReplayPly> replay = replayService.Replay(game);
+
+        Assert.Equal("awasate", game.WhitePlayer);
+        Assert.Equal("Sorky1996", game.BlackPlayer);
+        Assert.Equal("B00", game.Eco);
+        Assert.Equal(31, game.SanMoves.Count);
+        Assert.Equal("Nxe3", game.SanMoves[^1]);
+        Assert.Equal(31, replay.Count);
+    }
+
+    [Fact]
+    public void PgnGameParser_ParseManySplitsMultipleGames()
+    {
+        string pgnText = MiniPgn + Environment.NewLine + Environment.NewLine + ChessComClockPgn;
+
+        PgnBatchParseResult result = PgnGameParser.ParseMany(pgnText);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal(2, result.Games.Count);
+        Assert.Equal("TesterWhite", result.Games[0].WhitePlayer);
+        Assert.Equal("Sorky1996", result.Games[1].BlackPlayer);
     }
 
     [Fact]

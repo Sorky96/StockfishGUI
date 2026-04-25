@@ -16,14 +16,19 @@ public sealed class OpeningTrainerService
     };
 
     private readonly IAnalysisStore analysisStore;
+    private readonly ProfileAnalysisDataSource analysisDataSource;
     private readonly OpeningTheoryQueryService? openingTheory;
 
     public OpeningTrainerService(IAnalysisStore analysisStore)
+        : this(analysisStore, new ProfileAnalysisDataSource(analysisStore))
+    {
+    }
+
+    internal OpeningTrainerService(IAnalysisStore analysisStore, ProfileAnalysisDataSource analysisDataSource)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
-        openingTheory = analysisStore is IOpeningTheoryStore theoryStore
-            ? new OpeningTheoryQueryService(theoryStore)
-            : null;
+        this.analysisDataSource = analysisDataSource ?? throw new ArgumentNullException(nameof(analysisDataSource));
+        openingTheory = OpeningTheorySourceResolver.Create(analysisStore);
     }
 
     public bool TryBuildSession(string playerKeyOrName, out OpeningTrainingSession? session, OpeningTrainingSessionOptions? options = null)
@@ -47,7 +52,7 @@ public sealed class OpeningTrainerService
         }
 
         OpeningTrainingSessionOptions effectiveOptions = NormalizeOptions(options);
-        if (!new OpeningWeaknessService(analysisStore).TryBuildReport(playerKeyOrName, out OpeningWeaknessReport? weaknessReport)
+        if (!new OpeningWeaknessService(analysisStore, analysisDataSource).TryBuildReport(playerKeyOrName, out OpeningWeaknessReport? weaknessReport)
             || weaknessReport is null)
         {
             session = null;
@@ -388,11 +393,10 @@ public sealed class OpeningTrainerService
 
     private List<OpeningTrainerSnapshot> LoadSnapshots(string? filterText, int limit)
     {
-        IReadOnlyList<StoredMoveAnalysis> storedMoves = analysisStore.ListMoveAnalyses(filterText, Math.Clamp(limit * 64, 500, 50000));
-        IReadOnlyList<GameAnalysisResult> results = analysisStore.ListResults(filterText, Math.Max(limit * 8, 200));
+        ProfileAnalysisDataSet dataSet = analysisDataSource.Load(filterText, limit);
 
-        List<OpeningTrainerSnapshot> mergedSnapshots = BuildSnapshotsFromMoves(storedMoves);
-        mergedSnapshots.AddRange(BuildSnapshotsFromResults(results));
+        List<OpeningTrainerSnapshot> mergedSnapshots = BuildSnapshotsFromMoves(dataSet.StoredMoves);
+        mergedSnapshots.AddRange(BuildSnapshotsFromResults(dataSet.Results));
 
         return mergedSnapshots
             .GroupBy(snapshot => new SnapshotSelectionKey(snapshot.GameFingerprint, snapshot.Side))

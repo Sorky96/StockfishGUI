@@ -16,14 +16,19 @@ public sealed class OpeningWeaknessService
     };
 
     private readonly IAnalysisStore analysisStore;
+    private readonly ProfileAnalysisDataSource analysisDataSource;
     private readonly OpeningTheoryQueryService? openingTheory;
 
     public OpeningWeaknessService(IAnalysisStore analysisStore)
+        : this(analysisStore, new ProfileAnalysisDataSource(analysisStore))
+    {
+    }
+
+    internal OpeningWeaknessService(IAnalysisStore analysisStore, ProfileAnalysisDataSource analysisDataSource)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
-        openingTheory = analysisStore is IOpeningTheoryStore theoryStore
-            ? new OpeningTheoryQueryService(theoryStore)
-            : null;
+        this.analysisDataSource = analysisDataSource ?? throw new ArgumentNullException(nameof(analysisDataSource));
+        openingTheory = OpeningTheorySourceResolver.Create(analysisStore);
     }
 
     public bool TryBuildReport(string playerKeyOrName, out OpeningWeaknessReport? report)
@@ -52,11 +57,10 @@ public sealed class OpeningWeaknessService
 
     private List<OpeningSnapshot> LoadSnapshots(string? filterText, int limit)
     {
-        IReadOnlyList<StoredMoveAnalysis> storedMoves = analysisStore.ListMoveAnalyses(filterText, Math.Clamp(limit * 64, 500, 50000));
-        IReadOnlyList<GameAnalysisResult> results = analysisStore.ListResults(filterText, Math.Max(limit * 8, 200));
+        ProfileAnalysisDataSet dataSet = analysisDataSource.Load(filterText, limit);
 
-        List<OpeningSnapshot> mergedSnapshots = BuildSnapshotsFromMoves(storedMoves);
-        mergedSnapshots.AddRange(BuildSnapshotsFromResults(results));
+        List<OpeningSnapshot> mergedSnapshots = BuildSnapshotsFromMoves(dataSet.StoredMoves);
+        mergedSnapshots.AddRange(BuildSnapshotsFromResults(dataSet.Results));
 
         return mergedSnapshots
             .GroupBy(snapshot => new SnapshotSelectionKey(snapshot.GameFingerprint, snapshot.Side))

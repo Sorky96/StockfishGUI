@@ -17,6 +17,7 @@ public partial class ProfilesWindow : Window
     private readonly Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync;
     private List<PlayerProfileSummaryItemViewModel> items = [];
     private string? currentProfilePlayerKey;
+    private readonly Dictionary<string, IReadOnlyList<OpeningTrainingPosition>> branchAwarenessPositionsByEco = new(StringComparer.OrdinalIgnoreCase);
 
     public ProfilesWindow()
         : this(new PlayerProfileService(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable.")))
@@ -118,6 +119,7 @@ public partial class ProfilesWindow : Window
     {
         DetailsPanel.Children.Clear();
         currentProfilePlayerKey = report.PlayerKey;
+        branchAwarenessPositionsByEco.Clear();
 
         DetailsPanel.Children.Add(CreateHeroCard(report));
         DetailsPanel.Children.Add(CreateSnapshotCard(report));
@@ -1024,10 +1026,9 @@ public partial class ProfilesWindow : Window
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 4, 0, 0)
         };
-        IReadOnlyList<OpeningTrainingPosition> openingBranches = GetBranchAwarenessPositionsForOpening(opening.Eco);
         Button branchButton = new()
         {
-            Content = openingBranches.Count == 0 ? "Branch awareness unavailable" : "Open branch awareness",
+            Content = "Open branch awareness",
             IsEnabled = !string.IsNullOrWhiteSpace(currentProfilePlayerKey),
             Margin = new Thickness(0, 0, 8, 0),
             MinWidth = 220
@@ -1085,9 +1086,7 @@ public partial class ProfilesWindow : Window
         };
         actions.Children.Add(trainingButton);
         actions.Children.Add(CreateBodyText(
-            openingBranches.Count == 0
-                ? "Branch awareness appears only when imported opening theory contains replies for the highlighted position in this opening."
-                : "Shows the most common opponent replies from imported opening theory and one recommended theory-backed reaction.",
+            "Branch awareness checks imported opening theory for the highlighted positions in this opening.",
             "#9EB5C5"));
         panel.Children.Add(actions);
 
@@ -1585,6 +1584,11 @@ public partial class ProfilesWindow : Window
             return [];
         }
 
+        if (branchAwarenessPositionsByEco.TryGetValue(eco, out IReadOnlyList<OpeningTrainingPosition>? cached))
+        {
+            return cached;
+        }
+
         OpeningTrainingSessionOptions options = new(
             Modes: [OpeningTrainingMode.BranchAwareness],
             Sources: [OpeningTrainingSourceKind.OpeningWeakness],
@@ -1596,14 +1600,17 @@ public partial class ProfilesWindow : Window
         if (!profileService.TryBuildOpeningTrainingSession(currentProfilePlayerKey, out OpeningTrainingSession? session, options)
             || session is null)
         {
+            branchAwarenessPositionsByEco[eco] = [];
             return [];
         }
 
-        return session.Positions
+        IReadOnlyList<OpeningTrainingPosition> positions = session.Positions
             .Where(position => position.Mode == OpeningTrainingMode.BranchAwareness
                 && string.Equals(position.Eco, eco, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(position => position.Priority)
             .ToList();
+        branchAwarenessPositionsByEco[eco] = positions;
+        return positions;
     }
 
     private static string? GetPreferredTheoryMove(OpeningTrainingPosition position)

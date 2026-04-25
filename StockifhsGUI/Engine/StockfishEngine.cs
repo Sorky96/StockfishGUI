@@ -60,7 +60,7 @@ public sealed class StockfishEngine : IEngineAnalyzer, IDisposable
     {
         lock (processLock)
         {
-            engineProcess.StandardInput.WriteLine(command);
+                engineProcess.StandardInput.WriteLine(command);
             engineProcess.StandardInput.Flush();
         }
     }

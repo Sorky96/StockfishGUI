@@ -14,8 +14,8 @@
         MinHeight="700"
         Background="{DynamicResource ChromeBrush}"
         Title="StockifhsGUI Avalonia">
-  <Grid Margin="10" ColumnDefinitions="*,14,620" RowDefinitions="*">
-    <Border Grid.RowSpan="2" Background="{DynamicResource PanelBrush}" CornerRadius="18" Padding="10">
+  <Grid Margin="10" ColumnDefinitions="*,14,620" RowDefinitions="*,Auto">
+    <Border Background="{DynamicResource PanelBrush}" CornerRadius="18" Padding="10">
       <Grid RowDefinitions="*,Auto,Auto">
         <Viewbox Stretch="Uniform"
                  StretchDirection="Both"
@@ -46,11 +46,11 @@
       </Grid>
     </Border>
 
-    <Border Grid.Column="2" Grid.RowSpan="2" Background="{DynamicResource PanelBrush}" CornerRadius="18" Padding="10">
+    <Border Grid.Column="2" Background="{DynamicResource PanelBrush}" CornerRadius="18" Padding="10">
       <Grid Margin="10" RowDefinitions="Auto,14,*" ColumnDefinitions="*,*">
-        <Grid Grid.ColumnSpan="2" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto">
+        <Grid Grid.ColumnSpan="2" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
           <Button Grid.Row="0" Grid.Column="0" Height="36" Margin="0,0,6,0" HorizontalAlignment="Stretch" Click="PgnImportButton_Click" Content="PASTE PGN" />
-          <Button Grid.Row="0" Grid.Column="1" Height="36" Margin="6,0,0,0" HorizontalAlignment="Stretch" Click="LoadSavedButton_Click" Content="LOAD SAVED" />
+          <Button Grid.Row="0" Grid.Column="1" Height="36" Margin="6,0,0,0" HorizontalAlignment="Stretch" Click="LoadPgnFileButton_Click" Content="LOAD PGN FILE" />
 
           <Button Grid.Row="1" Grid.Column="0" Height="36" Margin="0,8,6,0" HorizontalAlignment="Stretch" Command="{Binding ApplyNextImportedMoveCommand}" Content="APPLY NEXT" />
           <Button Grid.Row="1" Grid.Column="1" Height="36" Margin="6,8,0,0" HorizontalAlignment="Stretch" Command="{Binding ApplySelectedImportedMoveCommand}" Content="APPLY SELECTED" />
@@ -69,6 +69,15 @@
                   Grid.Column="1"
                   Height="36"
                   Margin="6,8,0,0"
+                  HorizontalAlignment="Stretch"
+                  Click="LoadSavedButton_Click"
+                  Content="LOAD SAVED" />
+
+          <Button Grid.Row="4"
+                  Grid.Column="0"
+                  Grid.ColumnSpan="2"
+                  Height="36"
+                  Margin="0,8,0,0"
                   HorizontalAlignment="Stretch"
                   Click="SettingsButton_Click"
                   Content="SETTINGS" />
@@ -192,6 +201,18 @@
           </Grid>
         </Grid>
       </Grid>
+    </Border>
+
+    <Border Grid.Row="1"
+            Grid.ColumnSpan="3"
+            Margin="0,10,0,0"
+            Padding="12,8"
+            Background="{DynamicResource PanelAccentBrush}"
+            CornerRadius="8">
+      <TextBlock Foreground="#D7E2EA"
+                 FontSize="14"
+                 TextWrapping="Wrap"
+                 Text="{Binding StatusMessage}" />
     </Border>
   </Grid>
 </Window>

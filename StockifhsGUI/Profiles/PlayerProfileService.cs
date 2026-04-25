@@ -5,10 +5,17 @@ namespace StockifhsGUI;
 public sealed partial class PlayerProfileService
 {
     private readonly IAnalysisStore analysisStore;
+    private readonly ProfileAnalysisDataSource analysisDataSource;
 
     public PlayerProfileService(IAnalysisStore analysisStore)
+        : this(analysisStore, new ProfileAnalysisDataSource(analysisStore))
+    {
+    }
+
+    internal PlayerProfileService(IAnalysisStore analysisStore, ProfileAnalysisDataSource analysisDataSource)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
+        this.analysisDataSource = analysisDataSource ?? throw new ArgumentNullException(nameof(analysisDataSource));
     }
 
     public IReadOnlyList<PlayerProfileSummary> ListProfiles(string? filterText = null, int limit = 100)
@@ -61,7 +68,7 @@ public sealed partial class PlayerProfileService
 
     public bool TryBuildOpeningWeaknessReport(string playerKeyOrName, out OpeningWeaknessReport? report)
     {
-        return new OpeningWeaknessService(analysisStore).TryBuildReport(playerKeyOrName, out report);
+        return new OpeningWeaknessService(analysisStore, analysisDataSource).TryBuildReport(playerKeyOrName, out report);
     }
 
     public bool TryBuildOpeningTrainingSession(
@@ -69,16 +76,15 @@ public sealed partial class PlayerProfileService
         out OpeningTrainingSession? session,
         OpeningTrainingSessionOptions? options = null)
     {
-        return new OpeningTrainerService(analysisStore).TryBuildSession(playerKeyOrName, out session, options);
+        return new OpeningTrainerService(analysisStore, analysisDataSource).TryBuildSession(playerKeyOrName, out session, options);
     }
 
     private List<PlayerProfileSnapshot> LoadSnapshots(string? filterText, int limit)
     {
-        IReadOnlyList<StoredMoveAnalysis> storedMoves = analysisStore.ListMoveAnalyses(filterText, Math.Clamp(limit * 64, 500, 50000));
-        IReadOnlyList<GameAnalysisResult> results = analysisStore.ListResults(filterText, Math.Max(limit * 8, 200));
+        ProfileAnalysisDataSet dataSet = analysisDataSource.Load(filterText, limit);
 
-        List<PlayerProfileSnapshot> mergedSnapshots = BuildSnapshotsFromMoves(storedMoves);
-        mergedSnapshots.AddRange(BuildSnapshotsFromResults(results));
+        List<PlayerProfileSnapshot> mergedSnapshots = BuildSnapshotsFromMoves(dataSet.StoredMoves);
+        mergedSnapshots.AddRange(BuildSnapshotsFromResults(dataSet.Results));
 
         return mergedSnapshots
             .GroupBy(snapshot => new SnapshotSelectionKey(snapshot.GameFingerprint, snapshot.Side))

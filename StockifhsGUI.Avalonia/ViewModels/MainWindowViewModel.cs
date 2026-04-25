@@ -343,6 +343,41 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    public PgnFileImportResult ImportPgnGames(PgnBatchParseResult parseResult)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+
+        if (IsBusy)
+        {
+            return new PgnFileImportResult(0, parseResult.Errors.Count, []);
+        }
+
+        int skippedGames = parseResult.Errors.Count;
+        if (parseResult.Games.Count == 0)
+        {
+            StatusMessage = skippedGames == 0
+                ? "PGN file did not contain any games."
+                : $"PGN file did not contain any parsed games. Skipped {skippedGames}.";
+            RaiseCommandStates();
+            return new PgnFileImportResult(0, skippedGames, []);
+        }
+
+        SaveImportedGames(parseResult.Games);
+        if (!TryLoadFirstReplayableImportedGame(parseResult.Games, out int replaySkippedGames))
+        {
+            skippedGames += replaySkippedGames;
+            StatusMessage = $"PGN file contained {parseResult.Games.Count} parsed games, but none could be replayed.";
+            RaiseCommandStates();
+            return new PgnFileImportResult(0, skippedGames, []);
+        }
+
+        skippedGames += replaySkippedGames;
+        StatusMessage = skippedGames == 0
+            ? $"Loaded {parseResult.Games.Count} games from PGN file. Showing the first game."
+            : $"Loaded {parseResult.Games.Count} games from PGN file. Skipped {skippedGames}. Showing the first replayable game.";
+        return new PgnFileImportResult(parseResult.Games.Count, skippedGames, parseResult.Games);
+    }
+
     public void LoadImportedGame(ImportedGame game)
     {
         if (IsBusy)
@@ -350,29 +385,95 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        importedReplay = new GameReplayService().Replay(game);
-        importedGame = game;
-        cachedAnalysisResult = null;
-        importedCursor = 0;
-        ImportedMoves.Clear();
-        for (int i = 0; i < importedReplay.Count; i++)
-        {
-            ImportedMoves.Add(new ImportedMoveItemViewModel(i, importedReplay[i]));
-        }
-
-        undoFenStack.Clear();
-        chessGame.Reset();
-        SelectedImportedMove = null;
-        ClearSelection();
-        RefreshBoard();
-        RefreshEngineSummary();
-        RefreshImportedSummary();
-        AnalysisMistakes.Clear();
-        AnalysisDetails = "Imported game loaded. Choose a side and run analysis.";
+        LoadImportedGameCore(game);
         StatusMessage = importedReplay.Count == 0
             ? "Saved game loaded, but it does not contain SAN moves."
             : $"Loaded saved game with {importedReplay.Count} plies.";
-        RaiseCommandStates();
+    }
+
+    public async Task<BulkPgnAnalysisResult> AnalyzeImportedGamesAsync(IReadOnlyList<ImportedGame> games)
+    {
+        if (IsBusy || engine is null || games.Count == 0)
+        {
+            return new BulkPgnAnalysisResult(DetectPrimaryPlayer(games), 0, 0, 0, 0, []);
+        }
+
+        string? primaryPlayer = DetectPrimaryPlayer(games);
+        int analyzed = 0;
+        int cached = 0;
+        int failed = 0;
+        int skipped = 0;
+        List<string> failureMessages = [];
+
+        try
+        {
+            IsBusy = true;
+            AnalysisMistakes.Clear();
+            SelectedAnalysisMistake = null;
+            AnalysisDetails = string.IsNullOrWhiteSpace(primaryPlayer)
+                ? "Stockfish is analyzing the imported PGN file. This may take a while."
+                : $"Stockfish is analyzing games for {primaryPlayer}. This may take a while.";
+
+            EngineAnalysisOptions options = new();
+            GameAnalysisService analysisService = new(engine);
+            GameAnalysisResult? lastResult = null;
+
+            foreach (ImportedGame game in games)
+            {
+                PlayerSide side = ResolveAnalysisSide(game, primaryPlayer, SelectedAnalysisSide);
+                if (!PlayerMatchesSide(game, primaryPlayer, side))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                SelectedAnalysisSide = side;
+                StatusMessage = BuildBulkAnalysisStatus(game, side, analyzed + cached + failed + skipped + 1, games.Count, primaryPlayer);
+
+                GameAnalysisCacheKey cacheKey = GameAnalysisCache.CreateKey(game, side, options);
+                if (GameAnalysisCache.TryGetResult(cacheKey, out GameAnalysisResult? cachedResult) && cachedResult is not null)
+                {
+                    cached++;
+                    lastResult = cachedResult;
+                    continue;
+                }
+
+                try
+                {
+                    GameAnalysisResult result = await Task.Run(() => analysisService.AnalyzeGame(game, side, options));
+                    GameAnalysisCache.StoreResult(cacheKey, result);
+                    analyzed++;
+                    lastResult = result;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    if (failureMessages.Count < 5)
+                    {
+                        failureMessages.Add(BuildAnalysisFailureMessage(game, side, ex));
+                    }
+                }
+            }
+
+            if (lastResult is not null)
+            {
+                LoadImportedGameCore(lastResult.Game);
+                SelectedAnalysisSide = lastResult.AnalyzedSide;
+                cachedAnalysisResult = lastResult;
+                ApplyAnalysisFilter();
+            }
+
+            string playerText = string.IsNullOrWhiteSpace(primaryPlayer) ? string.Empty : $" for {primaryPlayer}";
+            StatusMessage = $"Bulk analysis finished{playerText}. New: {analyzed}, cached: {cached}, skipped: {skipped}, failed: {failed}.";
+        }
+        finally
+        {
+            IsBusy = false;
+            RefreshEngineSummary();
+            RefreshImportedSummary();
+        }
+
+        return new BulkPgnAnalysisResult(primaryPlayer, analyzed, cached, skipped, failed, failureMessages);
     }
 
     public async Task NavigateToProfileExampleAsync(ProfileMistakeExample example)
@@ -558,6 +659,49 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         RefreshImportedSummary();
         StatusMessage = $"Moved board to {ImportedMoves[index].DisplayText}.";
         RaiseCommandStates();
+    }
+
+    private void LoadImportedGameCore(ImportedGame game)
+    {
+        importedReplay = new GameReplayService().Replay(game);
+        importedGame = game;
+        cachedAnalysisResult = null;
+        importedCursor = 0;
+        ImportedMoves.Clear();
+        for (int i = 0; i < importedReplay.Count; i++)
+        {
+            ImportedMoves.Add(new ImportedMoveItemViewModel(i, importedReplay[i]));
+        }
+
+        undoFenStack.Clear();
+        chessGame.Reset();
+        SelectedImportedMove = null;
+        ClearSelection();
+        RefreshBoard();
+        RefreshEngineSummary();
+        RefreshImportedSummary();
+        AnalysisMistakes.Clear();
+        AnalysisDetails = "Imported game loaded. Choose a side and run analysis.";
+        RaiseCommandStates();
+    }
+
+    private bool TryLoadFirstReplayableImportedGame(IReadOnlyList<ImportedGame> games, out int skippedGames)
+    {
+        skippedGames = 0;
+        foreach (ImportedGame game in games)
+        {
+            try
+            {
+                LoadImportedGameCore(game);
+                return true;
+            }
+            catch
+            {
+                skippedGames++;
+            }
+        }
+
+        return false;
     }
 
     private async Task AnalyzeImportedGameAsync()
@@ -1088,6 +1232,86 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private static void SaveImportedGames(IReadOnlyList<ImportedGame> games)
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        if (store is null || games.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            store.SaveImportedGames(games);
+        }
+        catch
+        {
+            // Import should still succeed even if local persistence is temporarily unavailable.
+        }
+    }
+
+    public static string? DetectPrimaryPlayer(IReadOnlyList<ImportedGame> games)
+    {
+        return games
+            .SelectMany(game => new[] { game.WhitePlayer, game.BlackPlayer })
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .GroupBy(name => name!, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault()
+            ?.Key;
+    }
+
+    private static PlayerSide ResolveAnalysisSide(ImportedGame game, string? primaryPlayer, PlayerSide fallbackSide)
+    {
+        if (!string.IsNullOrWhiteSpace(primaryPlayer))
+        {
+            if (string.Equals(game.WhitePlayer, primaryPlayer, StringComparison.OrdinalIgnoreCase))
+            {
+                return PlayerSide.White;
+            }
+
+            if (string.Equals(game.BlackPlayer, primaryPlayer, StringComparison.OrdinalIgnoreCase))
+            {
+                return PlayerSide.Black;
+            }
+        }
+
+        return fallbackSide;
+    }
+
+    private static bool PlayerMatchesSide(ImportedGame game, string? primaryPlayer, PlayerSide side)
+    {
+        if (string.IsNullOrWhiteSpace(primaryPlayer))
+        {
+            return true;
+        }
+
+        string? playerName = side == PlayerSide.White ? game.WhitePlayer : game.BlackPlayer;
+        return string.Equals(playerName, primaryPlayer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildBulkAnalysisStatus(
+        ImportedGame game,
+        PlayerSide side,
+        int current,
+        int total,
+        string? primaryPlayer)
+    {
+        string playerText = string.IsNullOrWhiteSpace(primaryPlayer)
+            ? side.ToString()
+            : $"{primaryPlayer} as {side}";
+        string players = $"{game.WhitePlayer ?? "White"} vs {game.BlackPlayer ?? "Black"}";
+        return $"Analyzing PGN file {current}/{total}: {players} ({playerText})...";
+    }
+
+    private static string BuildAnalysisFailureMessage(ImportedGame game, PlayerSide side, Exception ex)
+    {
+        string players = $"{game.WhitePlayer ?? "White"} vs {game.BlackPlayer ?? "Black"}";
+        string date = string.IsNullOrWhiteSpace(game.DateText) ? string.Empty : $" {game.DateText}";
+        return $"{players}{date}, {side}: {ex.Message}";
+    }
+
     private static bool TryParseSquare(string square, out (int X, int Y) point)
     {
         point = default;
@@ -1149,3 +1373,16 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         return null;
     }
 }
+
+public sealed record PgnFileImportResult(
+    int ImportedGames,
+    int SkippedGames,
+    IReadOnlyList<ImportedGame> Games);
+
+public sealed record BulkPgnAnalysisResult(
+    string? PrimaryPlayer,
+    int AnalyzedGames,
+    int CachedGames,
+    int SkippedGames,
+    int FailedGames,
+    IReadOnlyList<string> FailureMessages);
