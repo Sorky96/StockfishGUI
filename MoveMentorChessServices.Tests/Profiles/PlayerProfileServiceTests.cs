@@ -109,6 +109,53 @@ public sealed class PlayerProfileServiceTests
     }
 
     [Fact]
+    public void PlayerProfileService_AddsActionableOpeningsToTrainingPlan()
+    {
+        FakeAnalysisStore store = new(
+        [
+            CreateResult(
+                "Bookish",
+                "Beta",
+                PlayerSide.White,
+                "C20",
+                "2026.04.01",
+                [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+                [CreateMoveAnalysis(GamePhase.Opening, 210, "opening_principles", moveNumber: 3, san: "h3", bestMoveUci: "g1f3")]),
+            CreateResult(
+                "Bookish",
+                "Gamma",
+                PlayerSide.White,
+                "C20",
+                "2026.04.08",
+                [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+                [CreateMoveAnalysis(GamePhase.Opening, 190, "opening_principles", moveNumber: 4, san: "a3", bestMoveUci: "d2d4")]),
+            CreateResult(
+                "Bookish",
+                "Delta",
+                PlayerSide.White,
+                "B01",
+                "2026.04.15",
+                [CreateSelectedMistake("material_loss", MoveQualityBucket.Mistake)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 140, "material_loss", moveNumber: 12, san: "Bxh7+", bestMoveUci: "d1d5")])
+        ]);
+
+        PlayerProfileService service = new(store);
+
+        bool found = service.TryBuildProfile("Bookish", out PlayerProfileReport? report);
+
+        Assert.True(found);
+        Assert.NotNull(report);
+        TrainingPlanTopic openingTopic = Assert.Single(report!.TrainingPlan.Topics, topic => topic.Label == "opening_principles");
+        Assert.Contains("C20", openingTopic.RelatedOpenings);
+        Assert.Contains("Opening trainer:", openingTopic.WhyThisTopicNow, StringComparison.Ordinal);
+        Assert.Contains(report.WeeklyPlan.Days, day =>
+            day.BlockKind == TrainingBlockKind.OpeningReview
+            && day.LaunchTrainingMode.HasValue
+            && day.RelatedOpenings is not null
+            && day.RelatedOpenings.Contains("C20"));
+    }
+
+    [Fact]
     public void PlayerProfileService_DistinguishesFrequentVsCostlyLabels_AndDetectsRegression()
     {
         FakeAnalysisStore store = new(

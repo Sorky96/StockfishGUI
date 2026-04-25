@@ -52,6 +52,14 @@ public enum OpeningLineRecallReferenceKind
     HistoricalGame
 }
 
+public enum OpeningTrainingMoveSourceKind
+{
+    UserGame,
+    EngineBestMove,
+    OpeningBook,
+    EcoReference
+}
+
 public sealed record OpeningTrainingSessionOptions(
     IReadOnlyList<OpeningTrainingMode>? Modes = null,
     IReadOnlyList<OpeningTrainingSourceKind>? Sources = null,
@@ -131,7 +139,8 @@ public sealed record OpeningTrainingMoveOption(
     OpeningTrainingMoveRole Role,
     bool IsPreferred,
     string? Note = null,
-    OpeningLineRecallReferenceKind? ReferenceKind = null);
+    OpeningLineRecallReferenceKind? ReferenceKind = null,
+    OpeningTrainingMoveSourceKind SourceKind = OpeningTrainingMoveSourceKind.UserGame);
 
 public enum OpeningTrainingBranchSourceKind
 {

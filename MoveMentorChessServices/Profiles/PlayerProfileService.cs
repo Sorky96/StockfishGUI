@@ -369,7 +369,7 @@ public sealed partial class PlayerProfileService
             highlightsPerGame);
     }
 
-    private static PlayerProfileReport BuildReport(IReadOnlyList<PlayerProfileSnapshot> snapshots)
+    private PlayerProfileReport BuildReport(IReadOnlyList<PlayerProfileSnapshot> snapshots)
     {
         string playerKey = snapshots[0].PlayerKey;
         string displayName = snapshots
@@ -505,7 +505,11 @@ public sealed partial class PlayerProfileService
                 [],
                 [],
                 emptyWeeklyPlan));
-        TrainingPlanReport trainingPlan = new TrainingPlanService().Build(draftReport);
+        OpeningWeaknessReport? openingReport = new OpeningWeaknessService(analysisStore, analysisDataSource)
+            .TryBuildReport(playerKey, out OpeningWeaknessReport? builtOpeningReport)
+                ? builtOpeningReport
+                : null;
+        TrainingPlanReport trainingPlan = new TrainingPlanService().Build(draftReport, openingReport);
 
         return new PlayerProfileReport(
             playerKey,

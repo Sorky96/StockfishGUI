@@ -600,6 +600,12 @@ public partial class ProfilesWindow : Window
             });
             dayPanel.Children.Add(CreateBodyText($"{day.WorkType} | {day.EstimatedMinutes} min", "#D7E2EA"));
             dayPanel.Children.Add(CreateBodyText(day.Goal, "#D7E2EA"));
+            if (day.LaunchTrainingMode.HasValue && day.RelatedOpenings is { Count: > 0 })
+            {
+                dayPanel.Children.Add(CreateSectionButton(
+                    $"Start {FormatOpeningTrainingMode(day.LaunchTrainingMode.Value).ToLowerInvariant()}",
+                    async () => await ShowOpeningTrainingWindowAsync(day)));
+            }
 
             dayCard.Child = dayPanel;
             yield return dayCard;
@@ -1139,6 +1145,82 @@ public partial class ProfilesWindow : Window
             [
                 CreateBodyText($"{opening.OpeningDisplayName} | {FormatOpeningWeaknessCategory(opening.Category)}", "#D7E2EA"),
                 CreateBodyText("This session is filtered to the selected opening. Branches and book moves come from the imported opening database, while the profile weakness only decides which positions to review.", "#D7E2EA")
+            ]));
+
+        foreach (OpeningTrainingPosition position in session.Positions)
+        {
+            content.Children.Add(CreateOpeningTrainingPositionCard(position, window));
+        }
+
+        window.Content = new Border
+        {
+            Padding = new Thickness(18),
+            Child = new ScrollViewer
+            {
+                Content = content
+            }
+        };
+
+        await window.ShowDialog(this);
+    }
+
+    private async Task ShowOpeningTrainingWindowAsync(WeeklyTrainingDay day)
+    {
+        if (string.IsNullOrWhiteSpace(currentProfilePlayerKey)
+            || !day.LaunchTrainingMode.HasValue
+            || day.RelatedOpenings is not { Count: > 0 })
+        {
+            return;
+        }
+
+        IReadOnlyList<string> targetOpenings = day.RelatedOpenings
+            .Where(opening => !string.IsNullOrWhiteSpace(opening))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToList();
+        OpeningTrainingMode mode = day.LaunchTrainingMode.Value;
+        OpeningTrainingSessionOptions options = new(
+            Modes: [mode],
+            Sources: mode == OpeningTrainingMode.MistakeRepair
+                ? [OpeningTrainingSourceKind.FirstOpeningMistake, OpeningTrainingSourceKind.OpeningWeakness]
+                : [OpeningTrainingSourceKind.OpeningWeakness, OpeningTrainingSourceKind.ExampleGame],
+            MaxPositions: 10,
+            MaxPositionsPerSource: 5,
+            MaxContinuationMoves: 4,
+            TargetOpenings: targetOpenings);
+
+        if (!profileService.TryBuildOpeningTrainingSession(currentProfilePlayerKey, out OpeningTrainingSession? session, options)
+            || session is null
+            || session.Positions.Count == 0)
+        {
+            OpenSectionWindow(
+                $"Opening training - day {day.DayNumber}",
+                [
+                    CreateBodyText("No imported-theory training positions are available yet for this weekly-plan slot.", "#D7E2EA")
+                ]);
+            return;
+        }
+
+        Window window = new()
+        {
+            Title = $"Opening training - day {day.DayNumber}",
+            Width = 1160,
+            Height = 840,
+            MinWidth = 900,
+            MinHeight = 620,
+            Background = Brush.Parse("#23313B")
+        };
+
+        StackPanel content = new()
+        {
+            Spacing = 12
+        };
+
+        content.Children.Add(CreateSectionCard(
+            "Opening training from weekly plan",
+            [
+                CreateBodyText($"{FormatOpeningTrainingMode(mode)} | {string.Join(" / ", targetOpenings.Select(FormatOpening))}", "#D7E2EA"),
+                CreateBodyText("This session is launched from the deterministic weekly plan. The plan decides when opening work is needed; imported theory and analyzed games decide the actual positions.", "#D7E2EA")
             ]));
 
         foreach (OpeningTrainingPosition position in session.Positions)

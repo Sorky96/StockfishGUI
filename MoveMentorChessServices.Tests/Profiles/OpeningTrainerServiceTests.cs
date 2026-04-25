@@ -299,6 +299,7 @@ public sealed class OpeningTrainerServiceTests
         Assert.Equal(OpeningLineRecallGrade.Wrong, localMove.Grade);
         Assert.Equal(OpeningLineRecallGrade.Correct, importedMove.Grade);
         Assert.Contains(importedMove.PreferredReferences, option => option.Uci == "d2d4");
+        Assert.Contains(importedMove.PreferredReferences, option => option.SourceKind == OpeningTrainingMoveSourceKind.OpeningBook);
         Assert.DoesNotContain(lineRecall.CandidateMoves, option => option.Uci == "e2e4");
     }
 

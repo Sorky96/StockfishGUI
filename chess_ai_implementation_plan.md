@@ -1147,8 +1147,9 @@ Założenie architektoniczne:
 - [x] Sprawić, aby sekcje `Summary` i `What to fix first` korzystały z tej samej puli przykładów, tak aby każde ogólne stwierdzenie dało się prześledzić do konkretnych pozycji.
 
 Stan po bieżącej iteracji:
-- `ProfileMistakeExample` dostarcza już do profilu konkretne pozycje dla dominujących motywów błędów wraz z FEN, CPL, SAN, `best move` i openingiem,
-- sprint pozostaje częściowo otwarty po stronie prezentacji UI, rankingu przykładów i pełnego spięcia z nawigacją `profil -> przykład -> plansza -> analiza`.
+- `ProfileMistakeExample` dostarcza do profilu konkretne pozycje dla dominujących motywów błędów wraz z FEN, CPL, SAN, `best move` i openingiem,
+- przykłady są rangowane jako najczęstsze, najdroższe i najbardziej reprezentatywne oraz wykorzystywane w profilu, rekomendacjach i widokach drillowych,
+- nawigacja z profilu do przykładu, planszy i analizy jest spięta w UI.
 
 Cel sprintu:
 żeby profil przestał być tylko zestawem agregatów i zaczął pokazywać rzeczywiste momenty z partii, które stoją za rekomendacjami.
@@ -1161,8 +1162,9 @@ Cel sprintu:
 - [x] Dodać prosty budżet czasu treningowego na tydzień.
 
 Stan po bieżącej iteracji:
-- profil układa już deterministyczny tygodniowy plan treningowy z dniami, aktywnościami i kryterium ukończenia,
-- istnieje więc funkcjonalny zalążek tego sprintu, ale nadal do domknięcia pozostaje wydzielenie osobnej warstwy `TrainingPlanService` / `TrainingPlanReport` oraz dopracowanie modelu priorytetów i budżetu czasu.
+- `TrainingPlanService` buduje `TrainingPlanReport` z tematami, priorytetami, budżetem czasu i tygodniowym harmonogramem,
+- priorytety korzystają z częstotliwości, kosztu CPL, trendu i fazy partii,
+- raport rozdziela tematy na core weakness, secondary weakness i maintenance topic.
 
 Cel sprintu:
 żeby użytkownik dostawał realny tygodniowy plan pracy, a nie tylko opis swoich słabości.
@@ -1175,51 +1177,73 @@ Cel sprintu:
 - [x] Dodać `why this topic now` dla każdej pozycji w planie.
 
 Stan po bieżącej iteracji:
-- rekomendacje treningowe mapują już kategorie błędów na typy treningu oraz pokazują checklistę i sugerowane ćwiczenia,
-- sprint pozostaje częściowo otwarty, bo w planie nadal brakuje jawnych typów bloków treningowych, rozdziału na ćwiczenia naprawcze i utrwalające oraz pola `why this topic now`.
+- rekomendacje treningowe mapują kategorie błędów na typy treningu oraz pokazują checklistę i sugerowane ćwiczenia,
+- plan ma jawne bloki `tactics`, `opening review`, `endgame drill`, `game review`, `slow play focus`,
+- tematy mają rozdział na ćwiczenia naprawcze, utrwalające i checklisty oraz pole `why this topic now`.
 
 Cel sprintu:
 żeby plan treningowy był praktyczny i tłumaczył, czemu dany temat jest teraz ważny.
 
 ### Sprint 19 - Fundament Pod Opening Trainer
-- [ ] Dodać identyfikację momentu wyjścia z teorii w zaimportowanej partii.
-- [ ] Wykrywać pierwszy błąd w debiucie i przypisywać go do konkretnej gałęzi openingu.
-- [ ] Zbudować `OpeningWeaknessService`.
-- [ ] Agregować najczęstsze problematyczne openingi i typowe sekwencje błędów.
-- [ ] Dla każdego openingu zapisywać przykładowe partie, motywy błędów i referencyjne ruchy.
+- [x] Dodać identyfikację momentu wyjścia z teorii w zaimportowanej partii.
+- [x] Wykrywać pierwszy błąd w debiucie i przypisywać go do konkretnej gałęzi openingu.
+- [x] Zbudować `OpeningWeaknessService`.
+- [x] Agregować najczęstsze problematyczne openingi i typowe sekwencje błędów.
+- [x] Dla każdego openingu zapisywać przykładowe partie, motywy błędów i referencyjne ruchy.
+
+Stan po bieżącej iteracji:
+- `OpeningWeaknessService` buduje raport słabych openingów, sekwencji błędów, przykładowych partii i lepszych ruchów;
+- raport korzysta z danych strukturalnych oraz fallbacku do starszych wyników analizy;
+- jeśli dostępna jest teoria debiutowa, przykładowe lepsze ruchy mogą pochodzić z importowanej książki.
 
 Cel sprintu:
 zrozumieć nie tylko, że gracz ma problem w debiucie, ale dokładnie w jakim debiucie i po jakiej sekwencji ruchów.
 
 ### Sprint 20 - Opening Trainer v1
-- [ ] Dodać `OpeningTrainerService`.
-- [ ] Wprowadzić tryb `line recall`, gdzie użytkownik odtwarza właściwy ruch z pozycji.
-- [ ] Wprowadzić tryb `mistake repair`, gdzie użytkownik poprawia własny błąd z partii.
-- [ ] Wprowadzić tryb `branch awareness`, gdzie użytkownik trenuje typowe odpowiedzi przeciwnika.
-- [ ] Dodać podstawowy scoring: poprawny ruch, ruch grywalny, ruch błędny.
+- [x] Dodać `OpeningTrainerService`.
+- [x] Wprowadzić tryb `line recall`, gdzie użytkownik odtwarza właściwy ruch z pozycji.
+- [x] Wprowadzić tryb `mistake repair`, gdzie użytkownik poprawia własny błąd z partii.
+- [x] Wprowadzić tryb `branch awareness`, gdzie użytkownik trenuje typowe odpowiedzi przeciwnika.
+- [x] Dodać podstawowy scoring: poprawny ruch, ruch grywalny, ruch błędny.
+
+Stan po bieżącej iteracji:
+- `OpeningTrainerService` generuje sesje z trybami `LineRecall`, `MistakeRepair` i `BranchAwareness`;
+- ocena próby przechodzi przez wspólny wynik `OpeningTrainingAttemptResult` i scoring `Correct` / `Playable` / `Wrong`;
+- trener może mieszać dane z własnych partii, pierwszych błędów debiutowych i importowanej teorii.
 
 Cel sprintu:
 uruchomić pierwszą wersję trenera debiutowego opartego na własnych partiach użytkownika i lokalnych danych.
 
 ### Sprint 21 - Opening Trainer v2 + Integracja Z Planem
-- [ ] Zintegrować opening trainer z profilem gracza i planem treningowym.
-- [ ] Automatycznie dodawać sesje debiutowe do planu, jeśli opening jest niestabilny lub kosztowny.
-- [ ] Dodać kategorie `opening to fix now`, `opening to review later`, `opening stable`.
-- [ ] Pokazać w UI listę najbardziej niestabilnych i najdroższych openingów.
-- [ ] Umożliwić start treningu bezpośrednio z profilu i planu tygodniowego.
+- [x] Zintegrować opening trainer z profilem gracza i planem treningowym.
+- [x] Automatycznie dodawać sesje debiutowe do planu, jeśli opening jest niestabilny lub kosztowny.
+- [x] Dodać kategorie `opening to fix now`, `opening to review later`, `opening stable`.
+- [x] Pokazać w UI listę najbardziej niestabilnych i najdroższych openingów.
+- [x] Umożliwić start treningu bezpośrednio z profilu i planu tygodniowego.
+
+Stan po bieżącej iteracji:
+- profil pokazuje sekcję `Opening weaknesses` z kategoriami `FixNow`, `ReviewLater` i `Stable`;
+- `TrainingPlanService` podbija priorytet pracy debiutowej, gdy raport openingów wskazuje niestabilne lub kosztowne openingi;
+- tygodniowy plan oznacza dni `OpeningReview` powiązanymi ECO i trybem startowym trenera, a UI pozwala uruchomić trening z planu.
 
 Cel sprintu:
 żeby trener debiutowy stał się naturalną częścią całego workflow treningowego, a nie osobnym modułem.
 
 ### Sprint 22 - Real Opening Book I Teoria Debiutowa
-- [ ] Dodać import realnej bazy debiutowej / książki otwarć w formacie PGN lub Polyglot `.bin`.
-- [ ] Zbudować lokalny indeks teorii debiutowej po FEN / pozycji kanonicznej: `position -> candidate theory moves`.
-- [ ] Rozpoznawać nazwę debiutu, wariant i subwariant na podstawie realnej sekwencji ruchów, a nie tylko kodu ECO z importowanej partii.
-- [ ] Oznaczać moment wyjścia z teorii przez porównanie ruchu użytkownika z zaimportowaną książką otwarć.
-- [ ] Rozróżniać lokalną kontynuację z partii użytkownika od realnej kontynuacji teoretycznej.
-- [ ] Rozszerzyć scoring opening trainera tak, aby `correct`, `playable` i `wrong` mogły brać pod uwagę zarówno lokalne dane użytkownika, jak i ruchy z książki otwarć.
-- [ ] Dodać metadane źródła ruchu: `user_game`, `engine_best_move`, `opening_book`, `eco_reference`.
-- [ ] Zapewnić pełny fallback offline/local-only, gdy użytkownik nie zaimportował książki debiutowej.
+- [x] Dodać import realnej bazy debiutowej / książki otwarć w formacie PGN lub Polyglot `.bin`.
+- [x] Zbudować lokalny indeks teorii debiutowej po FEN / pozycji kanonicznej: `position -> candidate theory moves`.
+- [x] Rozpoznawać nazwę debiutu, wariant i subwariant na podstawie realnej sekwencji ruchów, a nie tylko kodu ECO z importowanej partii.
+- [x] Oznaczać moment wyjścia z teorii przez porównanie ruchu użytkownika z zaimportowaną książką otwarć.
+- [x] Rozróżniać lokalną kontynuację z partii użytkownika od realnej kontynuacji teoretycznej.
+- [x] Rozszerzyć scoring opening trainera tak, aby `correct`, `playable` i `wrong` mogły brać pod uwagę zarówno lokalne dane użytkownika, jak i ruchy z książki otwarć.
+- [x] Dodać metadane źródła ruchu: `user_game`, `engine_best_move`, `opening_book`, `eco_reference`.
+- [x] Zapewnić pełny fallback offline/local-only, gdy użytkownik nie zaimportował książki debiutowej.
+
+Stan po bieżącej iteracji:
+- obsługiwany jest import PGN do lokalnego drzewa openingów i seed tool do budowy książki; Polyglot `.bin` pozostaje poza aktualną ścieżką, bo plan dopuszczał format PGN lub Polyglot;
+- `OpeningTheoryQueryService` zwraca ruchy teorii po kluczu pozycji/FEN z metadanymi openingu i wariantu;
+- `OpeningTheoryMove.SourceKind` i `OpeningTrainingMoveOption.SourceKind` rozróżniają ruchy z książki, własnych partii i wskazań silnika;
+- opening trainer ma pełny fallback do lokalnych analiz, gdy importowana teoria nie jest dostępna.
 
 Cel sprintu:
 żeby opening trainer przestał opierać się wyłącznie na własnych partiach użytkownika i lokalnych analizach, a potrafił porównywać je z realnymi debiutami, wariantami i kontynuacjami teoretycznymi.

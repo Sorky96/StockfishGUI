@@ -649,7 +649,8 @@ public sealed class OpeningTrainerService
                     OpeningTrainingMoveRole.Alternative,
                     false,
                     branch.SourceSummary,
-                    OpeningLineRecallReferenceKind.ReferenceLine))
+                    OpeningLineRecallReferenceKind.ReferenceLine,
+                    OpeningTrainingMoveSourceKind.OpeningBook))
                 .ToList();
             string branchSelectionSummary = BuildTheoryBranchSelectionSummary(theoryBranches);
             IReadOnlyList<OpeningTrainingMove> primaryContinuation = theoryBranches[0].Continuation;
@@ -805,7 +806,8 @@ public sealed class OpeningTrainerService
                         : "Playable move from imported opening theory",
                     isPreferred
                         ? OpeningLineRecallReferenceKind.ReferenceLine
-                        : OpeningLineRecallReferenceKind.BetterMove));
+                        : OpeningLineRecallReferenceKind.BetterMove,
+                    OpeningTrainingMoveSourceKind.OpeningBook));
         }
 
         return options.Values
@@ -832,7 +834,10 @@ public sealed class OpeningTrainerService
             existing.Role <= candidate.Role ? existing.Role : candidate.Role,
             existing.IsPreferred || candidate.IsPreferred,
             existing.Note ?? candidate.Note,
-            existing.ReferenceKind ?? candidate.ReferenceKind);
+            existing.ReferenceKind ?? candidate.ReferenceKind,
+            existing.SourceKind == OpeningTrainingMoveSourceKind.UserGame
+                ? candidate.SourceKind
+                : existing.SourceKind);
     }
 
     private static OpeningTrainingMove ToTrainingMove(StoredMoveAnalysis move, OpeningTrainingMoveRole role, bool isPreferred)
@@ -883,7 +888,8 @@ public sealed class OpeningTrainerService
                     isPreferred
                         ? "Best repair from imported opening theory"
                         : "Playable repair from imported opening theory",
-                    OpeningLineRecallReferenceKind.BetterMove));
+                    OpeningLineRecallReferenceKind.BetterMove,
+                    OpeningTrainingMoveSourceKind.OpeningBook));
         }
 
         return options.Values
@@ -1182,7 +1188,10 @@ public sealed class OpeningTrainerService
             BuildRecommendedResponseNote(best),
             best.BestMoveCount > 0
                 ? OpeningLineRecallReferenceKind.BestMove
-                : OpeningLineRecallReferenceKind.ReferenceLine);
+                : OpeningLineRecallReferenceKind.ReferenceLine,
+            best.BestMoveCount > 0
+                ? OpeningTrainingMoveSourceKind.EngineBestMove
+                : OpeningTrainingMoveSourceKind.UserGame);
     }
 
     private static string BuildRecommendedResponseNote(ReplyOptionAccumulator option)
@@ -1287,7 +1296,8 @@ public sealed class OpeningTrainerService
                         "Recommended response from imported opening theory",
                         reply.IsMainMove
                             ? OpeningLineRecallReferenceKind.ReferenceLine
-                            : OpeningLineRecallReferenceKind.BetterMove);
+                            : OpeningLineRecallReferenceKind.BetterMove,
+                        OpeningTrainingMoveSourceKind.OpeningBook);
                 List<OpeningTrainingMove> continuation =
                 [
                     new OpeningTrainingMove(

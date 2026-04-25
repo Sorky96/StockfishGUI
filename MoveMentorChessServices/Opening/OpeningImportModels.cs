@@ -123,4 +123,5 @@ public sealed record OpeningTheoryMove(
     int RankWithinPosition,
     string ToPositionKey,
     string ToFen,
-    OpeningGameMetadata ToPositionMetadata);
+    OpeningGameMetadata ToPositionMetadata,
+    string SourceKind = "opening_book");

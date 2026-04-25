@@ -383,6 +383,7 @@ public sealed class SqliteAnalysisStoreTests
             Assert.NotNull(mainMove);
             Assert.Equal("e2e4", mainMove!.MoveUci);
             Assert.Equal("e4", mainMove.MoveSan);
+            Assert.Equal("opening_book", mainMove.SourceKind);
             Assert.True(mainMove.IsMainMove);
             Assert.True(mainMove.IsPlayableMove);
             OpeningTheoryMove d4 = Assert.Single(topMoves, move => move.MoveUci == "d2d4");

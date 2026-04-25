@@ -141,7 +141,9 @@ public sealed record WeeklyTrainingDay(
     int EstimatedMinutes,
     TrainingPlanTopicCategory Category,
     TrainingBlockPurpose Purpose = TrainingBlockPurpose.Maintain,
-    TrainingBlockKind BlockKind = TrainingBlockKind.GameReview);
+    TrainingBlockKind BlockKind = TrainingBlockKind.GameReview,
+    IReadOnlyList<string>? RelatedOpenings = null,
+    OpeningTrainingMode? LaunchTrainingMode = null);
 
 public sealed record WeeklyTrainingBudget(
     int TotalMinutes,
