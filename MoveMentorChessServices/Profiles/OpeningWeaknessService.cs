@@ -329,14 +329,27 @@ public sealed class OpeningWeaknessService
                 item.Move.CentipawnLoss))
             .ToList();
 
-        IReadOnlyList<OpeningMoveRecommendation> betterMoves = issues
-            .OrderByDescending(item => item.Move.CentipawnLoss ?? 0)
+        HashSet<string> issueKeys = issues
+            .Select(item => $"{item.Snapshot.GameFingerprint}|{item.Move.Ply}")
+            .ToHashSet(StringComparer.Ordinal);
+        IReadOnlyList<OpeningMoveRecommendation> betterMoves = snapshots
+            .SelectMany(snapshot => snapshot.OpeningMoves.Select(move => new OpeningExampleCandidate(
+                snapshot,
+                move,
+                issueKeys.Contains($"{snapshot.GameFingerprint}|{move.Ply}"))))
+            .Where(item => !string.IsNullOrWhiteSpace(item.Move.FenBefore))
+            .OrderByDescending(item => item.IsIssue)
+            .ThenByDescending(item => item.Move.CentipawnLoss ?? 0)
             .ThenBy(item => item.Move.Ply)
             .GroupBy(item => $"{item.Snapshot.GameFingerprint}|{item.Move.Ply}", StringComparer.Ordinal)
             .Select(grouped => grouped.First())
-            .Select(item => TryCreateOpeningMoveRecommendation(item, eco))
-            .Where(item => item is not null)
-            .Select(item => item!)
+            .Select(item => CreateOpeningMoveRecommendation(item, eco))
+            .GroupBy(item => BuildExamplePositionKey(item.FenBefore), StringComparer.Ordinal)
+            .Select(grouped => grouped
+                .OrderByDescending(item => item.CentipawnLoss ?? 0)
+                .ThenBy(item => item.Ply)
+                .ThenBy(item => item.GameFingerprint, StringComparer.Ordinal)
+                .First())
             .Take(3)
             .ToList();
 
@@ -594,25 +607,22 @@ public sealed class OpeningWeaknessService
             : null;
     }
 
-    private OpeningMoveRecommendation? TryCreateOpeningMoveRecommendation(OpeningIssue issue, string eco)
+    private OpeningMoveRecommendation CreateOpeningMoveRecommendation(OpeningExampleCandidate candidate, string eco)
     {
-        string? betterMove = TryFormatTheoryMove(issue.Move.FenBefore);
-        if (string.IsNullOrWhiteSpace(betterMove))
-        {
-            return null;
-        }
+        string betterMove = TryFormatTheoryMove(candidate.Move.FenBefore)
+            ?? FormatBestMove(candidate.Move.FenBefore, candidate.Move.BestMoveUci);
 
         return new OpeningMoveRecommendation(
-            issue.Snapshot.GameFingerprint,
-            issue.Snapshot.Side,
+            candidate.Snapshot.GameFingerprint,
+            candidate.Snapshot.Side,
             eco,
-            issue.Move.Ply,
-            issue.Move.MoveNumber,
-            issue.Move.San,
+            candidate.Move.Ply,
+            candidate.Move.MoveNumber,
+            candidate.Move.San,
             betterMove,
-            issue.Move.MistakeLabel,
-            issue.Move.CentipawnLoss,
-            issue.Move.FenBefore);
+            candidate.Move.MistakeLabel,
+            candidate.Move.CentipawnLoss,
+            candidate.Move.FenBefore);
     }
 
     private string? TryFormatTheoryMove(string fenBefore)
@@ -638,6 +648,41 @@ public sealed class OpeningWeaknessService
         }
 
         return ChessMoveDisplayHelper.FormatSanAndUci(appliedMove.San, appliedMove.Uci);
+    }
+
+    private static string FormatBestMove(string fenBefore, string? bestMoveUci)
+    {
+        if (string.IsNullOrWhiteSpace(bestMoveUci))
+        {
+            return "Unknown";
+        }
+
+        ChessGame game = new();
+        if (!game.TryLoadFen(fenBefore, out _)
+            || !game.TryApplyUci(bestMoveUci, out AppliedMoveInfo? appliedMove, out _)
+            || appliedMove is null)
+        {
+            return bestMoveUci;
+        }
+
+        return ChessMoveDisplayHelper.FormatSanAndUci(appliedMove.San, appliedMove.Uci);
+    }
+
+    private static string BuildExamplePositionKey(string fenBefore)
+    {
+        if (string.IsNullOrWhiteSpace(fenBefore))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return OpeningPositionKeyBuilder.Build(fenBefore);
+        }
+        catch (ArgumentException)
+        {
+            return fenBefore.Trim();
+        }
     }
 
     private readonly record struct AnalysisVariantKey(
@@ -670,6 +715,11 @@ public sealed class OpeningWeaknessService
     private sealed record OpeningIssue(
         OpeningSnapshot Snapshot,
         StoredMoveAnalysis Move);
+
+    private sealed record OpeningExampleCandidate(
+        OpeningSnapshot Snapshot,
+        StoredMoveAnalysis Move,
+        bool IsIssue);
 
     private sealed record SequenceCandidate(
         string Key,

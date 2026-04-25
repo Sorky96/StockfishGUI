@@ -102,6 +102,105 @@ public sealed class OpeningWeaknessServiceTests
     }
 
     [Fact]
+    public void OpeningWeaknessService_KeepsExamplePositionsUniqueByBoardPosition()
+    {
+        const string afterE4Fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1";
+
+        GameAnalysisResult duplicateA = CreateResult(
+            "Sorky1996",
+            "Beta",
+            PlayerSide.White,
+            "B00",
+            "2026.04.01",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 150, "opening_principles", moveNumber: 1, san: "a3", bestMoveUci: "e2e4")]);
+        GameAnalysisResult duplicateB = CreateResult(
+            "Sorky1996",
+            "Gamma",
+            PlayerSide.White,
+            "B00",
+            "2026.04.02",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 140, "opening_principles", moveNumber: 1, san: "h3", bestMoveUci: "e2e4")]);
+        GameAnalysisResult duplicateC = CreateResult(
+            "Sorky1996",
+            "Delta",
+            PlayerSide.White,
+            "B00",
+            "2026.04.03",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 130, "opening_principles", moveNumber: 1, san: "b3", bestMoveUci: "e2e4")]);
+        GameAnalysisResult distinct = CreateResult(
+            "Sorky1996",
+            "Epsilon",
+            PlayerSide.White,
+            "B00",
+            "2026.04.04",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 120, "opening_principles", moveNumber: 1, san: "h6", bestMoveUci: "e7e5", fenBefore: afterE4Fen)]);
+
+        ImportedGame theoryGame = CreateTheoryGame("B00", ["e4", "e5"]);
+        OpeningWeaknessService service = new(new FakeAnalysisStore(
+            [duplicateA, duplicateB, duplicateC, distinct],
+            theoryGames: [theoryGame]));
+
+        Assert.True(service.TryBuildReport("Sorky1996", out OpeningWeaknessReport? report));
+
+        OpeningWeaknessEntry b00 = Assert.Single(report!.WeakOpenings, item => item.Eco == "B00");
+        Assert.Equal(2, b00.ExampleBetterMoves.Count);
+        Assert.Equal(
+            b00.ExampleBetterMoves.Count,
+            b00.ExampleBetterMoves
+                .Select(item => OpeningPositionKeyBuilder.Build(item.FenBefore))
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
+    public void OpeningWeaknessService_BuildsThreeExamplePositionsWithoutImportedTheory()
+    {
+        const string afterE4Fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1";
+        const string afterD4Fen = "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1";
+
+        GameAnalysisResult gameA = CreateResult(
+            "Alpha",
+            "Beta",
+            PlayerSide.White,
+            "B01",
+            "2026.04.01",
+            [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 150, "opening_principles", moveNumber: 1, san: "a3", bestMoveUci: "e2e4")]);
+        GameAnalysisResult gameB = CreateResult(
+            "Alpha",
+            "Gamma",
+            PlayerSide.White,
+            "B01",
+            "2026.04.02",
+            [CreateSelectedMistake("king_safety", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 140, "king_safety", moveNumber: 1, san: "h6", bestMoveUci: "e7e5", fenBefore: afterE4Fen)]);
+        GameAnalysisResult gameC = CreateResult(
+            "Alpha",
+            "Delta",
+            PlayerSide.White,
+            "B01",
+            "2026.04.03",
+            [CreateSelectedMistake("piece_activity", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Opening, 130, "piece_activity", moveNumber: 1, san: "a6", bestMoveUci: "d7d5", fenBefore: afterD4Fen)]);
+
+        OpeningWeaknessService service = new(new FakeAnalysisStore([gameA, gameB, gameC]));
+
+        Assert.True(service.TryBuildReport("Alpha", out OpeningWeaknessReport? report));
+
+        OpeningWeaknessEntry b01 = Assert.Single(report!.WeakOpenings, item => item.Eco == "B01");
+        Assert.Equal(3, b01.ExampleBetterMoves.Count);
+        Assert.All(b01.ExampleBetterMoves, item =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(item.FenBefore));
+            Assert.False(string.IsNullOrWhiteSpace(item.BetterMove));
+        });
+    }
+
+    [Fact]
     public void OpeningWeaknessService_ClassifiesOpeningsByFrequencyCostMistakeAndTrend()
     {
         GameAnalysisResult stableA = CreateResult(
@@ -227,10 +326,12 @@ public sealed class OpeningWeaknessServiceTests
         string label,
         int moveNumber = 1,
         string san = "e4",
-        string bestMoveUci = "e2e4")
+        string bestMoveUci = "e2e4",
+        string? fenBefore = null)
     {
         const string startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         const string afterFen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1";
+        string effectiveFenBefore = fenBefore ?? startFen;
 
         ReplayPly replay = new(
             moveNumber * 2 - 1,
@@ -239,7 +340,7 @@ public sealed class OpeningWeaknessServiceTests
             san,
             san,
             bestMoveUci,
-            startFen,
+            effectiveFenBefore,
             afterFen,
             string.Empty,
             string.Empty,
@@ -260,7 +361,7 @@ public sealed class OpeningWeaknessServiceTests
 
         return new MoveAnalysisResult(
             replay,
-            new EngineAnalysis(startFen, [], bestMoveUci),
+            new EngineAnalysis(effectiveFenBefore, [], bestMoveUci),
             new EngineAnalysis(afterFen, [], null),
             20,
             -cpl,

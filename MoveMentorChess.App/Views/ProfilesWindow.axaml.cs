@@ -1484,7 +1484,7 @@ public partial class ProfilesWindow : Window
             TextWrapping = TextWrapping.Wrap
         });
         panel.Children.Add(CreateBodyText($"Your move: {recommendation.PlayedSan}", "#9EB5C5"));
-        panel.Children.Add(CreateBodyText($"Best book move: {recommendation.BetterMove}", "#D7E2EA"));
+        panel.Children.Add(CreateBodyText($"Suggested move: {recommendation.BetterMove}", "#D7E2EA"));
         panel.Children.Add(CreateBodyText(
             $"Theme: {FormatMistakeLabel(recommendation.MistakeType ?? "unclassified")} | CPL {recommendation.CentipawnLoss?.ToString() ?? "n/a"}",
             "#D7E2EA"));
@@ -1829,7 +1829,7 @@ public partial class ProfilesWindow : Window
         [
             FormatPlyLabel(recommendation.Side, recommendation.Ply, recommendation.PlayedSan),
             $"Your move: {recommendation.PlayedSan}",
-            $"Best book move: {recommendation.BetterMove}",
+            $"Suggested move: {recommendation.BetterMove}",
             $"Theme: {FormatMistakeLabel(recommendation.MistakeType ?? "unclassified")} | CPL {recommendation.CentipawnLoss?.ToString() ?? "n/a"}"
         ];
     }
