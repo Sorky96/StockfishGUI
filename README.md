@@ -78,5 +78,5 @@ If the app is already running, a normal `dotnet build` may fail to overwrite `Mo
 
 ## Notes
 
-- `Tracker.cs` still exists in the project for OCR-related work, but the current import flow uses PGN files.
-- The former `StockifhsGUI` typo has been removed from project names, namespaces, and paths.
+- `Tracker.cs` still exists in the project for OCR-related work, but the current import flow uses PGN files. Might be used for importing chess positions.
+
