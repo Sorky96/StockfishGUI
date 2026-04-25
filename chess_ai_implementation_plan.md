@@ -91,7 +91,7 @@ Poniższy plan został częściowo wdrożony w aktualnym repo. To oznacza, że d
 - [x] adapter uruchamiający lokalny model na bazie istniejącego `AdvicePromptContext`, z lokalnym fallbackiem heurystycznym (`LocalModelAdviceGenerator`),
 - [x] parser surowej odpowiedzi modelu lokalnego i walidacja kompletności pól przed fallbackiem,
 - [x] generyczny adapter procesowy uruchamiający lokalny model przez `stdin/stdout` (`LocalProcessAdviceModel`) konfigurowany lokalnie bez zależności od zewnętrznego API,
-- [x] oficjalnie wspierana ścieżka `llama.cpp` z wykrywaniem `llama-cli.exe` i kontrolowanym modelem `stockifhsgui-advice*.gguf`,
+- [x] oficjalnie wspierana ścieżka `llama.cpp` z wykrywaniem `llama-cli.exe` i kontrolowanym modelem `MoveMentorChessServices-advice*.gguf`,
 - [x] ograniczenie odpowiedzi `llama.cpp` przez lokalną gramatykę JSON, żeby model zwracał pola `short_text`, `detailed_text`, `training_hint`,
 - [x] status gotowości lokalnego modelu i smoke test `llama.cpp` w oknie analizy, tak żeby użytkownik mógł sprawdzić runtime bez restartu aplikacji,
 - [x] trwały serwer `llama-server` startowany jako proces potomny aplikacji, z automatycznym portem i health checkiem — model ładowany raz, wiele zapytań HTTP na `127.0.0.1`,
@@ -945,7 +945,7 @@ Stan po bieżącej iteracji:
 
 Stan po bieżącej iteracji:
 - serwer nasłuchuje wyłącznie na `127.0.0.1` — zero ekspozycji sieciowej,
-- port wybierany automatycznie (wolny TCP) lub konfigurowany zmienną `STOCKIFHSGUI_LLAMA_SERVER_PORT`,
+- port wybierany automatycznie (wolny TCP) lub konfigurowany zmienną `MoveMentorChessServices_LLAMA_SERVER_PORT`,
 - model ładowany raz przy pierwszym zapytaniu, potem obsługuje wiele requestów bez restartu,
 - czas odpowiedzi per-request spada z ~10-30s (ładowanie modelu + inference w `llama-cli`) do ~0.5-2s (sam inference przez HTTP),
 - analiza zbiorcza wielu ruchów w partii korzysta z LLM automatycznie gdy serwer jest dostępny,

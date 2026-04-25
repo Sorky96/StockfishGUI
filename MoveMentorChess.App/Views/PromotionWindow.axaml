@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MoveMentorChess.App.Views.PromotionWindow"
+        Width="460"
+        Height="250"
+        MinWidth="420"
+        MinHeight="220"
+        Title="Choose Promotion"
+        Background="{DynamicResource ChromeBrush}">
+  <Border Margin="18" Padding="18" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+      <TextBlock Text="Choose promotion piece"
+                 FontSize="26"
+                 FontWeight="Bold"
+                 Foreground="White" />
+      <TextBlock Grid.Row="1"
+                 Margin="0,8,0,0"
+                 Foreground="#D7E2EA"
+                 TextWrapping="Wrap"
+                 Text="The selected move reaches the back rank. Pick the piece you want to promote to." />
+
+      <UniformGrid Grid.Row="2"
+                   Margin="0,18,0,0"
+                   Rows="1"
+                   Columns="4">
+        <Button x:Name="QueenButton" Margin="0,0,8,0" Click="PromotionButton_Click" />
+        <Button x:Name="RookButton" Margin="4,0,4,0" Click="PromotionButton_Click" />
+        <Button x:Name="BishopButton" Margin="4,0,4,0" Click="PromotionButton_Click" />
+        <Button x:Name="KnightButton" Margin="8,0,0,0" Click="PromotionButton_Click" />
+      </UniformGrid>
+
+      <StackPanel Grid.Row="3"
+                  Margin="0,18,0,0"
+                  Orientation="Horizontal"
+                  HorizontalAlignment="Right"
+                  Spacing="10">
+        <Button Width="96" Click="CancelButton_Click" Content="Cancel" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

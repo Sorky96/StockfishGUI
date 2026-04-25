@@ -1,0 +1,105 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MoveMentorChess.App.ViewModels"
+        x:Class="MoveMentorChess.App.Views.SavedGamesWindow"
+        Width="1160"
+        Height="760"
+        MinWidth="980"
+        MinHeight="640"
+        Title="Saved Games"
+        Background="{DynamicResource ChromeBrush}">
+  <Grid RowDefinitions="Auto,*" Margin="18">
+    <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+      <StackPanel Orientation="Horizontal" Spacing="12">
+        <TextBlock VerticalAlignment="Center" FontSize="24" FontWeight="Bold" Text="Saved Games" />
+        <TextBox x:Name="FilterTextBox"
+                 Width="320"
+                 VerticalAlignment="Center"
+                 Watermark="Filter players/date..."
+                 TextChanged="FilterTextBox_OnTextChanged" />
+        <Button Content="Load Selected" Click="LoadSelectedButton_Click" />
+        <Button Content="Delete Selected" Click="DeleteSelectedButton_Click" />
+        <Button Content="Cancel" Click="CancelButton_Click" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="1" Margin="0,14,0,0" RowDefinitions="Auto,Auto,*">
+      <Border Padding="12" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+        <Grid ColumnDefinitions="2.6*,1.2*,Auto">
+          <Button Grid.Column="0" HorizontalAlignment="Stretch" Click="SortPlayerButton_Click" Content="Player" />
+          <Button Grid.Column="1" Margin="8,0,0,0" HorizontalAlignment="Stretch" Click="SortDateButton_Click" Content="Date" />
+          <TextBlock Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="#D7E2EA" Text="Double click or use Load Selected" />
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" Margin="0,12,0,0" Padding="12" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+        <Grid ColumnDefinitions="2.6*,1.2*">
+          <TextBox x:Name="PlayerFilterTextBox"
+                   Watermark="Filter Player"
+                   TextChanged="ColumnFilterTextBox_OnTextChanged" />
+          <TextBox x:Name="DateFilterTextBox"
+                   Grid.Column="1"
+                   Margin="8,0,0,0"
+                   Watermark="Filter Date"
+                   TextChanged="ColumnFilterTextBox_OnTextChanged" />
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="2" Margin="0,12,0,0" Padding="12" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+        <ListBox x:Name="GamesListBox"
+                 SelectionChanged="GamesListBox_OnSelectionChanged"
+                 DoubleTapped="GamesListBox_OnDoubleTapped"
+                 Background="White"
+                 Foreground="Black"
+                 BorderThickness="0">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem">
+              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Background" Value="Transparent" />
+            </Style>
+            <Style Selector="ListBoxItem ContentPresenter">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem TextBlock">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:pointerover">
+              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Background" Value="#DCE8F2" />
+            </Style>
+            <Style Selector="ListBoxItem:pointerover ContentPresenter">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:pointerover TextBlock">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:selected">
+              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Background" Value="#AFC6D9" />
+            </Style>
+            <Style Selector="ListBoxItem:selected ContentPresenter">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:selected TextBlock">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:selected:pointerover ContentPresenter">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style Selector="ListBoxItem:selected:pointerover TextBlock">
+              <Setter Property="Foreground" Value="Black" />
+            </Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:SavedGameItemViewModel">
+              <Grid Margin="4,2" ColumnDefinitions="2.6*,1.2*">
+                <TextBlock Margin="6,2" Foreground="Black" Text="{Binding Player}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1" Margin="6,2" Foreground="Black" Text="{Binding Date}" />
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

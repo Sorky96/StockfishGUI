@@ -6,7 +6,7 @@ class Program
 {
     static void Main()
     {
-        string[] files = Directory.GetFiles(@"..\StockifhsGUI\UI", "*.cs", SearchOption.AllDirectories);
+        string[] files = Directory.GetFiles(@"..\MoveMentorChessServices\UI", "*.cs", SearchOption.AllDirectories);
 
         foreach (string file in files)
         {

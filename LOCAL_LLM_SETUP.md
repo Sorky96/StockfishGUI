@@ -1,6 +1,6 @@
 # Local LLM Setup
 
-StockifhsGUI can generate short chess advice with a fully local `llama.cpp` runtime.
+MoveMentor Chess can generate short chess advice with a fully local `llama.cpp` runtime.
 
 The app supports two runtime modes (auto-detected):
 
@@ -34,8 +34,8 @@ The current recommendation is based on three practical constraints:
 Option A: next to the app
 
 ```text
-StockifhsGUI/
-  StockifhsGUI/bin/Debug/net8.0-windows/
+MoveMentorChess/
+  MoveMentorChess.App/bin/Debug/net8.0-windows/
     llama-server.exe    (and/or llama-cli.exe)
     Models/
       qwen2.5-3b-instruct-q4_k_m.gguf
@@ -44,7 +44,7 @@ StockifhsGUI/
 Option B: dedicated `llama.cpp` folder
 
 ```text
-StockifhsGUI/
+MoveMentorChess/
   llama.cpp/
     llama-server.exe    (and/or llama-cli.exe)
     models/
@@ -54,7 +54,7 @@ StockifhsGUI/
 Option C: dedicated tools folder
 
 ```text
-StockifhsGUI/
+MoveMentorChess/
   tools/
     llama.cpp/
       llama-server.exe    (and/or llama-cli.exe)
@@ -62,7 +62,7 @@ StockifhsGUI/
         qwen2.5-3b-instruct-q4_k_m.gguf
 ```
 
-The app also recognizes `stockifhsgui-advice.gguf` and `stockifhsgui-advice-q4_k_m.gguf`, but renaming is not required for the recommended Qwen file.
+The app also recognizes `MoveMentorChessServices-advice.gguf` and `MoveMentorChessServices-advice-q4_k_m.gguf`, but renaming is not required for the recommended Qwen file.
 
 ## How the server mode works
 
@@ -80,14 +80,14 @@ When only `llama-cli.exe` is available, the app falls back to starting a new pro
 
 If you want to keep the binary or the model elsewhere, you can set:
 
-- `STOCKIFHSGUI_LLAMA_CPP_SERVER_PATH` — path to `llama-server.exe`
-- `STOCKIFHSGUI_LLAMA_CPP_CLI_PATH` — path to `llama-cli.exe`
-- `STOCKIFHSGUI_LLAMA_CPP_MODEL_PATH` — path to the `.gguf` model file
-- `STOCKIFHSGUI_LLAMA_CPP_MAX_TOKENS` — max tokens per response (default: 96)
-- `STOCKIFHSGUI_LLAMA_CPP_CONTEXT_SIZE` — context window size (default: 2048)
-- `STOCKIFHSGUI_LLAMA_CPP_TIMEOUT_MS` — per-request timeout in ms (default: 15000 for server, 120000 for cli)
-- `STOCKIFHSGUI_LLAMA_SERVER_PORT` — fixed port for `llama-server` (default: auto)
-- `STOCKIFHSGUI_LLAMA_SERVER_STARTUP_TIMEOUT_MS` — max wait for server to become healthy (default: 60000)
+- `MoveMentorChessServices_LLAMA_CPP_SERVER_PATH` — path to `llama-server.exe`
+- `MoveMentorChessServices_LLAMA_CPP_CLI_PATH` — path to `llama-cli.exe`
+- `MoveMentorChessServices_LLAMA_CPP_MODEL_PATH` — path to the `.gguf` model file
+- `MoveMentorChessServices_LLAMA_CPP_MAX_TOKENS` — max tokens per response (default: 96)
+- `MoveMentorChessServices_LLAMA_CPP_CONTEXT_SIZE` — context window size (default: 2048)
+- `MoveMentorChessServices_LLAMA_CPP_TIMEOUT_MS` — per-request timeout in ms (default: 15000 for server, 120000 for cli)
+- `MoveMentorChessServices_LLAMA_SERVER_PORT` — fixed port for `llama-server` (default: auto)
+- `MoveMentorChessServices_LLAMA_SERVER_STARTUP_TIMEOUT_MS` — max wait for server to become healthy (default: 60000)
 
 ## Verify inside the app
 
@@ -99,7 +99,7 @@ If the runtime is ready, the app will run a smoke test and show a sample short a
 
 ## Notes
 
-- If the local LLM is not ready, StockifhsGUI falls back to the heuristic advice generator.
+- If the local LLM is not ready, MoveMentor Chess falls back to the heuristic advice generator.
 - The chess engine analysis still uses `stockfish.exe`; the local LLM is only used for human-readable coaching text.
 - The current prompt and parser are tuned for short structured JSON output, not open-ended chat.
 - The server listens only on `127.0.0.1` and is never exposed to the network.
