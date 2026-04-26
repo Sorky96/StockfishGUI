@@ -4,6 +4,9 @@ namespace MoveMentorChessServices;
 
 public sealed partial class PlayerProfileService
 {
+    private const int MinimumGamesPerProgressWindow = 2;
+    private static readonly int[] ProgressWindowDays = [14, 30];
+
     private readonly IAnalysisStore analysisStore;
     private readonly ProfileAnalysisDataSource analysisDataSource;
 
@@ -195,36 +198,23 @@ public sealed partial class PlayerProfileService
 
     private static ProfileProgressSignal BuildProgressSignal(IReadOnlyList<PlayerProfileSnapshot> snapshots)
     {
-        List<PlayerProfileSnapshot> ordered = snapshots
-            .OrderBy(snapshot => snapshot.GameDate ?? snapshot.AnalysisUpdatedUtc)
-            .ThenBy(snapshot => snapshot.GameFingerprint, StringComparer.Ordinal)
-            .ToList();
-
-        int window = Math.Min(5, ordered.Count / 2);
-        if (window < 2)
+        if (!TrySelectProgressWindows(snapshots, out ProgressWindowSelection? selection) || selection is null)
         {
             return new ProfileProgressSignal(
                 ProfileProgressDirection.InsufficientData,
-                "Not enough dated games yet to compare recent form against earlier results.",
+                "Not enough dated games yet to compare recent form across recent time windows.",
                 null,
                 null);
         }
 
-        List<PlayerProfileSnapshot> previous = ordered
-            .Skip(Math.Max(0, ordered.Count - (window * 2)))
-            .Take(window)
-            .ToList();
-        List<PlayerProfileSnapshot> recent = ordered
-            .TakeLast(window)
-            .ToList();
-
-        ProfileProgressPeriod previousPeriod = BuildProgressPeriod(previous, "Earlier sample");
-        ProfileProgressPeriod recentPeriod = BuildProgressPeriod(recent, "Recent sample");
+        ProfileProgressPeriod previousPeriod = BuildProgressPeriod(selection.Previous, $"Previous {selection.WindowDays} days");
+        ProfileProgressPeriod recentPeriod = BuildProgressPeriod(selection.Recent, $"Last {selection.WindowDays} days");
 
         int cplDelta = (recentPeriod.AverageCentipawnLoss ?? 0) - (previousPeriod.AverageCentipawnLoss ?? 0);
         double highlightDelta = recentPeriod.HighlightedMistakesPerGame - previousPeriod.HighlightedMistakesPerGame;
 
-        if ((previousPeriod.AverageCentipawnLoss is null || recentPeriod.AverageCentipawnLoss is null) && previous.Count < 2)
+        if ((previousPeriod.AverageCentipawnLoss is null || recentPeriod.AverageCentipawnLoss is null)
+            && selection.Previous.Count < MinimumGamesPerProgressWindow)
         {
             return new ProfileProgressSignal(
                 ProfileProgressDirection.InsufficientData,
@@ -256,33 +246,74 @@ public sealed partial class PlayerProfileService
 
     private static IReadOnlyList<ProfileLabelTrend> BuildLabelTrends(IReadOnlyList<PlayerProfileSnapshot> snapshots)
     {
-        List<PlayerProfileSnapshot> ordered = snapshots
-            .OrderBy(snapshot => snapshot.GameDate ?? snapshot.AnalysisUpdatedUtc)
-            .ThenBy(snapshot => snapshot.GameFingerprint, StringComparer.Ordinal)
-            .ToList();
-
-        int window = Math.Min(5, ordered.Count / 2);
-        if (window < 2)
+        if (!TrySelectProgressWindows(snapshots, out ProgressWindowSelection? selection) || selection is null)
         {
             return [];
         }
-
-        List<PlayerProfileSnapshot> previous = ordered
-            .Skip(Math.Max(0, ordered.Count - (window * 2)))
-            .Take(window)
-            .ToList();
-        List<PlayerProfileSnapshot> recent = ordered
-            .TakeLast(window)
-            .ToList();
 
         return snapshots
             .SelectMany(snapshot => snapshot.Moves)
             .Where(move => move.Quality != MoveQualityBucket.Good && !string.IsNullOrWhiteSpace(move.MistakeLabel))
             .Select(move => move.MistakeLabel!)
             .Distinct(StringComparer.Ordinal)
-            .Select(label => BuildLabelTrend(label, previous, recent))
+            .Select(label => BuildLabelTrend(label, selection.Previous, selection.Recent))
             .OrderBy(item => item.Label, StringComparer.Ordinal)
             .ToList();
+    }
+
+    private static bool TrySelectProgressWindows(
+        IReadOnlyList<PlayerProfileSnapshot> snapshots,
+        out ProgressWindowSelection? selection)
+    {
+        selection = null;
+        List<PlayerProfileSnapshot> dated = snapshots
+            .Where(snapshot => GetSnapshotDate(snapshot).HasValue)
+            .OrderBy(snapshot => GetSnapshotDate(snapshot))
+            .ThenBy(snapshot => snapshot.GameFingerprint, StringComparer.Ordinal)
+            .ToList();
+        if (dated.Count < MinimumGamesPerProgressWindow * 2)
+        {
+            return false;
+        }
+
+        DateTime anchorDate = dated
+            .Select(snapshot => GetSnapshotDate(snapshot)!.Value.Date)
+            .Max();
+
+        foreach (int windowDays in ProgressWindowDays)
+        {
+            DateTime recentStart = anchorDate.AddDays(-(windowDays - 1));
+            DateTime previousStart = recentStart.AddDays(-windowDays);
+            DateTime previousEnd = recentStart.AddDays(-1);
+
+            List<PlayerProfileSnapshot> recent = dated
+                .Where(snapshot =>
+                {
+                    DateTime date = GetSnapshotDate(snapshot)!.Value.Date;
+                    return date >= recentStart && date <= anchorDate;
+                })
+                .ToList();
+            List<PlayerProfileSnapshot> previous = dated
+                .Where(snapshot =>
+                {
+                    DateTime date = GetSnapshotDate(snapshot)!.Value.Date;
+                    return date >= previousStart && date <= previousEnd;
+                })
+                .ToList();
+
+            if (recent.Count >= MinimumGamesPerProgressWindow && previous.Count >= MinimumGamesPerProgressWindow)
+            {
+                selection = new ProgressWindowSelection(windowDays, previous, recent);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static DateTime? GetSnapshotDate(PlayerProfileSnapshot snapshot)
+    {
+        return snapshot.GameDate?.Date ?? snapshot.AnalysisUpdatedUtc.Date;
     }
 
     private static ProfileLabelTrend BuildLabelTrend(
@@ -509,7 +540,10 @@ public sealed partial class PlayerProfileService
             .TryBuildReport(playerKey, out OpeningWeaknessReport? builtOpeningReport)
                 ? builtOpeningReport
                 : null;
-        TrainingPlanReport trainingPlan = new TrainingPlanService().Build(draftReport, openingReport);
+        IReadOnlyList<OpeningTrainingSessionResult> trainingHistory = analysisStore is IOpeningTrainingHistoryStore historyStore
+            ? historyStore.ListOpeningTrainingSessionResults(playerKey)
+            : [];
+        TrainingPlanReport trainingPlan = new TrainingPlanService().Build(draftReport, openingReport, trainingHistory);
 
         return new PlayerProfileReport(
             playerKey,
@@ -725,6 +759,11 @@ public sealed partial class PlayerProfileService
         int? MoveTimeMs,
         DateTime AnalysisUpdatedUtc,
         IReadOnlyList<StoredMoveAnalysis> Moves);
+
+    private sealed record ProgressWindowSelection(
+        int WindowDays,
+        IReadOnlyList<PlayerProfileSnapshot> Previous,
+        IReadOnlyList<PlayerProfileSnapshot> Recent);
 
     private sealed record HighlightedGroup(
         string Label,

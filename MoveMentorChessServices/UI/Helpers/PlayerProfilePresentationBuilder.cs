@@ -239,6 +239,7 @@ internal static class PlayerProfilePresentationBuilder
             .OrderBy(topic => topic.Priority)
             .Select(topic => new PlayerProfileTrainingTopicViewModel(
                 BuildRoleLabel(topic.Category),
+                BuildStatusLabel(topic.Status),
                 topic.Title,
                 topic.FocusArea,
                 topic.Summary,
@@ -292,7 +293,8 @@ internal static class PlayerProfilePresentationBuilder
             report.TrainingPlan.WeeklyPlan.Budget.Summary,
             topics,
             items,
-            days);
+            days,
+            BuildWhyThisPlanItems(report.TrainingPlan));
     }
 
     private static int GetBlockPurposeOrder(TrainingBlockPurpose purpose)
@@ -315,6 +317,31 @@ internal static class PlayerProfilePresentationBuilder
             TrainingPlanTopicCategory.MaintenanceTopic => "Maintenance topic",
             _ => "Training topic"
         };
+    }
+
+    private static string BuildStatusLabel(TrainingPlanTopicStatus status)
+    {
+        return status switch
+        {
+            TrainingPlanTopicStatus.NewWeakness => "New weakness",
+            TrainingPlanTopicStatus.Improving => "Improving",
+            TrainingPlanTopicStatus.Stable => "Stable",
+            TrainingPlanTopicStatus.Urgent => "Urgent",
+            _ => "Stable"
+        };
+    }
+
+    private static IReadOnlyList<PlayerProfileStatItem> BuildWhyThisPlanItems(TrainingPlanReport report)
+    {
+        IReadOnlyList<TrainingPlanDashboardItem> dashboard = report.WhyThisIsYourCurrentPlan ?? [];
+        if (dashboard.Count == 0)
+        {
+            return [new PlayerProfileStatItem("Current plan", report.Summary)];
+        }
+
+        return dashboard
+            .Select(item => new PlayerProfileStatItem(item.Title, $"{item.Detail} {item.Evidence}".Trim()))
+            .ToList();
     }
 
     private static string? BuildTopicDisplayContext(TrainingPlanTopic topic)

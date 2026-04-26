@@ -54,7 +54,7 @@ public sealed class LlamaCppHttpAdviceModel : ILocalAdviceModel
         }
 
         string completionUrl = $"{baseUrl}/completion";
-        string grammar = LlamaCppAdviceModel.BuildJsonGrammar();
+        string grammar = LlamaCppAdviceModel.BuildJsonGrammar(request.JsonOutputKeys);
 
         var requestBody = new
         {

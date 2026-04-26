@@ -232,7 +232,11 @@ public partial class MainWindow : Window
     private async void SettingsButton_Click(object? sender, RoutedEventArgs e)
     {
         SettingsWindow dialog = new();
-        await dialog.ShowDialog<bool?>(this);
+        bool? saved = await dialog.ShowDialog<bool?>(this);
+        if (saved == true && DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.ReloadEngineSettings();
+        }
     }
 
     private async Task<LegalMoveInfo?> ShowPromotionDialogAsync(IReadOnlyList<LegalMoveInfo> moves)

@@ -1249,32 +1249,32 @@ Cel sprintu:
 żeby opening trainer przestał opierać się wyłącznie na własnych partiach użytkownika i lokalnych analizach, a potrafił porównywać je z realnymi debiutami, wariantami i kontynuacjami teoretycznymi.
 
 ### Sprint 23 - LLM Formatter Profilu Gracza
-- [ ] Przygotować strukturalny input do LLM z gotowego `PlayerProfileReport`.
-- [ ] Dodać wyjścia: `profile_summary`, `strengths_and_weaknesses`, `what_to_focus_next`, `tone_adapted_version`.
-- [ ] Dodać poziomy odbiorcy: `Beginner`, `Intermediate`, `Advanced`.
-- [ ] Utrzymać zgodność wyjścia z układem UI: krótkie `Summary` najpierw, opcjonalne `Deep dive` niżej i zero debugowego stylu w tekście dla gracza.
-- [ ] Utrzymać walidację, żeby model nie dodawał nowych faktów spoza danych.
-- [ ] Zachować pełny heurystyczny fallback bez modelu.
+- [x] Przygotować strukturalny input do LLM z gotowego `PlayerProfileReport`.
+- [x] Dodać wyjścia: `profile_summary`, `strengths_and_weaknesses`, `what_to_focus_next`, `tone_adapted_version`.
+- [x] Dodać poziomy odbiorcy: `Beginner`, `Intermediate`, `Advanced`.
+- [x] Utrzymać zgodność wyjścia z układem UI: krótkie `Summary` najpierw, opcjonalne `Deep dive` niżej i zero debugowego stylu w tekście dla gracza.
+- [x] Utrzymać walidację, żeby model nie dodawał nowych faktów spoza danych.
+- [x] Zachować pełny heurystyczny fallback bez modelu.
 
 Cel sprintu:
 używać lokalnego LLM do formatowania i upraszczania profilu, ale nie do ustalania logiki diagnozy.
 
 ### Sprint 24 - LLM Formatter Planu Treningowego
-- [ ] Przygotować strukturalny input do LLM z gotowego `TrainingPlanReport`.
-- [ ] Generować krótką i rozszerzoną wersję planu tygodniowego.
-- [ ] Dodawać zrozumiałe uzasadnienie priorytetów dla użytkownika.
-- [ ] Dostosować ton do poziomu gracza i dostępnego czasu na trening.
-- [ ] Zachować pełny fallback lokalny bez modelu.
+- [x] Przygotować strukturalny input do LLM z gotowego `TrainingPlanReport`.
+- [x] Generować krótką i rozszerzoną wersję planu tygodniowego.
+- [x] Dodawać zrozumiałe uzasadnienie priorytetów dla użytkownika.
+- [x] Dostosować ton do poziomu gracza i dostępnego czasu na trening.
+- [x] Zachować pełny fallback lokalny bez modelu.
 
 Cel sprintu:
 sprawić, żeby plan treningowy był bardziej ludzki, czytelny i motywujący, bez utraty deterministycznego rdzenia.
 
 ### Sprint 25 - Zamknięcie Pętli Treningowej
-- [ ] Zapisywać wykonane sesje treningowe i wyniki z opening trainera.
-- [ ] Łączyć wyniki treningu z profilem gracza i planem.
-- [ ] Aktualizować priorytety tematów na podstawie realnych wyników, a nie tylko nowych analiz partii.
-- [ ] Dodać statusy tematów: `new weakness`, `improving`, `stable`, `urgent`.
-- [ ] Zbudować prosty dashboard `why this is your current plan`.
+- [x] Zapisywać wykonane sesje treningowe i wyniki z opening trainera.
+- [x] Łączyć wyniki treningu z profilem gracza i planem.
+- [x] Aktualizować priorytety tematów na podstawie realnych wyników, a nie tylko nowych analiz partii.
+- [x] Dodać statusy tematów: `new weakness`, `improving`, `stable`, `urgent`.
+- [x] Zbudować prosty dashboard `why this is your current plan`.
 
 Cel sprintu:
 zamknąć pętlę między analizą partii, profilem, planem treningowym i treningiem debiutowym.

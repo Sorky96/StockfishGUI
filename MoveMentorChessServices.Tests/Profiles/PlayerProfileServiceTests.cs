@@ -85,7 +85,7 @@ public sealed class PlayerProfileServiceTests
             Assert.False(string.IsNullOrWhiteSpace(item.BetterMove));
             Assert.False(string.IsNullOrWhiteSpace(item.Eco));
         });
-        Assert.Equal(ProfileProgressDirection.Improving, report.ProgressSignal.Direction);
+        Assert.Equal(ProfileProgressDirection.InsufficientData, report.ProgressSignal.Direction);
         Assert.All(report.TrainingPlan.Topics, topic =>
         {
             Assert.False(string.IsNullOrWhiteSpace(topic.WhyThisTopicNow));
@@ -156,6 +156,51 @@ public sealed class PlayerProfileServiceTests
     }
 
     [Fact]
+    public void PlayerProfileService_UsesOpeningTrainerResultsToUpdatePlanPriorityAndStatus()
+    {
+        OpeningTrainingSessionResult poorTraining = CreateTrainingResult(
+            "opening-trainer:bookish:1",
+            "bookish",
+            "Bookish",
+            "C20",
+            correct: 1,
+            playable: 0,
+            wrong: 4);
+        FakeAnalysisStore store = new(
+        [
+            CreateResult(
+                "Bookish",
+                "Beta",
+                PlayerSide.White,
+                "C20",
+                "2026.04.01",
+                [CreateSelectedMistake("opening_principles", MoveQualityBucket.Mistake)],
+                [CreateMoveAnalysis(GamePhase.Opening, 90, "opening_principles", moveNumber: 3, san: "h3", bestMoveUci: "g1f3")]),
+            CreateResult(
+                "Bookish",
+                "Gamma",
+                PlayerSide.White,
+                "B01",
+                "2026.04.08",
+                [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 260, "material_loss", moveNumber: 12, san: "Bxh7+", bestMoveUci: "d1d5")])
+        ],
+        trainingHistory: [poorTraining]);
+
+        PlayerProfileService service = new(store);
+
+        bool found = service.TryBuildProfile("Bookish", out PlayerProfileReport? report);
+
+        Assert.True(found);
+        Assert.NotNull(report);
+        TrainingPlanTopic openingTopic = Assert.Single(report!.TrainingPlan.Topics, topic => topic.Label == "opening_principles");
+        Assert.Equal(TrainingPlanTopicStatus.Urgent, openingTopic.Status);
+        Assert.True(openingTopic.PriorityBreakdown.TrainingScore > 0);
+        Assert.Contains("Training results:", openingTopic.WhyThisTopicNow, StringComparison.Ordinal);
+        Assert.Contains(report.TrainingPlan.WhyThisIsYourCurrentPlan ?? [], item => item.Title == "Opening trainer results");
+    }
+
+    [Fact]
     public void PlayerProfileService_DistinguishesFrequentVsCostlyLabels_AndDetectsRegression()
     {
         FakeAnalysisStore store = new(
@@ -165,7 +210,7 @@ public sealed class PlayerProfileServiceTests
                 "Beta",
                 PlayerSide.White,
                 "C20",
-                "2026.01.04",
+                "2026.03.01",
                 [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
                 [CreateMoveAnalysis(GamePhase.Opening, 90, "opening_principles", bestMoveUci: "e2e4")]),
             CreateResult(
@@ -173,7 +218,7 @@ public sealed class PlayerProfileServiceTests
                 "Gamma",
                 PlayerSide.White,
                 "C20",
-                "2026.02.11",
+                "2026.03.05",
                 [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
                 [CreateMoveAnalysis(GamePhase.Opening, 95, "opening_principles", moveNumber: 2, san: "h3", bestMoveUci: "g1f3")]),
             CreateResult(
@@ -181,9 +226,17 @@ public sealed class PlayerProfileServiceTests
                 "Theta",
                 PlayerSide.White,
                 "C23",
-                "2026.02.22",
+                "2026.03.10",
                 [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
                 [CreateMoveAnalysis(GamePhase.Opening, 88, "opening_principles", moveNumber: 3, san: "a3", bestMoveUci: "d2d4")]),
+            CreateResult(
+                "Sigma",
+                "Lambda",
+                PlayerSide.White,
+                "C23",
+                "2026.03.12",
+                [CreateSelectedMistake("opening_principles", MoveQualityBucket.Inaccuracy)],
+                [CreateMoveAnalysis(GamePhase.Opening, 92, "opening_principles", moveNumber: 4, san: "Rh3", bestMoveUci: "d2d4")]),
             CreateResult(
                 "Sigma",
                 "Delta",
@@ -194,12 +247,20 @@ public sealed class PlayerProfileServiceTests
                 [CreateMoveAnalysis(GamePhase.Middlegame, 320, "material_loss", moveNumber: 18, san: "Bxh7+", bestMoveUci: "d1d5")]),
             CreateResult(
                 "Sigma",
+                "Kappa",
+                PlayerSide.White,
+                "B01",
+                "2026.03.29",
+                [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 360, "material_loss", moveNumber: 19, san: "Nxf7", bestMoveUci: "c3d5")]),
+            CreateResult(
+                "Sigma",
                 "Omega",
                 PlayerSide.White,
                 "B01",
                 "2026.04.25",
                 [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
-                [CreateMoveAnalysis(GamePhase.Middlegame, 340, "material_loss", moveNumber: 20, san: "Qxd4", bestMoveUci: "c3d5")])
+                [CreateMoveAnalysis(GamePhase.Middlegame, 380, "material_loss", moveNumber: 20, san: "Qxd4", bestMoveUci: "c3d5")])
         ]);
 
         PlayerProfileService service = new(store);
@@ -248,25 +309,25 @@ public sealed class PlayerProfileServiceTests
                 "Beta",
                 PlayerSide.White,
                 "C20",
-                "2026.01.10",
-                [CreateSelectedMistake("missed_tactic", MoveQualityBucket.Mistake)],
-                [CreateMoveAnalysis(GamePhase.Middlegame, 160, "missed_tactic", moveNumber: 8, san: "Qh5", bestMoveUci: "g1f3")]),
-            CreateResult(
-                "Tau",
-                "Gamma",
-                PlayerSide.White,
-                "B01",
-                "2026.02.12",
+                "2026.02.25",
                 [CreateSelectedMistake("material_loss", MoveQualityBucket.Blunder)],
                 [CreateMoveAnalysis(GamePhase.Middlegame, 260, "material_loss", moveNumber: 12, san: "Bxh7+", bestMoveUci: "d1d5")]),
             CreateResult(
                 "Tau",
-                "Delta",
+                "Gamma",
                 PlayerSide.White,
                 "C23",
                 "2026.03.18",
                 [CreateSelectedMistake("missed_tactic", MoveQualityBucket.Mistake)],
                 [CreateMoveAnalysis(GamePhase.Middlegame, 165, "missed_tactic", moveNumber: 10, san: "Ng5", bestMoveUci: "d2d4")]),
+            CreateResult(
+                "Tau",
+                "Delta",
+                PlayerSide.White,
+                "C23",
+                "2026.04.10",
+                [CreateSelectedMistake("missed_tactic", MoveQualityBucket.Mistake)],
+                [CreateMoveAnalysis(GamePhase.Middlegame, 160, "missed_tactic", moveNumber: 8, san: "Qh5", bestMoveUci: "g1f3")]),
             CreateResult(
                 "Tau",
                 "Omega",
@@ -287,6 +348,28 @@ public sealed class PlayerProfileServiceTests
         Assert.Contains(report.LabelTrends, item => item.Label == "king_safety" && item.Direction == ProfileProgressDirection.InsufficientData);
         TrainingPlanTopic stableTopic = Assert.Single(report.TrainingPlan.Topics, item => item.Label == "missed_tactic");
         Assert.Contains("Trend: stable", stableTopic.WhyThisTopicNow, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PlayerProfileService_DoesNotTreatSameDayGamesAsProgressTrend()
+    {
+        FakeAnalysisStore store = new(
+        [
+            CreateResult("Burst", "One", PlayerSide.White, "C20", "2026.04.25", [], [CreateMoveAnalysis(GamePhase.Opening, 80, "opening_principles")]),
+            CreateResult("Burst", "Two", PlayerSide.White, "C20", "2026.04.25", [], [CreateMoveAnalysis(GamePhase.Opening, 110, "opening_principles")]),
+            CreateResult("Burst", "Three", PlayerSide.White, "C20", "2026.04.25", [], [CreateMoveAnalysis(GamePhase.Opening, 140, "opening_principles")]),
+            CreateResult("Burst", "Four", PlayerSide.White, "C20", "2026.04.25", [], [CreateMoveAnalysis(GamePhase.Opening, 170, "opening_principles")]),
+            CreateResult("Burst", "Five", PlayerSide.White, "C20", "2026.04.25", [], [CreateMoveAnalysis(GamePhase.Opening, 200, "opening_principles")])
+        ]);
+
+        PlayerProfileService service = new(store);
+
+        bool found = service.TryBuildProfile("Burst", out PlayerProfileReport? report);
+
+        Assert.True(found);
+        Assert.NotNull(report);
+        Assert.Equal(ProfileProgressDirection.InsufficientData, report!.ProgressSignal.Direction);
+        Assert.Empty(report.LabelTrends);
     }
 
     [Fact]
@@ -427,15 +510,66 @@ public sealed class PlayerProfileServiceTests
             new MoveExplanation("Short", "Hint", "Detailed"));
     }
 
-    private sealed class FakeAnalysisStore : IAnalysisStore
+    private static OpeningTrainingSessionResult CreateTrainingResult(
+        string sessionId,
+        string playerKey,
+        string displayName,
+        string eco,
+        int correct,
+        int playable,
+        int wrong)
+    {
+        DateTime completedUtc = DateTime.Parse("2026-04-20T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal);
+        List<OpeningTrainingRecordedAttempt> attempts = [];
+        foreach (OpeningTrainingScore score in Enumerable.Repeat(OpeningTrainingScore.Correct, correct)
+            .Concat(Enumerable.Repeat(OpeningTrainingScore.Playable, playable))
+            .Concat(Enumerable.Repeat(OpeningTrainingScore.Wrong, wrong)))
+        {
+            attempts.Add(new OpeningTrainingRecordedAttempt(
+                $"position-{attempts.Count + 1}",
+                OpeningTrainingMode.LineRecall,
+                OpeningTrainingSourceKind.OpeningWeakness,
+                eco,
+                OpeningCatalog.GetName(eco),
+                "opening_principles",
+                "h3",
+                "h3",
+                "h2h3",
+                score,
+                completedUtc));
+        }
+
+        return new OpeningTrainingSessionResult(
+            sessionId,
+            playerKey,
+            displayName,
+            completedUtc.AddMinutes(-20),
+            completedUtc,
+            OpeningTrainingSessionOutcome.Completed,
+            attempts.Count,
+            attempts.Count,
+            correct,
+            playable,
+            wrong,
+            [eco],
+            ["opening_principles"],
+            attempts);
+    }
+
+    private sealed class FakeAnalysisStore : IAnalysisStore, IOpeningTrainingHistoryStore
     {
         private readonly IReadOnlyList<GameAnalysisResult> results;
         private readonly IReadOnlyList<StoredMoveAnalysis> moveAnalyses;
+        private readonly List<OpeningTrainingSessionResult> trainingHistory;
 
-        public FakeAnalysisStore(IReadOnlyList<GameAnalysisResult> results, IReadOnlyList<StoredMoveAnalysis>? moveAnalyses = null)
+        public FakeAnalysisStore(
+            IReadOnlyList<GameAnalysisResult> results,
+            IReadOnlyList<StoredMoveAnalysis>? moveAnalyses = null,
+            IReadOnlyList<OpeningTrainingSessionResult>? trainingHistory = null)
         {
             this.results = results;
             this.moveAnalyses = moveAnalyses ?? BuildStoredMoves(results);
+            this.trainingHistory = (trainingHistory ?? []).ToList();
         }
 
         public IReadOnlyList<GameAnalysisResult> ListResults(string? filterText = null, int limit = 500)
@@ -475,6 +609,20 @@ public sealed class PlayerProfileServiceTests
         public void SaveResult(GameAnalysisCacheKey key, GameAnalysisResult result) => throw new NotSupportedException();
         public bool TryLoadWindowState(string gameFingerprint, out AnalysisWindowState? state) => throw new NotSupportedException();
         public void SaveWindowState(string gameFingerprint, AnalysisWindowState state) => throw new NotSupportedException();
+        public void SaveOpeningTrainingSessionResult(OpeningTrainingSessionResult result) => trainingHistory.Add(result);
+        public IReadOnlyList<OpeningTrainingSessionResult> ListOpeningTrainingSessionResults(string? playerKey = null, int limit = 200)
+        {
+            IEnumerable<OpeningTrainingSessionResult> filtered = trainingHistory;
+            if (!string.IsNullOrWhiteSpace(playerKey))
+            {
+                filtered = filtered.Where(result => string.Equals(result.PlayerKey, playerKey.Trim().ToLowerInvariant(), StringComparison.OrdinalIgnoreCase));
+            }
+
+            return filtered
+                .OrderByDescending(result => result.CompletedUtc)
+                .Take(limit)
+                .ToList();
+        }
     }
 
     private static IReadOnlyList<StoredMoveAnalysis> BuildStoredMoves(IReadOnlyList<GameAnalysisResult> results)

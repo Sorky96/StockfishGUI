@@ -243,6 +243,83 @@ public sealed class OpeningTrainerService
             result.PlayableReferences);
     }
 
+    public OpeningTrainingSessionResult BuildSessionResult(
+        OpeningTrainingSession session,
+        IReadOnlyList<OpeningTrainingAttemptResult> attempts,
+        OpeningTrainingSessionOutcome outcome = OpeningTrainingSessionOutcome.Completed,
+        DateTime? completedUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(attempts);
+
+        Dictionary<string, OpeningTrainingPosition> positionsById = session.Positions
+            .ToDictionary(position => position.PositionId, StringComparer.Ordinal);
+        DateTime finishedUtc = completedUtc?.ToUniversalTime() ?? DateTime.UtcNow;
+        IReadOnlyList<OpeningTrainingRecordedAttempt> recordedAttempts = attempts
+            .Select(attempt =>
+            {
+                positionsById.TryGetValue(attempt.PositionId, out OpeningTrainingPosition? position);
+                return new OpeningTrainingRecordedAttempt(
+                    attempt.PositionId,
+                    attempt.Mode,
+                    attempt.PositionSource,
+                    position?.Eco ?? string.Empty,
+                    position?.OpeningName ?? string.Empty,
+                    position?.ThemeLabel,
+                    attempt.SubmittedMoveText,
+                    attempt.ResolvedSan,
+                    attempt.ResolvedUci,
+                    attempt.Score,
+                    finishedUtc);
+            })
+            .ToList();
+
+        return new OpeningTrainingSessionResult(
+            session.SessionId,
+            session.PlayerKey,
+            session.DisplayName,
+            session.CreatedUtc,
+            finishedUtc,
+            outcome,
+            session.Positions.Count,
+            recordedAttempts.Count,
+            recordedAttempts.Count(attempt => attempt.Score == OpeningTrainingScore.Correct),
+            recordedAttempts.Count(attempt => attempt.Score == OpeningTrainingScore.Playable),
+            recordedAttempts.Count(attempt => attempt.Score == OpeningTrainingScore.Wrong),
+            session.Positions
+                .Select(position => position.Eco)
+                .Concat(recordedAttempts.Select(attempt => attempt.Eco))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            session.Positions
+                .Select(position => position.ThemeLabel)
+                .Concat(recordedAttempts.Select(attempt => attempt.ThemeLabel))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            recordedAttempts);
+    }
+
+    public OpeningTrainingSessionResult SaveSessionResult(
+        OpeningTrainingSession session,
+        IReadOnlyList<OpeningTrainingAttemptResult> attempts,
+        OpeningTrainingSessionOutcome outcome = OpeningTrainingSessionOutcome.Completed,
+        DateTime? completedUtc = null)
+    {
+        OpeningTrainingSessionResult result = BuildSessionResult(session, attempts, outcome, completedUtc);
+        if (analysisStore is not IOpeningTrainingHistoryStore historyStore)
+        {
+            throw new InvalidOperationException("The analysis store does not support opening training history.");
+        }
+
+        historyStore.SaveOpeningTrainingSessionResult(result);
+        return result;
+    }
+
     private static IReadOnlyList<OpeningTrainingMoveOption> GetPreferredReferences(OpeningTrainingPosition position)
     {
         if (position.Mode != OpeningTrainingMode.BranchAwareness)

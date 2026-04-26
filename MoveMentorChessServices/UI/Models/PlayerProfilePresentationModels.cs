@@ -28,6 +28,7 @@ internal sealed record PlayerProfileTrainingPlanItemViewModel(
 
 internal sealed record PlayerProfileTrainingTopicViewModel(
     string RoleLabel,
+    string StatusLabel,
     string Title,
     string FocusArea,
     string Summary,
@@ -50,7 +51,8 @@ internal sealed record PlayerProfileTrainingPlanViewModel(
     string BudgetSummary,
     IReadOnlyList<PlayerProfileTrainingTopicViewModel> Topics,
     IReadOnlyList<PlayerProfileTrainingPlanItemViewModel> Items,
-    IReadOnlyList<PlayerProfileTrainingDayViewModel> Days);
+    IReadOnlyList<PlayerProfileTrainingDayViewModel> Days,
+    IReadOnlyList<PlayerProfileStatItem> WhyThisPlan);
 
 internal sealed record PlayerProfilePresentationViewModel(
     string SnapshotCaption,

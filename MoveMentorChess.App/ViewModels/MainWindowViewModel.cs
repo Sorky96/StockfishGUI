@@ -210,6 +210,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         engine?.Dispose();
     }
 
+    public void ReloadEngineSettings()
+    {
+        engine?.Dispose();
+        engine = null;
+        TryInitializeEngine();
+        RefreshEngineSummary();
+    }
+
     public void SetPromotionMoveSelector(Func<IReadOnlyList<LegalMoveInfo>, Task<LegalMoveInfo?>> selector)
     {
         promotionMoveSelector = selector;
@@ -414,7 +422,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 ? "The analysis engine is reviewing the imported PGN file. This may take a while."
                 : $"The analysis engine is reviewing games for {primaryPlayer}. This may take a while.";
 
-            EngineAnalysisOptions options = new();
+            EngineAnalysisOptions options = StockfishSettingsStore.Load().ToBulkAnalysisOptions();
             GameAnalysisService analysisService = new(engine);
             GameAnalysisResult? lastResult = null;
 
@@ -965,7 +973,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 throw new FileNotFoundException("Could not locate the external chess engine executable.");
             }
 
-            engine = new StockfishEngine(enginePath);
+            StockfishSettings stockfishSettings = StockfishSettingsStore.Load();
+            engine = new StockfishEngine(enginePath, stockfishSettings.ToEngineOptions());
             engine.SendCommand("setoption name MultiPV value 3");
             StatusMessage = $"MoveMentor Chess is ready. External chess engine loaded from {enginePath}.";
         }

@@ -44,6 +44,12 @@ public enum OpeningTrainingScore
     Wrong
 }
 
+public enum OpeningTrainingSessionOutcome
+{
+    Completed,
+    Abandoned
+}
+
 public enum OpeningLineRecallReferenceKind
 {
     BetterMove,
@@ -185,6 +191,47 @@ public sealed record OpeningTrainingAttemptResult(
     IReadOnlyList<OpeningTrainingMoveOption> MatchingReferences,
     IReadOnlyList<OpeningTrainingMoveOption> PreferredReferences,
     IReadOnlyList<OpeningTrainingMoveOption> PlayableReferences);
+
+public sealed record OpeningTrainingRecordedAttempt(
+    string PositionId,
+    OpeningTrainingMode Mode,
+    OpeningTrainingSourceKind PositionSource,
+    string Eco,
+    string OpeningName,
+    string? ThemeLabel,
+    string SubmittedMoveText,
+    string? ResolvedSan,
+    string? ResolvedUci,
+    OpeningTrainingScore Score,
+    DateTime RecordedUtc);
+
+public sealed record OpeningTrainingSessionResult(
+    string SessionId,
+    string PlayerKey,
+    string DisplayName,
+    DateTime CreatedUtc,
+    DateTime CompletedUtc,
+    OpeningTrainingSessionOutcome Outcome,
+    int PositionCount,
+    int AttemptCount,
+    int CorrectCount,
+    int PlayableCount,
+    int WrongCount,
+    IReadOnlyList<string> RelatedOpenings,
+    IReadOnlyList<string> ThemeLabels,
+    IReadOnlyList<OpeningTrainingRecordedAttempt> Attempts);
+
+public sealed record OpeningTrainingOutcomeSummary(
+    int SessionCount,
+    int AttemptCount,
+    int CorrectCount,
+    int PlayableCount,
+    int WrongCount,
+    double Accuracy,
+    double WrongRate,
+    DateTime? LastCompletedUtc,
+    IReadOnlyList<string> RelatedOpenings,
+    IReadOnlyList<string> ThemeLabels);
 
 public sealed record OpeningLineRecallAttemptResult(
     string PositionId,

@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace MoveMentorChessServices;
 
-public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOpeningTheoryStore
+public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOpeningTheoryStore, IOpeningTrainingHistoryStore
 {
     private const string AppDataDirectoryName = "MoveMentorChessServices";
     private const string DatabaseFileName = "analysis-cache.db";
@@ -801,6 +801,108 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
         }
     }
 
+    public void SaveOpeningTrainingSessionResult(OpeningTrainingSessionResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        string payload = JsonSerializer.Serialize(result, JsonOptions);
+
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            using SqliteStatement statement = database.Prepare("""
+                INSERT INTO opening_training_session_results (
+                    session_id,
+                    player_key,
+                    display_name,
+                    created_utc,
+                    completed_utc,
+                    outcome,
+                    position_count,
+                    attempt_count,
+                    correct_count,
+                    playable_count,
+                    wrong_count,
+                    related_openings_json,
+                    theme_labels_json,
+                    payload_json)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                ON CONFLICT (session_id)
+                DO UPDATE SET
+                    player_key = excluded.player_key,
+                    display_name = excluded.display_name,
+                    created_utc = excluded.created_utc,
+                    completed_utc = excluded.completed_utc,
+                    outcome = excluded.outcome,
+                    position_count = excluded.position_count,
+                    attempt_count = excluded.attempt_count,
+                    correct_count = excluded.correct_count,
+                    playable_count = excluded.playable_count,
+                    wrong_count = excluded.wrong_count,
+                    related_openings_json = excluded.related_openings_json,
+                    theme_labels_json = excluded.theme_labels_json,
+                    payload_json = excluded.payload_json;
+                """);
+
+            statement.BindText(1, result.SessionId);
+            statement.BindText(2, NormalizePlayerKey(result.PlayerKey));
+            statement.BindText(3, result.DisplayName);
+            statement.BindText(4, result.CreatedUtc.ToUniversalTime().ToString("O"));
+            statement.BindText(5, result.CompletedUtc.ToUniversalTime().ToString("O"));
+            statement.BindInt(6, (int)result.Outcome);
+            statement.BindInt(7, result.PositionCount);
+            statement.BindInt(8, result.AttemptCount);
+            statement.BindInt(9, result.CorrectCount);
+            statement.BindInt(10, result.PlayableCount);
+            statement.BindInt(11, result.WrongCount);
+            statement.BindText(12, JsonSerializer.Serialize(result.RelatedOpenings, JsonOptions));
+            statement.BindText(13, JsonSerializer.Serialize(result.ThemeLabels, JsonOptions));
+            statement.BindText(14, payload);
+            statement.StepUntilDone();
+        }
+    }
+
+    public IReadOnlyList<OpeningTrainingSessionResult> ListOpeningTrainingSessionResults(string? playerKey = null, int limit = 200)
+    {
+        string normalizedPlayerKey = NormalizePlayerKey(playerKey);
+        int safeLimit = Math.Clamp(limit, 1, 1000);
+        List<OpeningTrainingSessionResult> results = [];
+
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            using SqliteStatement statement = database.Prepare($"""
+                SELECT payload_json
+                FROM opening_training_session_results
+                {(string.IsNullOrWhiteSpace(normalizedPlayerKey) ? string.Empty : "WHERE player_key = ?1")}
+                ORDER BY completed_utc DESC
+                LIMIT {safeLimit};
+                """);
+
+            if (!string.IsNullOrWhiteSpace(normalizedPlayerKey))
+            {
+                statement.BindText(1, normalizedPlayerKey);
+            }
+
+            while (statement.Step() == SqliteRow)
+            {
+                string? payload = statement.GetText(0);
+                if (string.IsNullOrWhiteSpace(payload))
+                {
+                    continue;
+                }
+
+                OpeningTrainingSessionResult? result = JsonSerializer.Deserialize<OpeningTrainingSessionResult>(payload, JsonOptions);
+                if (result is not null)
+                {
+                    results.Add(result);
+                }
+            }
+        }
+
+        return results;
+    }
+
     private void InitializeSchema()
     {
         lock (sync)
@@ -879,6 +981,28 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                     value TEXT NOT NULL
                 );
                 """);
+            database.ExecuteNonQuery("""
+                CREATE TABLE IF NOT EXISTS opening_training_session_results (
+                    session_id TEXT NOT NULL PRIMARY KEY,
+                    player_key TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    created_utc TEXT NOT NULL,
+                    completed_utc TEXT NOT NULL,
+                    outcome INTEGER NOT NULL,
+                    position_count INTEGER NOT NULL,
+                    attempt_count INTEGER NOT NULL,
+                    correct_count INTEGER NOT NULL,
+                    playable_count INTEGER NOT NULL,
+                    wrong_count INTEGER NOT NULL,
+                    related_openings_json TEXT NOT NULL,
+                    theme_labels_json TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                """);
+            database.ExecuteNonQuery("""
+                CREATE INDEX IF NOT EXISTS idx_opening_training_session_results_player_completed
+                ON opening_training_session_results (player_key, completed_utc DESC);
+                """);
             EnsureColumnExists(
                 database,
                 "analysis_window_states",
@@ -893,6 +1017,9 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
     private static int NormalizeMoveTime(int? moveTimeMs) => moveTimeMs ?? NoMoveTimeMs;
 
     private static int? ReadMoveTime(int rawMoveTime) => rawMoveTime == NoMoveTimeMs ? null : rawMoveTime;
+
+    private static string NormalizePlayerKey(string? playerKey)
+        => string.IsNullOrWhiteSpace(playerKey) ? string.Empty : playerKey.Trim().ToLowerInvariant();
 
     private static DateTime ParseUtc(string? value)
     {

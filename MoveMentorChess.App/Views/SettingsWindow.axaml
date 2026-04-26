@@ -2,34 +2,68 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="MoveMentorChess.App.Views.SettingsWindow"
         Width="520"
-        Height="320"
+        Height="620"
         MinWidth="460"
-        MinHeight="280"
+        MinHeight="560"
         Title="Settings"
         Background="{DynamicResource ChromeBrush}">
   <Grid RowDefinitions="*,Auto" Margin="18">
     <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
-      <Grid RowDefinitions="Auto,Auto,Auto,*">
-        <TextBlock FontSize="24" FontWeight="Bold" Text="Model Settings" />
-        <TextBlock Grid.Row="1"
-                   Margin="0,12,0,0"
-                   Foreground="#D7E2EA"
-                   TextWrapping="Wrap"
-                   Text="Choose how the local advice model should explain analysis positions." />
-        <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="10">
-          <CheckBox x:Name="FullGpuPowerCheckBox"
-                    Content="Use full GPU power for the local model" />
-          <TextBlock Foreground="#D7E2EA" Text="Explanation level" />
-          <ComboBox x:Name="ExplanationLevelComboBox" />
-          <TextBlock Foreground="#D7E2EA" Text="Narration style" />
-          <ComboBox x:Name="NarrationStyleComboBox" />
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16">
+          <StackPanel Spacing="10">
+            <TextBlock FontSize="24" FontWeight="Bold" Text="Settings" />
+            <TextBlock Foreground="#D7E2EA"
+                       TextWrapping="Wrap"
+                       Text="Choose how MoveMentor uses the local model and Stockfish on this machine." />
+          </StackPanel>
+
+          <StackPanel Spacing="10">
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Model" />
+            <CheckBox x:Name="FullGpuPowerCheckBox"
+                      Content="Use full GPU power for the local model" />
+            <TextBlock Foreground="#D7E2EA" Text="Explanation level" />
+            <ComboBox x:Name="ExplanationLevelComboBox" />
+            <TextBlock Foreground="#D7E2EA" Text="Narration style" />
+            <ComboBox x:Name="NarrationStyleComboBox" />
+            <TextBlock x:Name="ModeDescriptionTextBlock"
+                       Foreground="#D7E2EA"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+
+          <StackPanel Spacing="10">
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Stockfish" />
+            <TextBlock Foreground="#D7E2EA" Text="Engine threads" />
+            <NumericUpDown x:Name="StockfishThreadsNumeric"
+                           Minimum="1"
+                           Maximum="64"
+                           Increment="1" />
+            <TextBlock Foreground="#D7E2EA" Text="Hash memory (MB)" />
+            <NumericUpDown x:Name="StockfishHashNumeric"
+                           Minimum="16"
+                           Maximum="4096"
+                           Increment="16" />
+            <TextBlock Foreground="#D7E2EA" Text="Bulk analysis depth" />
+            <NumericUpDown x:Name="BulkDepthNumeric"
+                           Minimum="1"
+                           Maximum="30"
+                           Increment="1" />
+            <TextBlock Foreground="#D7E2EA" Text="Bulk analysis MultiPV" />
+            <NumericUpDown x:Name="BulkMultiPvNumeric"
+                           Minimum="1"
+                           Maximum="5"
+                           Increment="1" />
+            <TextBlock Foreground="#D7E2EA" Text="Bulk analysis move time (ms)" />
+            <NumericUpDown x:Name="BulkMoveTimeNumeric"
+                           Minimum="25"
+                           Maximum="5000"
+                           Increment="25" />
+            <TextBlock x:Name="StockfishDescriptionTextBlock"
+                       Foreground="#D7E2EA"
+                       TextWrapping="Wrap" />
+          </StackPanel>
         </StackPanel>
-        <TextBlock x:Name="ModeDescriptionTextBlock"
-                   Grid.Row="3"
-                   Margin="0,12,0,0"
-                   Foreground="#D7E2EA"
-                   TextWrapping="Wrap" />
-      </Grid>
+      </ScrollViewer>
     </Border>
 
     <StackPanel Grid.Row="1"

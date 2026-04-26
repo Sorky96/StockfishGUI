@@ -166,12 +166,21 @@ public enum TrainingPlanTopicCategory
     MaintenanceTopic
 }
 
+public enum TrainingPlanTopicStatus
+{
+    NewWeakness,
+    Improving,
+    Stable,
+    Urgent
+}
+
 public sealed record TrainingPlanPriorityBreakdown(
     int FrequencyScore,
     int CostScore,
     int TrendScore,
     int PhaseScore,
-    int TotalScore);
+    int TotalScore,
+    int TrainingScore = 0);
 
 public sealed record TrainingPlanTopic(
     int Priority,
@@ -190,7 +199,13 @@ public sealed record TrainingPlanTopic(
     IReadOnlyList<string> SuggestedDrills,
     IReadOnlyList<TrainingBlock> Blocks,
     IReadOnlyList<ProfileMistakeExample> Examples,
-    TrainingPlanPriorityBreakdown PriorityBreakdown);
+    TrainingPlanPriorityBreakdown PriorityBreakdown,
+    TrainingPlanTopicStatus Status = TrainingPlanTopicStatus.Stable);
+
+public sealed record TrainingPlanDashboardItem(
+    string Title,
+    string Detail,
+    string Evidence);
 
 public sealed record TrainingPlanReport(
     string PlayerKey,
@@ -199,7 +214,8 @@ public sealed record TrainingPlanReport(
     string Summary,
     IReadOnlyList<TrainingPlanTopic> Topics,
     IReadOnlyList<TrainingRecommendation> Recommendations,
-    WeeklyTrainingPlan WeeklyPlan);
+    WeeklyTrainingPlan WeeklyPlan,
+    IReadOnlyList<TrainingPlanDashboardItem>? WhyThisIsYourCurrentPlan = null);
 
 public sealed record PlayerProfileReport(
     string PlayerKey,
@@ -221,3 +237,56 @@ public sealed record PlayerProfileReport(
     WeeklyTrainingPlan WeeklyPlan,
     IReadOnlyList<ProfileMistakeExample> MistakeExamples,
     TrainingPlanReport TrainingPlan);
+
+public enum PlayerProfileAudienceLevel
+{
+    Beginner,
+    Intermediate,
+    Advanced
+}
+
+public sealed record PlayerProfileFormattedOutput(
+    string ProfileSummary,
+    string StrengthsAndWeaknesses,
+    string WhatToFocusNext,
+    string ToneAdaptedVersion,
+    string? DeepDive = null);
+
+public sealed record PlayerProfileLlmInput(
+    string Player,
+    PlayerProfileAudienceLevel AudienceLevel,
+    string AudienceDescription,
+    AdviceNarrationStyle TrainerStyle,
+    string TrainerDescription,
+    int GamesAnalyzed,
+    int TotalAnalyzedMoves,
+    int HighlightedMistakes,
+    int? AverageCentipawnLoss,
+    string RecentTrend,
+    IReadOnlyList<string> TopMistakeLabels,
+    IReadOnlyList<string> CostliestMistakeLabels,
+    IReadOnlyList<string> WeakestPhases,
+    IReadOnlyList<string> ProblemOpenings,
+    IReadOnlyList<string> TrainingTopics,
+    IReadOnlyList<string> NextActions);
+
+public sealed record TrainingPlanFormattedOutput(
+    string ShortWeeklyPlan,
+    string DetailedWeeklyPlan,
+    string PriorityRationale,
+    string ToneAdaptedVersion);
+
+public sealed record TrainingPlanLlmInput(
+    string Player,
+    PlayerProfileAudienceLevel AudienceLevel,
+    string AudienceDescription,
+    AdviceNarrationStyle TrainerStyle,
+    string TrainerDescription,
+    string TimeBudgetDescription,
+    string RecentTrend,
+    string PlanSummary,
+    IReadOnlyList<string> PriorityTopics,
+    IReadOnlyList<string> PriorityReasons,
+    IReadOnlyList<string> WeeklySchedule,
+    IReadOnlyList<string> TrainingBlocks,
+    IReadOnlyList<string> OpeningTargets);

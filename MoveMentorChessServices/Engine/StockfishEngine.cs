@@ -12,7 +12,7 @@ public sealed class StockfishEngine : IEngineAnalyzer, IDisposable
     private readonly object processLock = new();
     private string currentFen = "startpos";
 
-    public StockfishEngine(string enginePath)
+    public StockfishEngine(string enginePath, StockfishEngineOptions? engineOptions = null)
     {
         if (!File.Exists(enginePath))
         {
@@ -51,9 +51,16 @@ public sealed class StockfishEngine : IEngineAnalyzer, IDisposable
         {
             SendCommand("uci");
             WaitForToken("uciok", 3000);
+            ConfigureEngine(engineOptions ?? StockfishEngineOptions.Default);
             SendCommand("isready");
             WaitForToken("readyok", 3000);
         }
+    }
+
+    private void ConfigureEngine(StockfishEngineOptions options)
+    {
+        SendCommand($"setoption name Threads value {Math.Max(1, options.Threads)}");
+        SendCommand($"setoption name Hash value {Math.Max(16, options.HashMb)}");
     }
 
     public void SendCommand(string command)
@@ -358,6 +365,13 @@ public sealed class StockfishEngine : IEngineAnalyzer, IDisposable
 
         engineProcess.Dispose();
     }
+}
+
+public sealed record StockfishEngineOptions(int Threads, int HashMb)
+{
+    public static StockfishEngineOptions Default { get; } = new(
+        Threads: Math.Max(1, Environment.ProcessorCount - 1),
+        HashMb: 256);
 }
 
 public sealed record EvaluationSummary(int? Centipawns, int? MateIn);

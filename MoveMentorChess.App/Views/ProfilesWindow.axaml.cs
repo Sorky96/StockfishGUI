@@ -12,6 +12,8 @@ namespace MoveMentorChess.App.Views;
 public partial class ProfilesWindow : Window
 {
     private readonly PlayerProfileService profileService;
+    private readonly IPlayerProfileFormatter profileFormatter;
+    private readonly ITrainingPlanFormatter trainingPlanFormatter;
     private readonly Func<ProfileMistakeExample, Task>? navigateToProfileExampleAsync;
     private readonly Func<OpeningExampleGame, Task>? navigateToOpeningExampleAsync;
     private readonly Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync;
@@ -28,9 +30,13 @@ public partial class ProfilesWindow : Window
         PlayerProfileService profileService,
         Func<ProfileMistakeExample, Task>? navigateToProfileExampleAsync = null,
         Func<OpeningExampleGame, Task>? navigateToOpeningExampleAsync = null,
-        Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync = null)
+        Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync = null,
+        IPlayerProfileFormatter? profileFormatter = null,
+        ITrainingPlanFormatter? trainingPlanFormatter = null)
     {
         this.profileService = profileService;
+        this.profileFormatter = profileFormatter ?? PlayerProfileFormatterFactory.CreateDefault();
+        this.trainingPlanFormatter = trainingPlanFormatter ?? TrainingPlanFormatterFactory.CreateDefault();
         this.navigateToProfileExampleAsync = navigateToProfileExampleAsync;
         this.navigateToOpeningExampleAsync = navigateToOpeningExampleAsync;
         this.navigateToOpeningPositionAsync = navigateToOpeningPositionAsync;
@@ -120,8 +126,18 @@ public partial class ProfilesWindow : Window
         DetailsPanel.Children.Clear();
         currentProfilePlayerKey = report.PlayerKey;
         branchAwarenessPositionsByEco.Clear();
+        LlamaGpuSettings settings = LlamaGpuSettingsStore.Load();
+        PlayerProfileFormattedOutput formattedProfile = profileFormatter.Format(
+            report,
+            ToProfileAudienceLevel(settings.DefaultExplanationLevel),
+            settings.NarrationStyle);
+        TrainingPlanFormattedOutput formattedTrainingPlan = trainingPlanFormatter.Format(
+            report.TrainingPlan,
+            ToProfileAudienceLevel(settings.DefaultExplanationLevel),
+            settings.NarrationStyle);
 
         DetailsPanel.Children.Add(CreateHeroCard(report));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Summary", BuildFormattedProfileRows(formattedProfile), isExpanded: true));
         DetailsPanel.Children.Add(CreateSnapshotCard(report));
         DetailsPanel.Children.Add(CreateMetricsCard(report));
         DetailsPanel.Children.Add(CreateCollapsibleSection("Profile summary", BuildProfileSummaryRows(report), isExpanded: true));
@@ -135,8 +151,31 @@ public partial class ProfilesWindow : Window
         DetailsPanel.Children.Add(CreateCollapsibleSection("Costliest patterns", BuildCostliestRows(report)));
         DetailsPanel.Children.Add(CreateCollapsibleSection("Trend", BuildTrendRows(report)));
         DetailsPanel.Children.Add(CreateCollapsibleSection("Recommendations", BuildRecommendationRows(report)));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Weekly plan", BuildWeeklyPlanRows(report)));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Weekly plan", BuildWeeklyPlanRows(report, formattedTrainingPlan)));
         DetailsPanel.Children.Add(CreateCollapsibleSection("Examples", BuildExampleRows(report)));
+    }
+
+    private IEnumerable<Control> BuildFormattedProfileRows(PlayerProfileFormattedOutput output)
+    {
+        yield return CreateBodyText(output.ProfileSummary);
+        yield return CreateBulletText(output.StrengthsAndWeaknesses);
+        yield return CreateBulletText(output.WhatToFocusNext);
+        yield return CreateBulletText(output.ToneAdaptedVersion);
+
+        if (!string.IsNullOrWhiteSpace(output.DeepDive))
+        {
+            yield return CreateBodyText(output.DeepDive);
+        }
+    }
+
+    private static PlayerProfileAudienceLevel ToProfileAudienceLevel(ExplanationLevel explanationLevel)
+    {
+        return explanationLevel switch
+        {
+            ExplanationLevel.Beginner => PlayerProfileAudienceLevel.Beginner,
+            ExplanationLevel.Advanced => PlayerProfileAudienceLevel.Advanced,
+            _ => PlayerProfileAudienceLevel.Intermediate
+        };
     }
 
     private Control CreateHeroCard(PlayerProfileReport report)
@@ -308,12 +347,12 @@ public partial class ProfilesWindow : Window
 
         if (report.ProgressSignal.Recent is not null)
         {
-            yield return CreateBulletText($"Recent sample: {FormatPeriod(report.ProgressSignal.Recent)}");
+            yield return CreateBulletText($"Recent period: {FormatPeriod(report.ProgressSignal.Recent)}");
         }
 
         if (report.ProgressSignal.Previous is not null)
         {
-            yield return CreateBulletText($"Earlier sample: {FormatPeriod(report.ProgressSignal.Previous)}");
+            yield return CreateBulletText($"Earlier period: {FormatPeriod(report.ProgressSignal.Previous)}");
         }
 
         foreach (ProfileMonthlyTrend month in report.MonthlyTrend.Take(6))
@@ -482,8 +521,22 @@ public partial class ProfilesWindow : Window
         }
     }
 
-    private IEnumerable<Control> BuildWeeklyPlanRows(PlayerProfileReport report)
+    private IEnumerable<Control> BuildWeeklyPlanRows(PlayerProfileReport report, TrainingPlanFormattedOutput? formattedPlan = null)
     {
+        if (formattedPlan is null)
+        {
+            LlamaGpuSettings settings = LlamaGpuSettingsStore.Load();
+            formattedPlan = trainingPlanFormatter.Format(
+                report.TrainingPlan,
+                ToProfileAudienceLevel(settings.DefaultExplanationLevel),
+                settings.NarrationStyle);
+        }
+
+        yield return CreateInsightCard("Short weekly plan", "LLM-formatted plan", formattedPlan.ShortWeeklyPlan);
+        yield return CreateInsightCard("Detailed weekly plan", "Expanded version", formattedPlan.DetailedWeeklyPlan);
+        yield return CreateInsightCard("Why these priorities", "Priority rationale", formattedPlan.PriorityRationale);
+        yield return CreateInsightCard("Tone adapted plan", "Training voice", formattedPlan.ToneAdaptedVersion);
+
         yield return CreateInsightCard("Diagnosis to plan", report.TrainingPlan.Topics.Count == 0
             ? "Training plan"
             : $"Training plan built from {string.Join(", ", report.TrainingPlan.Topics.Select(topic => topic.Title))}.", report.TrainingPlan.Summary);

@@ -248,6 +248,74 @@ public sealed class SqliteAnalysisStoreTests
     }
 
     [Fact]
+    public void SqliteAnalysisStore_SavesAndListsOpeningTrainingSessionResults()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            DateTime completedUtc = DateTime.Parse("2026-04-20T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal);
+            OpeningTrainingSessionResult result = new(
+                "opening-trainer:alpha:1",
+                "alpha",
+                "Alpha",
+                completedUtc.AddMinutes(-15),
+                completedUtc,
+                OpeningTrainingSessionOutcome.Completed,
+                2,
+                2,
+                1,
+                0,
+                1,
+                ["C20"],
+                ["opening_principles"],
+                [
+                    new OpeningTrainingRecordedAttempt(
+                        "position-1",
+                        OpeningTrainingMode.LineRecall,
+                        OpeningTrainingSourceKind.OpeningWeakness,
+                        "C20",
+                        "King's Pawn Game",
+                        "opening_principles",
+                        "Nf3",
+                        "Nf3",
+                        "g1f3",
+                        OpeningTrainingScore.Correct,
+                        completedUtc),
+                    new OpeningTrainingRecordedAttempt(
+                        "position-2",
+                        OpeningTrainingMode.MistakeRepair,
+                        OpeningTrainingSourceKind.FirstOpeningMistake,
+                        "C20",
+                        "King's Pawn Game",
+                        "opening_principles",
+                        "h3",
+                        "h3",
+                        "h2h3",
+                        OpeningTrainingScore.Wrong,
+                        completedUtc)
+                ]);
+
+            store.SaveOpeningTrainingSessionResult(result);
+
+            IReadOnlyList<OpeningTrainingSessionResult> listed = store.ListOpeningTrainingSessionResults("Alpha");
+
+            OpeningTrainingSessionResult restored = Assert.Single(listed);
+            Assert.Equal(result.SessionId, restored.SessionId);
+            Assert.Equal(2, restored.AttemptCount);
+            Assert.Equal(1, restored.CorrectCount);
+            Assert.Equal(1, restored.WrongCount);
+            Assert.Contains("C20", restored.RelatedOpenings);
+            Assert.Contains(restored.Attempts, attempt => attempt.Score == OpeningTrainingScore.Wrong);
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
     public void SqliteAnalysisStore_DeletesImportedGameTogetherWithAnalysisData()
     {
         string databasePath = CreateTempDatabasePath();

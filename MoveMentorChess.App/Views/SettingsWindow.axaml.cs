@@ -6,11 +6,11 @@ namespace MoveMentorChess.App.Views;
 public partial class SettingsWindow : Window
 {
     public SettingsWindow()
-        : this(LlamaGpuSettingsStore.Load())
+        : this(LlamaGpuSettingsStore.Load(), StockfishSettingsStore.Load())
     {
     }
 
-    public SettingsWindow(LlamaGpuSettings settings)
+    public SettingsWindow(LlamaGpuSettings settings, StockfishSettings stockfishSettings)
     {
         InitializeComponent();
         ExplanationLevelComboBox.ItemsSource = new[]
@@ -29,6 +29,11 @@ public partial class SettingsWindow : Window
         };
 
         FullGpuPowerCheckBox.IsChecked = settings.UseFullGpuPower;
+        StockfishThreadsNumeric.Value = stockfishSettings.Threads;
+        StockfishHashNumeric.Value = stockfishSettings.HashMb;
+        BulkDepthNumeric.Value = stockfishSettings.BulkAnalysisDepth;
+        BulkMultiPvNumeric.Value = stockfishSettings.BulkAnalysisMultiPv;
+        BulkMoveTimeNumeric.Value = stockfishSettings.BulkAnalysisMoveTimeMs;
         ExplanationLevelComboBox.SelectedItem = ExplanationLevelComboBox.Items
             .OfType<ExplanationLevelOption>()
             .FirstOrDefault(option => option.Level == settings.DefaultExplanationLevel);
@@ -36,7 +41,13 @@ public partial class SettingsWindow : Window
             .OfType<NarrationStyleOption>()
             .FirstOrDefault(option => option.Style == settings.NarrationStyle);
         FullGpuPowerCheckBox.IsCheckedChanged += (_, _) => RefreshModeDescription();
+        StockfishThreadsNumeric.ValueChanged += (_, _) => RefreshStockfishDescription();
+        StockfishHashNumeric.ValueChanged += (_, _) => RefreshStockfishDescription();
+        BulkDepthNumeric.ValueChanged += (_, _) => RefreshStockfishDescription();
+        BulkMultiPvNumeric.ValueChanged += (_, _) => RefreshStockfishDescription();
+        BulkMoveTimeNumeric.ValueChanged += (_, _) => RefreshStockfishDescription();
         RefreshModeDescription();
+        RefreshStockfishDescription();
     }
 
     public LlamaGpuSettings SelectedSettings =>
@@ -49,9 +60,18 @@ public partial class SettingsWindow : Window
                 ? narrationOption.Style
                 : AdviceNarrationStyle.RegularTrainer);
 
+    public StockfishSettings SelectedStockfishSettings =>
+        new(
+            ReadInt(StockfishThreadsNumeric, StockfishSettings.Default.Threads),
+            ReadInt(StockfishHashNumeric, StockfishSettings.Default.HashMb),
+            ReadInt(BulkDepthNumeric, StockfishSettings.Default.BulkAnalysisDepth),
+            ReadInt(BulkMultiPvNumeric, StockfishSettings.Default.BulkAnalysisMultiPv),
+            ReadInt(BulkMoveTimeNumeric, StockfishSettings.Default.BulkAnalysisMoveTimeMs));
+
     private void SaveButton_Click(object? sender, RoutedEventArgs e)
     {
         LlamaGpuSettingsStore.Save(SelectedSettings);
+        StockfishSettingsStore.Save(SelectedStockfishSettings);
         LlamaCppServerManager.Instance.Shutdown();
         Close(true);
     }
@@ -67,6 +87,20 @@ public partial class SettingsWindow : Window
         ModeDescriptionTextBlock.Text = useFullGpuPower
             ? $"Full GPU mode is enabled. llama.cpp will request '-ngl {LlamaGpuSettingsResolver.FullGpuLayersArgument}', which means pushing all possible model layers onto the GPU."
             : $"Balanced mode is enabled. llama.cpp will request '-ngl {LlamaGpuSettingsResolver.BalancedGpuLayersArgument}', which is safer on smaller cards and remains the default.";
+    }
+
+    private void RefreshStockfishDescription()
+    {
+        StockfishSettings settings = SelectedStockfishSettings;
+        StockfishDescriptionTextBlock.Text =
+            $"Stockfish will use {settings.Threads} thread(s), {settings.HashMb} MB hash, and bulk PGN analysis will run at depth {settings.BulkAnalysisDepth}, MultiPV {settings.BulkAnalysisMultiPv}, {settings.BulkAnalysisMoveTimeMs} ms per position.";
+    }
+
+    private static int ReadInt(NumericUpDown numeric, int fallback)
+    {
+        return numeric.Value.HasValue
+            ? Convert.ToInt32(numeric.Value.Value)
+            : fallback;
     }
 
     private sealed record ExplanationLevelOption(ExplanationLevel Level, string Label)

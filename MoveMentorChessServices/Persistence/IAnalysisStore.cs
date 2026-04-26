@@ -29,3 +29,9 @@ public interface IOpeningTheoryStore
         int limit = 10,
         bool playableOnly = false);
 }
+
+public interface IOpeningTrainingHistoryStore
+{
+    void SaveOpeningTrainingSessionResult(OpeningTrainingSessionResult result);
+    IReadOnlyList<OpeningTrainingSessionResult> ListOpeningTrainingSessionResults(string? playerKey = null, int limit = 200);
+}

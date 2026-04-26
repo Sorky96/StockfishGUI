@@ -27,7 +27,7 @@ public sealed class LlamaCppAdviceModel : ILocalAdviceModel
 
         string workingDirectory = Path.GetDirectoryName(runtime.CliPath) ?? AppContext.BaseDirectory;
         string modelArgument = ResolveModelArgument(runtime.ModelPath, workingDirectory);
-        IReadOnlyList<string> arguments = BuildArguments(modelArgument, request.Prompt, runtime.MaxTokens, runtime.ContextSize, runtime.GpuLayersArgument);
+        IReadOnlyList<string> arguments = BuildArguments(modelArgument, request.Prompt, runtime.MaxTokens, runtime.ContextSize, runtime.GpuLayersArgument, request.JsonOutputKeys);
         string commandLine = BuildCommandLine(runtime.CliPath, arguments);
         string promptPreview = BuildPromptPreview(request.Prompt);
         int promptLength = request.Prompt?.Length ?? 0;
@@ -144,7 +144,13 @@ public sealed class LlamaCppAdviceModel : ILocalAdviceModel
         return startInfo;
     }
 
-    public static IReadOnlyList<string> BuildArguments(string modelPath, string prompt, int maxTokens, int contextSize, string? gpuLayersArgument = LlamaGpuSettingsResolver.BalancedGpuLayersArgument)
+    public static IReadOnlyList<string> BuildArguments(
+        string modelPath,
+        string prompt,
+        int maxTokens,
+        int contextSize,
+        string? gpuLayersArgument = LlamaGpuSettingsResolver.BalancedGpuLayersArgument,
+        IReadOnlyList<string>? jsonOutputKeys = null)
     {
         return
         [
@@ -161,22 +167,35 @@ public sealed class LlamaCppAdviceModel : ILocalAdviceModel
             "-ngl",
             NormalizeGpuLayersArgument(gpuLayersArgument),
             "--grammar",
-            BuildJsonGrammar(),
+            BuildJsonGrammar(jsonOutputKeys),
             "-p",
             prompt
         ];
     }
 
-    public static string BuildJsonGrammar()
+    public static string BuildJsonGrammar(IReadOnlyList<string>? keys = null)
     {
-        return """
-root ::= "{" "\"short_text\"" ":" string "," "\"detailed_text\"" ":" string "," "\"training_hint\"" ":" string "}"
+        IReadOnlyList<string> outputKeys = keys is { Count: > 0 }
+            ? keys
+            : ["short_text", "detailed_text", "training_hint"];
+        string root = string.Join(
+            " \",\" ",
+            outputKeys.Select(key => $"\"\\\"{EscapeGrammarLiteral(key)}\\\"\" \":\" string"));
+
+        return $$"""
+root ::= "{" {{root}} "}"
 string ::= "\"" characters "\""
 characters ::= "" | character characters
 character ::= [^"\\\x00-\x1F] | "\\" escape
 escape ::= ["\\/bfnrt] | "u" hex hex hex hex
 hex ::= [0-9a-fA-F]
 """;
+    }
+
+    private static string EscapeGrammarLiteral(string value)
+    {
+        return value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
     }
 
     public static string ResolveModelArgument(string modelPath, string workingDirectory)

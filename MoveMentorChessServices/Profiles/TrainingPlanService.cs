@@ -3,10 +3,17 @@ namespace MoveMentorChessServices;
 public sealed class TrainingPlanService
 {
     public TrainingPlanReport Build(PlayerProfileReport profileReport, OpeningWeaknessReport? openingReport = null)
+        => Build(profileReport, openingReport, []);
+
+    public TrainingPlanReport Build(
+        PlayerProfileReport profileReport,
+        OpeningWeaknessReport? openingReport,
+        IReadOnlyList<OpeningTrainingSessionResult>? trainingHistory)
     {
         ArgumentNullException.ThrowIfNull(profileReport);
 
-        IReadOnlyList<TrainingPlanTopic> topics = BuildTopics(profileReport, openingReport);
+        OpeningTrainingOutcomeSummary trainingSummary = BuildTrainingSummary(trainingHistory);
+        IReadOnlyList<TrainingPlanTopic> topics = BuildTopics(profileReport, openingReport, trainingSummary);
         IReadOnlyList<TrainingRecommendation> recommendations = topics
             .Select(topic => new TrainingRecommendation(
                 topic.Priority,
@@ -26,6 +33,7 @@ public sealed class TrainingPlanService
         string summary = topics.Count == 0
             ? "Not enough stable profile data yet. Start with a light review loop and collect more analyzed games."
             : $"Built from deterministic priorities and block mapping: {string.Join(", ", topics.Select(topic => topic.Title))}.";
+        IReadOnlyList<TrainingPlanDashboardItem> dashboard = BuildDashboard(profileReport, openingReport, trainingSummary, topics);
 
         return new TrainingPlanReport(
             profileReport.PlayerKey,
@@ -34,10 +42,14 @@ public sealed class TrainingPlanService
             summary,
             topics,
             recommendations,
-            weeklyPlan);
+            weeklyPlan,
+            dashboard);
     }
 
-    private static IReadOnlyList<TrainingPlanTopic> BuildTopics(PlayerProfileReport profileReport, OpeningWeaknessReport? openingReport)
+    private static IReadOnlyList<TrainingPlanTopic> BuildTopics(
+        PlayerProfileReport profileReport,
+        OpeningWeaknessReport? openingReport,
+        OpeningTrainingOutcomeSummary trainingSummary)
     {
         List<string> candidateLabels = profileReport.TopMistakeLabels
             .Select(item => item.Label)
@@ -58,8 +70,9 @@ public sealed class TrainingPlanService
         }
 
         List<TrainingPlanTopic> rankedTopics = candidateLabels
-            .Select(label => BuildTopic(profileReport, openingReport, label))
+            .Select(label => BuildTopic(profileReport, openingReport, trainingSummary, label))
             .OrderByDescending(topic => topic.PriorityBreakdown.TotalScore)
+            .ThenByDescending(topic => topic.PriorityBreakdown.TrainingScore)
             .ThenByDescending(topic => topic.PriorityBreakdown.CostScore)
             .ThenByDescending(topic => topic.PriorityBreakdown.FrequencyScore)
             .ThenBy(topic => topic.Label, StringComparer.Ordinal)
@@ -76,7 +89,11 @@ public sealed class TrainingPlanService
             .ToList();
     }
 
-    private static TrainingPlanTopic BuildTopic(PlayerProfileReport profileReport, OpeningWeaknessReport? openingReport, string label)
+    private static TrainingPlanTopic BuildTopic(
+        PlayerProfileReport profileReport,
+        OpeningWeaknessReport? openingReport,
+        OpeningTrainingOutcomeSummary trainingSummary,
+        string label)
     {
         ProfileLabelStat? frequent = profileReport.TopMistakeLabels
             .FirstOrDefault(item => string.Equals(item.Label, label, StringComparison.Ordinal));
@@ -109,9 +126,11 @@ public sealed class TrainingPlanService
         int trendScore = GetTrendScore(labelTrend);
         int phaseScore = GetPhaseScore(profileReport, emphasisPhase);
         int openingWeaknessScore = GetOpeningWeaknessScore(label, openingReport);
-        int totalScore = frequencyScore + costScore + trendScore + phaseScore + openingWeaknessScore;
+        int trainingScore = GetTrainingScore(label, relatedOpenings, trainingSummary);
+        int totalScore = frequencyScore + costScore + trendScore + phaseScore + openingWeaknessScore + trainingScore;
         TopicTemplate template = GetTemplate(label);
         IReadOnlyList<TrainingBlock> blocks = BuildBlocks(label, template, emphasisPhase, emphasisSide, relatedOpenings);
+        TrainingPlanTopicStatus status = DetermineTopicStatus(labelTrend, trainingSummary, label, relatedOpenings, openingReport);
 
         string phaseSummary = emphasisPhase.HasValue
             ? $" Most often it appears in {FormatPhase(emphasisPhase.Value).ToLowerInvariant()}."
@@ -131,7 +150,8 @@ public sealed class TrainingPlanService
             emphasisPhase,
             relatedOpenings,
             openingReport,
-            label);
+            label,
+            trainingSummary);
         string rationale = BuildChessRationale(
             frequent?.Count ?? 0,
             costly?.TotalCentipawnLoss ?? 0,
@@ -162,7 +182,9 @@ public sealed class TrainingPlanService
                 costScore,
                 trendScore,
                 phaseScore,
-                totalScore));
+                totalScore,
+                trainingScore),
+            status);
     }
 
     private static TrainingPlanTopic CreateFallbackTopic(PlayerProfileReport profileReport)
@@ -191,7 +213,8 @@ public sealed class TrainingPlanService
             ExtractSuggestedDrills(blocks),
             blocks,
             [],
-            new TrainingPlanPriorityBreakdown(0, 0, 0, 0, 0));
+            new TrainingPlanPriorityBreakdown(0, 0, 0, 0, 0),
+            TrainingPlanTopicStatus.NewWeakness);
     }
 
     private static WeeklyTrainingPlan BuildWeeklyPlan(string displayName, IReadOnlyList<TrainingPlanTopic> topics)
@@ -299,7 +322,8 @@ public sealed class TrainingPlanService
         GamePhase? emphasisPhase,
         IReadOnlyList<string> relatedOpenings,
         OpeningWeaknessReport? openingReport,
-        string label)
+        string label,
+        OpeningTrainingOutcomeSummary trainingSummary)
     {
         List<string> parts = [];
 
@@ -346,7 +370,178 @@ public sealed class TrainingPlanService
                 $"Opening trainer: add focused sessions for {string.Join(" / ", urgentOpenings.Select(item => PlayerProfileTextFormatter.FormatOpening(item.Eco)))} because the opening report marks them as unstable or costly.");
         }
 
+        if (IsOpeningTrainingRelevant(label, relatedOpenings, trainingSummary))
+        {
+            parts.Add(trainingSummary.AttemptCount == 0
+                ? "Training results: no completed opening-trainer attempts are recorded yet."
+                : $"Training results: {trainingSummary.CorrectCount} correct, {trainingSummary.PlayableCount} playable and {trainingSummary.WrongCount} wrong across {trainingSummary.AttemptCount} recorded opening-trainer attempts.");
+        }
+
         return string.Join(" ", parts);
+    }
+
+    private static OpeningTrainingOutcomeSummary BuildTrainingSummary(IReadOnlyList<OpeningTrainingSessionResult>? history)
+    {
+        IReadOnlyList<OpeningTrainingSessionResult> completed = (history ?? [])
+            .Where(result => result.Outcome == OpeningTrainingSessionOutcome.Completed)
+            .ToList();
+        int attemptCount = completed.Sum(result => result.AttemptCount);
+        int correctCount = completed.Sum(result => result.CorrectCount);
+        int playableCount = completed.Sum(result => result.PlayableCount);
+        int wrongCount = completed.Sum(result => result.WrongCount);
+        double accuracy = attemptCount == 0 ? 0 : (double)(correctCount + playableCount) / attemptCount;
+        double wrongRate = attemptCount == 0 ? 0 : (double)wrongCount / attemptCount;
+
+        return new OpeningTrainingOutcomeSummary(
+            completed.Count,
+            attemptCount,
+            correctCount,
+            playableCount,
+            wrongCount,
+            accuracy,
+            wrongRate,
+            completed.Count == 0 ? null : completed.Max(result => result.CompletedUtc),
+            completed
+                .SelectMany(result => result.RelatedOpenings)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            completed
+                .SelectMany(result => result.ThemeLabels)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList());
+    }
+
+    private static int GetTrainingScore(
+        string label,
+        IReadOnlyList<string> relatedOpenings,
+        OpeningTrainingOutcomeSummary trainingSummary)
+    {
+        if (!IsOpeningTrainingRelevant(label, relatedOpenings, trainingSummary) || trainingSummary.AttemptCount == 0)
+        {
+            return 0;
+        }
+
+        if (trainingSummary.WrongRate >= 0.45)
+        {
+            return 260;
+        }
+
+        if (trainingSummary.WrongRate >= 0.25)
+        {
+            return 130;
+        }
+
+        return trainingSummary.Accuracy >= 0.80 ? -80 : 40;
+    }
+
+    private static TrainingPlanTopicStatus DetermineTopicStatus(
+        ProfileProgressDirection trendDirection,
+        OpeningTrainingOutcomeSummary trainingSummary,
+        string label,
+        IReadOnlyList<string> relatedOpenings,
+        OpeningWeaknessReport? openingReport)
+    {
+        if (IsOpeningTrainingRelevant(label, relatedOpenings, trainingSummary)
+            && trainingSummary.AttemptCount > 0
+            && trainingSummary.WrongRate >= 0.45)
+        {
+            return TrainingPlanTopicStatus.Urgent;
+        }
+
+        if (trendDirection == ProfileProgressDirection.Regressing
+            || (string.Equals(label, "opening_principles", StringComparison.Ordinal) && HasFixNowOpening(openingReport)))
+        {
+            return TrainingPlanTopicStatus.Urgent;
+        }
+
+        if (IsOpeningTrainingRelevant(label, relatedOpenings, trainingSummary)
+            && trainingSummary.AttemptCount >= 3
+            && trainingSummary.Accuracy >= 0.75)
+        {
+            return TrainingPlanTopicStatus.Improving;
+        }
+
+        if (trendDirection == ProfileProgressDirection.Improving)
+        {
+            return TrainingPlanTopicStatus.Improving;
+        }
+
+        if (trainingSummary.AttemptCount == 0 && trendDirection == ProfileProgressDirection.InsufficientData)
+        {
+            return TrainingPlanTopicStatus.NewWeakness;
+        }
+
+        return TrainingPlanTopicStatus.Stable;
+    }
+
+    private static bool IsOpeningTrainingRelevant(
+        string label,
+        IReadOnlyList<string> relatedOpenings,
+        OpeningTrainingOutcomeSummary trainingSummary)
+    {
+        if (string.Equals(label, "opening_principles", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return relatedOpenings.Count > 0
+            && trainingSummary.RelatedOpenings.Any(opening =>
+                relatedOpenings.Contains(opening, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static bool HasFixNowOpening(OpeningWeaknessReport? openingReport)
+    {
+        return openingReport is not null
+            && openingReport.WeakOpenings.Any(opening => opening.Category == OpeningWeaknessCategory.FixNow);
+    }
+
+    private static IReadOnlyList<TrainingPlanDashboardItem> BuildDashboard(
+        PlayerProfileReport profileReport,
+        OpeningWeaknessReport? openingReport,
+        OpeningTrainingOutcomeSummary trainingSummary,
+        IReadOnlyList<TrainingPlanTopic> topics)
+    {
+        List<TrainingPlanDashboardItem> items = [];
+
+        TrainingPlanTopic? primary = topics.OrderBy(topic => topic.Priority).FirstOrDefault();
+        if (primary is not null)
+        {
+            items.Add(new TrainingPlanDashboardItem(
+                "Current priority",
+                $"{primary.Title} is marked {FormatStatus(primary.Status)}.",
+                primary.WhyThisTopicNow));
+        }
+
+        if (trainingSummary.SessionCount > 0)
+        {
+            items.Add(new TrainingPlanDashboardItem(
+                "Opening trainer results",
+                $"{trainingSummary.CorrectCount} correct, {trainingSummary.PlayableCount} playable, {trainingSummary.WrongCount} wrong.",
+                $"Based on {trainingSummary.AttemptCount} attempts from {trainingSummary.SessionCount} completed opening-trainer session(s)."));
+        }
+        else
+        {
+            items.Add(new TrainingPlanDashboardItem(
+                "Opening trainer results",
+                "No completed opening-trainer sessions are recorded yet.",
+                "The plan is still driven by analyzed games and opening weakness reports."));
+        }
+
+        if (openingReport is not null && openingReport.WeakOpenings.Count > 0)
+        {
+            OpeningWeaknessEntry opening = openingReport.WeakOpenings[0];
+            items.Add(new TrainingPlanDashboardItem(
+                "Opening evidence",
+                $"{PlayerProfileTextFormatter.FormatOpening(opening.Eco)} is {FormatOpeningCategory(opening.Category)}.",
+                opening.CategoryReason));
+        }
+
+        items.Add(new TrainingPlanDashboardItem(
+            "Profile signal",
+            PlayerProfileTextFormatter.FormatTrendHeadline(profileReport.ProgressSignal.Direction),
+            profileReport.ProgressSignal.Summary));
+
+        return items;
     }
 
     private static IReadOnlyList<string> BuildRelatedOpenings(
@@ -498,6 +693,29 @@ public sealed class TrainingPlanService
             ProfileProgressDirection.Improving => "improving, so the topic is shifted toward maintenance/review.",
             ProfileProgressDirection.Stable => "stable, so it remains a consistent training target.",
             _ => "insufficient data, so priority stays anchored to frequency and CPL cost."
+        };
+    }
+
+    private static string FormatStatus(TrainingPlanTopicStatus status)
+    {
+        return status switch
+        {
+            TrainingPlanTopicStatus.NewWeakness => "new weakness",
+            TrainingPlanTopicStatus.Improving => "improving",
+            TrainingPlanTopicStatus.Stable => "stable",
+            TrainingPlanTopicStatus.Urgent => "urgent",
+            _ => "stable"
+        };
+    }
+
+    private static string FormatOpeningCategory(OpeningWeaknessCategory category)
+    {
+        return category switch
+        {
+            OpeningWeaknessCategory.FixNow => "urgent",
+            OpeningWeaknessCategory.ReviewLater => "under review",
+            OpeningWeaknessCategory.Stable => "stable",
+            _ => "tracked"
         };
     }
 

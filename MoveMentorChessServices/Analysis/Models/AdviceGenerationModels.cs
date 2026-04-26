@@ -39,7 +39,8 @@ public sealed record LocalModelAdviceRequest(
     ExplanationLevel ExplanationLevel,
     AdviceGenerationContext? Context,
     string Prompt,
-    AdviceNarrationStyle NarrationStyle = AdviceNarrationStyle.RegularTrainer);
+    AdviceNarrationStyle NarrationStyle = AdviceNarrationStyle.RegularTrainer,
+    IReadOnlyList<string>? JsonOutputKeys = null);
 
 public sealed record LocalModelAdviceResponse(
     string ShortText,
