@@ -17,10 +17,19 @@ public enum GamePhase
 
 public enum MoveQualityBucket
 {
-    Good,
-    Inaccuracy,
-    Mistake,
-    Blunder
+    Best = -2,
+    Excellent = -1,
+    Good = 0,
+    Inaccuracy = 1,
+    Mistake = 2,
+    Blunder = 3
+}
+
+public static class MoveQualityBucketExtensions
+{
+    public static bool IsProblem(this MoveQualityBucket quality) => quality >= MoveQualityBucket.Inaccuracy;
+
+    public static bool IsPositiveOrNeutral(this MoveQualityBucket quality) => quality <= MoveQualityBucket.Good;
 }
 
 public enum ExplanationLevel
@@ -222,4 +231,9 @@ public sealed record StoredMoveAnalysis(
     string? ShortExplanation,
     string? DetailedExplanation,
     string? TrainingHint,
-    bool IsHighlighted);
+    bool IsHighlighted,
+    string? OriginalMistakeLabel = null,
+    AdviceFeedbackKind? ManualFeedbackKind = null,
+    string? ManualCorrectedLabel = null,
+    string? ManualComment = null,
+    DateTime? ManualCorrectedUtc = null);

@@ -11,6 +11,9 @@ A chess training app built with Avalonia for manual play, PGN review, engine-ass
 - step-by-step replay of imported moves
 - external engine top-move suggestions (`MultiPV`)
 - evaluation bar showing which side is better and by how much
+- move-quality labels for analysis:
+  `Best`, `Excellent`, `Good`, `Inaccuracy`, `Mistake`, and `Blunder`
+- planned future move-quality label: `Brilliant`
 - board rotation
 
 ## Requirements

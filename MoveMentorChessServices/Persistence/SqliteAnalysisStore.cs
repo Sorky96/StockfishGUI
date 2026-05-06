@@ -437,6 +437,12 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                 statement => statement.BindText(1, gameFingerprint));
             database.ExecuteNonQuery(
                 """
+                DELETE FROM move_advice_feedbacks
+                WHERE game_fingerprint = ?1;
+                """,
+                statement => statement.BindText(1, gameFingerprint));
+            database.ExecuteNonQuery(
+                """
                 DELETE FROM imported_games
                 WHERE game_fingerprint = ?1;
                 """,
@@ -598,7 +604,11 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                     analysis_moves.short_explanation,
                     analysis_moves.detailed_explanation,
                     analysis_moves.training_hint,
-                    analysis_moves.is_highlighted
+                    analysis_moves.is_highlighted,
+                    latest_feedback.feedback_kind,
+                    latest_feedback.corrected_label,
+                    latest_feedback.comment,
+                    latest_feedback.timestamp_utc
                 FROM analysis_moves
                 LEFT JOIN analysis_results ON analysis_results.game_fingerprint = analysis_moves.game_fingerprint
                     AND analysis_results.analyzed_side = analysis_moves.analyzed_side
@@ -606,9 +616,21 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                     AND analysis_results.multi_pv = analysis_moves.multi_pv
                     AND analysis_results.move_time_ms = analysis_moves.move_time_ms
                 LEFT JOIN imported_games ON imported_games.game_fingerprint = analysis_moves.game_fingerprint
+                LEFT JOIN move_advice_feedbacks AS latest_feedback ON latest_feedback.feedback_id = (
+                    SELECT feedback_id
+                    FROM move_advice_feedbacks
+                    WHERE move_advice_feedbacks.game_fingerprint = analysis_moves.game_fingerprint
+                      AND move_advice_feedbacks.analyzed_side = analysis_moves.analyzed_side
+                      AND move_advice_feedbacks.depth = analysis_moves.depth
+                      AND move_advice_feedbacks.multi_pv = analysis_moves.multi_pv
+                      AND move_advice_feedbacks.move_time_ms = analysis_moves.move_time_ms
+                      AND move_advice_feedbacks.ply = analysis_moves.ply
+                    ORDER BY timestamp_utc DESC, feedback_id DESC
+                    LIMIT 1
+                )
                 {(string.IsNullOrWhiteSpace(normalizedFilter)
                     ? string.Empty
-                    : "WHERE lower(coalesce(imported_games.white_player, '')) LIKE ?1 OR lower(coalesce(imported_games.black_player, '')) LIKE ?1 OR lower(coalesce(imported_games.date_text, '')) LIKE ?1 OR lower(coalesce(imported_games.result_text, '')) LIKE ?1 OR lower(coalesce(imported_games.eco, '')) LIKE ?1 OR lower(coalesce(imported_games.site, '')) LIKE ?1 OR lower(coalesce(analysis_moves.mistake_label, '')) LIKE ?1 OR lower(coalesce(analysis_moves.san, '')) LIKE ?1 OR lower(coalesce(analysis_moves.move_uci, '')) LIKE ?1")}
+                    : "WHERE lower(coalesce(imported_games.white_player, '')) LIKE ?1 OR lower(coalesce(imported_games.black_player, '')) LIKE ?1 OR lower(coalesce(imported_games.date_text, '')) LIKE ?1 OR lower(coalesce(imported_games.result_text, '')) LIKE ?1 OR lower(coalesce(imported_games.eco, '')) LIKE ?1 OR lower(coalesce(imported_games.site, '')) LIKE ?1 OR lower(coalesce(latest_feedback.corrected_label, analysis_moves.mistake_label, '')) LIKE ?1 OR lower(coalesce(analysis_moves.mistake_label, '')) LIKE ?1 OR lower(coalesce(analysis_moves.san, '')) LIKE ?1 OR lower(coalesce(analysis_moves.move_uci, '')) LIKE ?1")}
                 ORDER BY imported_games.updated_utc DESC, analysis_moves.ply ASC
                 LIMIT {safeLimit};
                 """);
@@ -620,6 +642,10 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
 
             while (statement.Step() == SqliteRow)
             {
+                string? originalLabel = statement.GetText(27);
+                string? correctedLabel = statement.GetText(35);
+                AdviceFeedbackKind? manualFeedbackKind = ParseNullableFeedbackKind(statement.GetText(34));
+                DateTime? manualCorrectedUtc = ParseNullableUtc(statement.GetText(37));
                 items.Add(new StoredMoveAnalysis(
                     statement.GetText(0) ?? string.Empty,
                     (PlayerSide)statement.GetInt(1),
@@ -648,17 +674,146 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                     (MoveQualityBucket)statement.GetInt(24),
                     statement.GetInt(25),
                     statement.GetText(26),
-                    statement.GetText(27),
+                    string.IsNullOrWhiteSpace(correctedLabel) ? originalLabel : correctedLabel,
                     ParseNullableDouble(statement.GetText(28)),
                     DeserializeEvidence(statement.GetText(29)),
                     statement.GetText(30),
                     statement.GetText(31),
                     statement.GetText(32),
-                    statement.GetInt(33) != 0));
+                    statement.GetInt(33) != 0,
+                    originalLabel,
+                    manualFeedbackKind,
+                    correctedLabel,
+                    statement.GetText(36),
+                    manualCorrectedUtc));
             }
         }
 
         return items;
+    }
+
+    public IReadOnlyList<MoveAdviceFeedback> ListMoveAdviceFeedback(string? filterText = null, int limit = 5000)
+    {
+        string normalizedFilter = filterText?.Trim().ToLowerInvariant() ?? string.Empty;
+        int safeLimit = Math.Clamp(limit, 1, 20000);
+        List<MoveAdviceFeedback> items = [];
+
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            using SqliteStatement statement = database.Prepare($"""
+                SELECT
+                    feedback_id,
+                    timestamp_utc,
+                    game_fingerprint,
+                    analyzed_side,
+                    depth,
+                    multi_pv,
+                    move_time_ms,
+                    ply,
+                    move_number,
+                    played_san,
+                    played_uci,
+                    fen_before,
+                    fen_after,
+                    eval_before_cp,
+                    eval_after_cp,
+                    best_move_uci,
+                    original_label,
+                    original_confidence,
+                    original_evidence_json,
+                    quality,
+                    centipawn_loss,
+                    feedback_kind,
+                    corrected_label,
+                    comment,
+                    source
+                FROM move_advice_feedbacks
+                {(string.IsNullOrWhiteSpace(normalizedFilter)
+                    ? string.Empty
+                    : "WHERE lower(coalesce(original_label, '')) LIKE ?1 OR lower(coalesce(corrected_label, '')) LIKE ?1 OR lower(coalesce(comment, '')) LIKE ?1 OR lower(played_san) LIKE ?1 OR lower(played_uci) LIKE ?1")}
+                ORDER BY timestamp_utc DESC, feedback_id DESC
+                LIMIT {safeLimit};
+                """);
+
+            if (!string.IsNullOrWhiteSpace(normalizedFilter))
+            {
+                statement.BindText(1, $"%{normalizedFilter}%");
+            }
+
+            while (statement.Step() == SqliteRow)
+            {
+                items.Add(ReadMoveAdviceFeedback(statement));
+            }
+        }
+
+        return items;
+    }
+
+    public void SaveMoveAdviceFeedback(MoveAdviceFeedback feedback)
+    {
+        ArgumentNullException.ThrowIfNull(feedback);
+
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            using SqliteStatement statement = database.Prepare("""
+                INSERT INTO move_advice_feedbacks (
+                    feedback_id,
+                    timestamp_utc,
+                    game_fingerprint,
+                    analyzed_side,
+                    depth,
+                    multi_pv,
+                    move_time_ms,
+                    ply,
+                    move_number,
+                    played_san,
+                    played_uci,
+                    fen_before,
+                    fen_after,
+                    eval_before_cp,
+                    eval_after_cp,
+                    best_move_uci,
+                    original_label,
+                    original_confidence,
+                    original_evidence_json,
+                    quality,
+                    centipawn_loss,
+                    feedback_kind,
+                    corrected_label,
+                    comment,
+                    source)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25);
+                """);
+
+            statement.BindText(1, string.IsNullOrWhiteSpace(feedback.FeedbackId) ? Guid.NewGuid().ToString("N") : feedback.FeedbackId);
+            statement.BindText(2, feedback.TimestampUtc.ToUniversalTime().ToString("O"));
+            statement.BindText(3, feedback.GameFingerprint);
+            statement.BindInt(4, (int)feedback.AnalyzedSide);
+            statement.BindInt(5, feedback.Depth);
+            statement.BindInt(6, feedback.MultiPv);
+            statement.BindInt(7, NormalizeMoveTime(feedback.MoveTimeMs));
+            statement.BindInt(8, feedback.Ply);
+            statement.BindInt(9, feedback.MoveNumber);
+            statement.BindText(10, feedback.PlayedSan);
+            statement.BindText(11, feedback.PlayedUci);
+            statement.BindText(12, feedback.FenBefore);
+            statement.BindText(13, feedback.FenAfter);
+            BindNullableInt(statement, 14, feedback.EvalBeforeCp);
+            BindNullableInt(statement, 15, feedback.EvalAfterCp);
+            statement.BindNullableText(16, feedback.BestMoveUci);
+            statement.BindNullableText(17, feedback.OriginalLabel);
+            statement.BindNullableText(18, FormatNullableDouble(feedback.OriginalConfidence));
+            statement.BindText(19, SerializeEvidence(feedback.OriginalEvidence));
+            statement.BindInt(20, (int)feedback.Quality);
+            BindNullableInt(statement, 21, feedback.CentipawnLoss);
+            statement.BindText(22, feedback.FeedbackKind.ToString());
+            statement.BindNullableText(23, feedback.CorrectedLabel);
+            statement.BindNullableText(24, feedback.Comment);
+            statement.BindText(25, feedback.Source);
+            statement.StepUntilDone();
+        }
     }
 
     public bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result)
@@ -993,6 +1148,39 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                 );
                 """);
             database.ExecuteNonQuery("""
+                CREATE TABLE IF NOT EXISTS move_advice_feedbacks (
+                    feedback_id TEXT NOT NULL PRIMARY KEY,
+                    timestamp_utc TEXT NOT NULL,
+                    game_fingerprint TEXT NOT NULL,
+                    analyzed_side INTEGER NOT NULL,
+                    depth INTEGER NOT NULL,
+                    multi_pv INTEGER NOT NULL,
+                    move_time_ms INTEGER NOT NULL,
+                    ply INTEGER NOT NULL,
+                    move_number INTEGER NOT NULL,
+                    played_san TEXT NOT NULL,
+                    played_uci TEXT NOT NULL,
+                    fen_before TEXT NOT NULL,
+                    fen_after TEXT NOT NULL,
+                    eval_before_cp INTEGER NULL,
+                    eval_after_cp INTEGER NULL,
+                    best_move_uci TEXT NULL,
+                    original_label TEXT NULL,
+                    original_confidence TEXT NULL,
+                    original_evidence_json TEXT NULL,
+                    quality INTEGER NOT NULL,
+                    centipawn_loss INTEGER NULL,
+                    feedback_kind TEXT NOT NULL,
+                    corrected_label TEXT NULL,
+                    comment TEXT NULL,
+                    source TEXT NOT NULL
+                );
+                """);
+            database.ExecuteNonQuery("""
+                CREATE INDEX IF NOT EXISTS idx_move_advice_feedbacks_move_latest
+                ON move_advice_feedbacks (game_fingerprint, analyzed_side, depth, multi_pv, move_time_ms, ply, timestamp_utc DESC);
+                """);
+            database.ExecuteNonQuery("""
                 CREATE TABLE IF NOT EXISTS app_metadata (
                     key TEXT NOT NULL PRIMARY KEY,
                     value TEXT NOT NULL
@@ -1098,19 +1286,31 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
         Dictionary<int, StoredMoveAnnotation> annotations = new();
         using SqliteStatement statement = database.Prepare("""
             SELECT
-                ply,
-                mistake_label,
-                mistake_confidence,
-                evidence_json,
-                short_explanation,
-                detailed_explanation,
-                training_hint
+                analysis_moves.ply,
+                coalesce(latest_feedback.corrected_label, analysis_moves.mistake_label),
+                analysis_moves.mistake_confidence,
+                analysis_moves.evidence_json,
+                analysis_moves.short_explanation,
+                analysis_moves.detailed_explanation,
+                analysis_moves.training_hint
             FROM analysis_moves
-            WHERE game_fingerprint = ?1
-              AND analyzed_side = ?2
-              AND depth = ?3
-              AND multi_pv = ?4
-              AND move_time_ms = ?5;
+            LEFT JOIN move_advice_feedbacks AS latest_feedback ON latest_feedback.feedback_id = (
+                SELECT feedback_id
+                FROM move_advice_feedbacks
+                WHERE move_advice_feedbacks.game_fingerprint = analysis_moves.game_fingerprint
+                  AND move_advice_feedbacks.analyzed_side = analysis_moves.analyzed_side
+                  AND move_advice_feedbacks.depth = analysis_moves.depth
+                  AND move_advice_feedbacks.multi_pv = analysis_moves.multi_pv
+                  AND move_advice_feedbacks.move_time_ms = analysis_moves.move_time_ms
+                  AND move_advice_feedbacks.ply = analysis_moves.ply
+                ORDER BY timestamp_utc DESC, feedback_id DESC
+                LIMIT 1
+            )
+            WHERE analysis_moves.game_fingerprint = ?1
+              AND analysis_moves.analyzed_side = ?2
+              AND analysis_moves.depth = ?3
+              AND analysis_moves.multi_pv = ?4
+              AND analysis_moves.move_time_ms = ?5;
             """);
 
         statement.BindText(1, key.GameFingerprint);
@@ -1167,6 +1367,53 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
             out DateTime parsed)
             ? parsed
             : DateTime.MinValue;
+    }
+
+    private static DateTime? ParseNullableUtc(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return ParseUtc(value);
+    }
+
+    private static AdviceFeedbackKind? ParseNullableFeedbackKind(string? value)
+    {
+        return Enum.TryParse(value, ignoreCase: true, out AdviceFeedbackKind parsed)
+            ? parsed
+            : null;
+    }
+
+    private static MoveAdviceFeedback ReadMoveAdviceFeedback(SqliteStatement statement)
+    {
+        return new MoveAdviceFeedback(
+            statement.GetText(0) ?? string.Empty,
+            ParseUtc(statement.GetText(1)),
+            statement.GetText(2) ?? string.Empty,
+            (PlayerSide)statement.GetInt(3),
+            statement.GetInt(4),
+            statement.GetInt(5),
+            ReadMoveTime(statement.GetInt(6)),
+            statement.GetInt(7),
+            statement.GetInt(8),
+            statement.GetText(9) ?? string.Empty,
+            statement.GetText(10) ?? string.Empty,
+            statement.GetText(11) ?? string.Empty,
+            statement.GetText(12) ?? string.Empty,
+            statement.GetNullableInt(13),
+            statement.GetNullableInt(14),
+            statement.GetText(15),
+            statement.GetText(16),
+            ParseNullableDouble(statement.GetText(17)),
+            DeserializeEvidence(statement.GetText(18)),
+            (MoveQualityBucket)statement.GetInt(19),
+            statement.GetNullableInt(20),
+            ParseNullableFeedbackKind(statement.GetText(21)) ?? AdviceFeedbackKind.NotUseful,
+            statement.GetText(22),
+            statement.GetText(23),
+            statement.GetText(24) ?? string.Empty);
     }
 
     private static IReadOnlyList<string> DeserializeEvidence(string? payload)

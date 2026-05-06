@@ -109,6 +109,38 @@ public sealed class PlayerProfileServiceTests
     }
 
     [Fact]
+    public void PlayerProfileService_UsesEffectiveManualLabelFromStoredMoves()
+    {
+        GameAnalysisResult result = CreateResult(
+            "Alpha",
+            "Beta",
+            PlayerSide.White,
+            "C20",
+            "2026.04.01",
+            [CreateSelectedMistake("missed_tactic", MoveQualityBucket.Mistake)],
+            [CreateMoveAnalysis(GamePhase.Middlegame, 220, "missed_tactic", moveNumber: 12, san: "Qh5", bestMoveUci: "g1f3")]);
+        StoredMoveAnalysis correctedMove = BuildStoredMoves([result])[0] with
+        {
+            MistakeLabel = "hanging_piece",
+            OriginalMistakeLabel = "missed_tactic",
+            ManualFeedbackKind = AdviceFeedbackKind.WrongLabel,
+            ManualCorrectedLabel = "hanging_piece",
+            ManualComment = "Loose queen, not tactic",
+            ManualCorrectedUtc = DateTime.Parse("2026-04-18T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal)
+        };
+        FakeAnalysisStore store = new([result], [correctedMove]);
+        PlayerProfileService service = new(store);
+
+        bool found = service.TryBuildProfile("Alpha", out PlayerProfileReport? report);
+
+        Assert.True(found);
+        Assert.NotNull(report);
+        Assert.Equal("hanging_piece", report!.TopMistakeLabels[0].Label);
+        ProfileMistakeExample example = Assert.Single(report.MistakeExamples);
+        Assert.Equal("hanging_piece", example.Label);
+    }
+
+    [Fact]
     public void PlayerProfileService_AddsActionableOpeningsToTrainingPlan()
     {
         FakeAnalysisStore store = new(

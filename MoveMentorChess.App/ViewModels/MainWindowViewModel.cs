@@ -18,6 +18,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private StockfishEngine? engine;
     private ImportedGame? importedGame;
     private IReadOnlyList<ReplayPly> importedReplay = Array.Empty<ReplayPly>();
+    private readonly Dictionary<PlayerSide, GameAnalysisResult> cachedAnalysisResultsBySide = new();
     private GameAnalysisResult? cachedAnalysisResult;
     private Func<IReadOnlyList<LegalMoveInfo>, Task<LegalMoveInfo?>>? promotionMoveSelector;
     private string? selectedSquare;
@@ -138,10 +139,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref isBusy, value))
             {
+                OnPropertyChanged(nameof(CanOpenImportedAnalysis));
                 RaiseCommandStates();
             }
         }
     }
+
+    public bool CanOpenImportedAnalysis => importedGame is not null && !IsBusy;
 
     public int EvaluationBarValue
     {
@@ -164,7 +168,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public PlayerSide SelectedAnalysisSide
     {
         get => selectedAnalysisSide;
-        set => SetProperty(ref selectedAnalysisSide, value);
+        set
+        {
+            if (SetProperty(ref selectedAnalysisSide, value))
+            {
+                cachedAnalysisResultsBySide.TryGetValue(value, out cachedAnalysisResult);
+                ApplyAnalysisFilter();
+            }
+        }
     }
 
     public ImportedMoveItemViewModel? SelectedImportedMove
@@ -319,6 +330,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             ImportedGame parsedGame = PgnGameParser.Parse(pgnText);
             importedReplay = new GameReplayService().Replay(parsedGame);
             importedGame = parsedGame;
+            cachedAnalysisResultsBySide.Clear();
             cachedAnalysisResult = null;
             importedCursor = 0;
             ImportedMoves.Clear();
@@ -334,6 +346,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             RefreshBoard();
             RefreshEngineSummary();
             RefreshImportedSummary();
+            OnPropertyChanged(nameof(CanOpenImportedAnalysis));
             AnalysisMistakes.Clear();
             AnalysisDetails = "Imported game loaded. Choose a side and run analysis.";
             SaveImportedGame(parsedGame);
@@ -397,6 +410,24 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         StatusMessage = importedReplay.Count == 0
             ? "Saved game loaded, but it does not contain SAN moves."
             : $"Loaded saved game with {importedReplay.Count} plies.";
+        OnPropertyChanged(nameof(CanOpenImportedAnalysis));
+    }
+
+    public void LoadAnalysisResult(GameAnalysisResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        if (!IsCurrentImportedGame(result.Game))
+        {
+            LoadImportedGameCore(result.Game);
+        }
+
+        SelectedAnalysisSide = result.AnalyzedSide;
+        cachedAnalysisResultsBySide[result.AnalyzedSide] = result;
+        cachedAnalysisResult = result;
+        ApplyAnalysisToImportedMoves();
+        ApplyAnalysisFilter();
+        StatusMessage = $"Loaded analysis for {result.AnalyzedSide}.";
     }
 
     public async Task<BulkPgnAnalysisResult> AnalyzeImportedGamesAsync(IReadOnlyList<ImportedGame> games)
@@ -467,7 +498,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 LoadImportedGameCore(lastResult.Game);
                 SelectedAnalysisSide = lastResult.AnalyzedSide;
+                cachedAnalysisResultsBySide[lastResult.AnalyzedSide] = lastResult;
                 cachedAnalysisResult = lastResult;
+                ApplyAnalysisToImportedMoves();
                 ApplyAnalysisFilter();
             }
 
@@ -673,6 +706,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         importedReplay = new GameReplayService().Replay(game);
         importedGame = game;
+        cachedAnalysisResultsBySide.Clear();
         cachedAnalysisResult = null;
         importedCursor = 0;
         ImportedMoves.Clear();
@@ -690,6 +724,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         RefreshImportedSummary();
         AnalysisMistakes.Clear();
         AnalysisDetails = "Imported game loaded. Choose a side and run analysis.";
+        OnPropertyChanged(nameof(CanOpenImportedAnalysis));
         RaiseCommandStates();
     }
 
@@ -726,6 +761,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             AnalysisDetails = "The analysis engine is reviewing the imported game. This may take a moment.";
             AnalysisMistakes.Clear();
             SelectedAnalysisMistake = null;
+            cachedAnalysisResultsBySide.Remove(SelectedAnalysisSide);
+            ApplyAnalysisToImportedMoves();
             IProgress<GameAnalysisProgress> progress = new Progress<GameAnalysisProgress>(ShowAnalysisProgressOnBoard);
 
             GameAnalysisService analysisService = new(engine);
@@ -734,14 +771,19 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 SelectedAnalysisSide,
                 new EngineAnalysisOptions(),
                 progress));
+            GameAnalysisCache.StoreResult(GameAnalysisCache.CreateKey(importedGame, SelectedAnalysisSide, new EngineAnalysisOptions()), cachedAnalysisResult);
+            cachedAnalysisResultsBySide[SelectedAnalysisSide] = cachedAnalysisResult;
+            ApplyAnalysisToImportedMoves();
             ApplyAnalysisFilter();
             StatusMessage = $"Analysis finished for {SelectedAnalysisSide}.";
         }
         catch (Exception ex)
         {
             cachedAnalysisResult = null;
+            cachedAnalysisResultsBySide.Remove(SelectedAnalysisSide);
             AnalysisMistakes.Clear();
             AnalysisDetails = "Analysis failed.";
+            ApplyAnalysisToImportedMoves();
             StatusMessage = $"Analysis failed: {ex.Message}";
         }
         finally
@@ -812,6 +854,41 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         SelectedAnalysisMistake = AnalysisMistakes[0];
+    }
+
+    private void ApplyAnalysisToImportedMoves()
+    {
+        ClearImportedMoveAnalysisLabels();
+
+        Dictionary<int, MoveAnalysisResult> analysesByPly = cachedAnalysisResultsBySide.Values
+            .SelectMany(result => result.MoveAnalyses)
+            .GroupBy(move => move.Replay.Ply)
+            .ToDictionary(group => group.Key, group => group.First());
+
+        foreach (ImportedMoveItemViewModel item in ImportedMoves)
+        {
+            if (analysesByPly.TryGetValue(item.ReplayPly.Ply, out MoveAnalysisResult? analysis))
+            {
+                item.ApplyAnalysis(analysis);
+            }
+        }
+    }
+
+    private void ClearImportedMoveAnalysisLabels()
+    {
+        foreach (ImportedMoveItemViewModel item in ImportedMoves)
+        {
+            item.ClearAnalysis();
+        }
+    }
+
+    private bool IsCurrentImportedGame(ImportedGame game)
+    {
+        return importedGame is not null
+            && string.Equals(
+                GameFingerprint.Compute(importedGame.PgnText),
+                GameFingerprint.Compute(game.PgnText),
+                StringComparison.Ordinal);
     }
 
     private void ShowSelectedMistakeOnBoard()
@@ -1144,8 +1221,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
         foreach (LegalMoveInfo move in movesForPiece.OrderBy(m => m.San, StringComparer.Ordinal))
         {
-            string label = BuildPieceMoveLabel(move, currentFen, perspectiveSide, baselineAnalysis, bestMove);
-            PieceMoveOptions.Add(new PieceMoveOptionViewModel(move.San, move.Uci, label, move.ToSquare, string.Equals(move.Uci, bestMove, StringComparison.OrdinalIgnoreCase)));
+            PieceMovePresentation presentation = BuildPieceMovePresentation(move, currentFen, perspectiveSide, baselineAnalysis, bestMove);
+            PieceMoveOptions.Add(new PieceMoveOptionViewModel(
+                move.San,
+                move.Uci,
+                presentation.Label,
+                move.ToSquare,
+                string.Equals(move.Uci, bestMove, StringComparison.OrdinalIgnoreCase),
+                presentation.EvalText,
+                presentation.EvalBrush));
         }
     }
 
@@ -1156,12 +1240,24 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         PieceMoveOptions.Add(new PieceMoveOptionViewModel("-", string.Empty, "Select a piece to inspect all legal moves.", string.Empty, false));
     }
 
-    private string BuildPieceMoveLabel(LegalMoveInfo move, string currentFen, string perspectiveSide, EngineAnalysis? baselineAnalysis, string? bestMoveUci)
+    private PieceMovePresentation BuildPieceMovePresentation(LegalMoveInfo move, string currentFen, string perspectiveSide, EngineAnalysis? baselineAnalysis, string? bestMoveUci)
     {
         string bestMarker = string.Equals(move.Uci, bestMoveUci, StringComparison.OrdinalIgnoreCase) ? "* " : "  ";
+        string moveText = $"{bestMarker}{FormatSanAndUci(move.San, move.Uci)}";
+        PlayerSide movingSide = perspectiveSide == "White" ? PlayerSide.White : PlayerSide.Black;
+
+        if (TryFindCachedMoveAnalysis(currentFen, move.Uci, movingSide, out MoveAnalysisResult? cachedMoveAnalysis)
+            && cachedMoveAnalysis is not null)
+        {
+            return new PieceMovePresentation(
+                moveText,
+                FormatEvalScore(cachedMoveAnalysis.EvalAfterCp, cachedMoveAnalysis.PlayedMateIn),
+                GetEvalBrush(cachedMoveAnalysis.EvalAfterCp, cachedMoveAnalysis.PlayedMateIn));
+        }
+
         if (engine is null || baselineAnalysis is null)
         {
-            return $"{bestMarker}{FormatSanAndUci(move.San, move.Uci),-18} | n/a        | d n/a";
+            return new PieceMovePresentation(moveText, string.Empty, "#657386");
         }
 
         try
@@ -1171,23 +1267,74 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 || !tempGame.TryApplyUci(move.Uci, out AppliedMoveInfo? appliedMove, out _)
                 || appliedMove is null)
             {
-                return $"{bestMarker}{FormatSanAndUci(move.San, move.Uci),-18} | n/a        | d n/a";
+                return new PieceMovePresentation(moveText, string.Empty, "#657386");
             }
 
-            EngineLine? baselineLine = baselineAnalysis.Lines.FirstOrDefault();
-            int baselineCp = NormalizePerspectiveScore(baselineLine?.Centipawns, perspectiveSide, perspectiveSide);
             EngineAnalysis moveAnalysis = engine.AnalyzePosition(appliedMove.FenAfter, new EngineAnalysisOptions(Depth: 10, MultiPv: 1, MoveTimeMs: 90));
             EngineLine? moveLine = moveAnalysis.Lines.FirstOrDefault();
             int moveCp = NormalizePerspectiveScore(moveLine?.Centipawns, perspectiveSide, perspectiveSide == "White" ? "Black" : "White");
-            int? delta = baselineLine?.Centipawns is null || moveLine?.Centipawns is null ? null : moveCp - baselineCp;
-            string scoreText = moveLine?.MateIn is int mate ? $"mate {mate}" : $"{moveCp / 100.0:+0.0;-0.0;0.0}";
-            string deltaText = delta is int d ? (d >= 0 ? $"+{d}" : d.ToString()) : "n/a";
-            return $"{bestMarker}{FormatSanAndUci(move.San, move.Uci),-18} | {scoreText,-10} | d {deltaText}";
+            int? moveMate = moveLine?.MateIn is int mate ? -mate : null;
+            string scoreText = FormatEvalScore(moveLine?.Centipawns is null ? null : moveCp, moveMate);
+            string evalBrush = GetEvalBrush(moveLine?.Centipawns is null ? null : moveCp, moveMate);
+            return new PieceMovePresentation(moveText, scoreText, evalBrush);
         }
         catch
         {
-            return $"{bestMarker}{FormatSanAndUci(move.San, move.Uci),-18} | n/a        | d n/a";
+            return new PieceMovePresentation(moveText, string.Empty, "#657386");
         }
+    }
+
+    private bool TryFindCachedMoveAnalysis(string fenBefore, string moveUci, PlayerSide movingSide, out MoveAnalysisResult? analysis)
+    {
+        string normalizedFen = NormalizeFenForAnalysisMatch(fenBefore);
+        analysis = cachedAnalysisResultsBySide.Values
+            .Where(result => result.AnalyzedSide == movingSide)
+            .SelectMany(result => result.MoveAnalyses)
+            .FirstOrDefault(move =>
+                move.Replay.Side == movingSide
+                && string.Equals(move.Replay.Uci, moveUci, StringComparison.Ordinal)
+                && string.Equals(NormalizeFenForAnalysisMatch(move.Replay.FenBefore), normalizedFen, StringComparison.Ordinal));
+        return analysis is not null;
+    }
+
+    private static string FormatEvalScore(int? centipawns, int? mateIn)
+    {
+        if (mateIn is int mate)
+        {
+            return $"mate {mate}";
+        }
+
+        return centipawns is int cp
+            ? $"{cp / 100.0:+0.00;-0.00;+0.00}"
+            : string.Empty;
+    }
+
+    private static string GetEvalBrush(int? perspectiveCp, int? mateIn = null)
+    {
+        if (mateIn is int mate)
+        {
+            return mate > 0 ? "#1F7A55" : "#B93838";
+        }
+
+        if (perspectiveCp is not int cp)
+        {
+            return "#657386";
+        }
+
+        if (cp > 0)
+        {
+            return "#1F7A55";
+        }
+
+        return cp < 0 ? "#B93838" : "#657386";
+    }
+
+    private static string NormalizeFenForAnalysisMatch(string fen)
+    {
+        string[] parts = fen.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 4
+            ? string.Join(' ', parts.Take(4))
+            : fen;
     }
 
     private async Task<string?> SelectMoveToApplyAsync(IReadOnlyList<LegalMoveInfo> matchingMoves)
@@ -1381,6 +1528,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
         return null;
     }
+
+    private sealed record PieceMovePresentation(string Label, string EvalText, string EvalBrush);
 }
 
 public sealed record PgnFileImportResult(

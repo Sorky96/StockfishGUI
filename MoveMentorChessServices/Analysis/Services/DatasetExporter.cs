@@ -112,9 +112,14 @@ public static class DatasetExporter
             move.Quality.ToString(),
             move.CentipawnLoss,
             move.MaterialDeltaCp,
+            move.OriginalMistakeLabel ?? move.MistakeLabel,
             move.MistakeLabel,
             move.MistakeConfidence,
             string.Join("|", move.Evidence),
+            move.ManualFeedbackKind?.ToString(),
+            move.ManualCorrectedLabel,
+            move.ManualComment,
+            move.ManualCorrectedUtc,
             move.ShortExplanation,
             move.DetailedExplanation,
             move.TrainingHint,
@@ -127,7 +132,8 @@ public static class DatasetExporter
     {
         return "game_fingerprint,ply,move_number,side,phase,played_san,played_uci," +
                "best_move_uci,quality,centipawn_loss,material_delta_cp," +
-               "mistake_label,mistake_confidence,evidence," +
+               "original_mistake_label,effective_mistake_label,mistake_confidence,evidence," +
+               "manual_feedback_kind,manual_corrected_label,manual_comment,manual_corrected_utc," +
                "short_explanation,detailed_explanation,training_hint," +
                "is_highlighted,fen_before,fen_after";
     }
@@ -146,9 +152,14 @@ public static class DatasetExporter
             CsvEscape(row.Quality),
             row.CentipawnLoss.HasValue ? row.CentipawnLoss.Value.ToString(CultureInfo.InvariantCulture) : string.Empty,
             row.MaterialDeltaCp.ToString(CultureInfo.InvariantCulture),
-            CsvEscape(row.MistakeLabel ?? string.Empty),
+            CsvEscape(row.OriginalMistakeLabel ?? string.Empty),
+            CsvEscape(row.EffectiveMistakeLabel ?? string.Empty),
             row.MistakeConfidence.HasValue ? row.MistakeConfidence.Value.ToString("F4", CultureInfo.InvariantCulture) : string.Empty,
             CsvEscape(row.Evidence),
+            CsvEscape(row.ManualFeedbackKind ?? string.Empty),
+            CsvEscape(row.ManualCorrectedLabel ?? string.Empty),
+            CsvEscape(row.ManualComment ?? string.Empty),
+            row.ManualCorrectedUtc.HasValue ? row.ManualCorrectedUtc.Value.ToString("O", CultureInfo.InvariantCulture) : string.Empty,
             CsvEscape(row.ShortExplanation ?? string.Empty),
             CsvEscape(row.DetailedExplanation ?? string.Empty),
             CsvEscape(row.TrainingHint ?? string.Empty),

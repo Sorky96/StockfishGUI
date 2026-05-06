@@ -45,7 +45,10 @@ public sealed record LocalModelAdviceRequest(
 public sealed record LocalModelAdviceResponse(
     string ShortText,
     string TrainingHint,
-    string DetailedText);
+    string DetailedText,
+    string? ReferencedBestMoveUci = null,
+    string? ReferencedLabel = null,
+    double? Confidence = null);
 
 public sealed record AdviceGenerationContext(
     string Source,

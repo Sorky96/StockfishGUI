@@ -792,6 +792,50 @@ Kxa2 62. Qb2# 1-0
     }
 
     [Fact]
+    public void GameAnalysisService_ClassifiesExactEngineMoveAsBest()
+    {
+        ImportedGame game = PgnGameParser.Parse("1. e4");
+        GameReplayService replayService = new();
+        ReplayPly move = replayService.Replay(game)[0];
+
+        FakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [move.FenBefore] = AnalysisFor(move.FenBefore, move.Uci, 50, null, move.Uci),
+            [move.FenAfter] = AnalysisFor(move.FenAfter, "e7e5", -45, null, "e7e5")
+        });
+
+        GameAnalysisService service = new(fakeEngine, replayService);
+        GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
+
+        Assert.Single(result.MoveAnalyses);
+        Assert.Equal(MoveQualityBucket.Best, result.MoveAnalyses[0].Quality);
+        Assert.Empty(result.HighlightedMistakes);
+    }
+
+    [Theory]
+    [InlineData(-30, MoveQualityBucket.Excellent)]
+    [InlineData(10, MoveQualityBucket.Good)]
+    public void GameAnalysisService_ClassifiesPositiveNonBestMoveLabels(int afterEngineCp, MoveQualityBucket expectedQuality)
+    {
+        ImportedGame game = PgnGameParser.Parse("1. d4");
+        GameReplayService replayService = new();
+        ReplayPly move = replayService.Replay(game)[0];
+
+        FakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [move.FenBefore] = AnalysisFor(move.FenBefore, "e2e4", 50, null, "e2e4"),
+            [move.FenAfter] = AnalysisFor(move.FenAfter, "d7d5", afterEngineCp, null, "d7d5")
+        });
+
+        GameAnalysisService service = new(fakeEngine, replayService);
+        GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
+
+        Assert.Single(result.MoveAnalyses);
+        Assert.Equal(expectedQuality, result.MoveAnalyses[0].Quality);
+        Assert.Empty(result.HighlightedMistakes);
+    }
+
+    [Fact]
     public void GameAnalysisService_ReportsAnalyzedPositionsInOrder()
     {
         ImportedGame game = PgnGameParser.Parse(MiniPgn);
@@ -1442,9 +1486,12 @@ training_hint: Improve a minor piece first.
             new FakeLocalAdviceModel(
                 isAvailable: true,
                 response: """
-short_text: Model short text
-detailed_text: Model detailed text
-training_hint: Model training hint
+short_text: Opening principles: Model short text for g1f3.
+detailed_text: What: Model what. Why: Model why for opening principles. Better: g1f3 was stronger. Watch next time: check development first.
+training_hint: Opening principles: develop before queen moves.
+referenced_best_move_uci: g1f3
+referenced_label: opening_principles
+confidence: 0.82
 """),
             new TemplateAdviceGenerator());
         ReplayPly replay = CreateReplay(
@@ -1465,9 +1512,9 @@ training_hint: Model training hint
 
         Assert.False(generator.UsedFallback);
         Assert.Null(generator.FallbackReason);
-        Assert.Equal("Model short text", explanation.ShortText);
-        Assert.Equal("Model training hint", explanation.TrainingHint);
-        Assert.Equal("Model detailed text", explanation.DetailedText);
+        Assert.Contains("Model short text", explanation.ShortText);
+        Assert.Contains("develop before queen", explanation.TrainingHint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("What:", explanation.DetailedText);
     }
 
     [Fact]

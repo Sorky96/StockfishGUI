@@ -7,19 +7,22 @@ public sealed class GameAnalysisService
     private readonly DiagnosticMistakeClassifier mistakeClassifier;
     private readonly IAdviceGenerator adviceGenerator;
     private readonly MistakeSelector mistakeSelector;
+    private readonly AnalysisQualityGate qualityGate;
 
     public GameAnalysisService(
         IEngineAnalyzer engineAnalyzer,
         GameReplayService? replayService = null,
         DiagnosticMistakeClassifier? mistakeClassifier = null,
         IAdviceGenerator? adviceGenerator = null,
-        MistakeSelector? mistakeSelector = null)
+        MistakeSelector? mistakeSelector = null,
+        AnalysisQualityGate? qualityGate = null)
     {
         this.engineAnalyzer = engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer));
         this.replayService = replayService ?? new GameReplayService();
         this.mistakeClassifier = mistakeClassifier ?? DiagnosticMistakeClassifier.CreateDefault();
         this.adviceGenerator = adviceGenerator ?? AdviceGeneratorFactory.CreateBulkAnalysisGenerator();
         this.mistakeSelector = mistakeSelector ?? new MistakeSelector();
+        this.qualityGate = qualityGate ?? new AnalysisQualityGate();
     }
 
     public GameAnalysisResult AnalyzeGame(
@@ -71,7 +74,7 @@ public sealed class GameAnalysisService
             int materialAfter = PositionInspector.MaterialScore(ply.FenAfter, analyzedSide);
             int materialDelta = materialAfter - materialBefore;
             int? centipawnLoss = ComputeCentipawnLoss(bestScore, playedScore);
-            MoveQualityBucket quality = ClassifyQuality(bestScore, playedScore, centipawnLoss);
+            MoveQualityBucket quality = ClassifyQuality(bestScore, playedScore, centipawnLoss, ply.Uci, beforeAnalysis.BestMoveUci);
             MoveHeuristicContext heuristicContext = BuildHeuristicContext(ply, analyzedSide, beforeAnalysis, afterAnalysis);
 
             MistakeTag? tag = mistakeClassifier.Classify(
@@ -90,7 +93,13 @@ public sealed class GameAnalysisService
                 bestLine?.MoveUci,
                 heuristicContext,
                 playerProfile);
-            MoveExplanation? explanation = quality == MoveQualityBucket.Good
+            string gameFingerprint = GameFingerprint.Compute(game.PgnText);
+            AdviceGenerationContext adviceContext = new(
+                "game-analysis-service",
+                gameFingerprint,
+                analyzedSide,
+                promptContext);
+            MoveExplanation? explanation = quality.IsPositiveOrNeutral()
                 ? null
                 : adviceGenerator.Generate(
                     ply,
@@ -98,13 +107,9 @@ public sealed class GameAnalysisService
                     tag,
                     bestLine?.MoveUci,
                     centipawnLoss,
-                    context: new AdviceGenerationContext(
-                        "game-analysis-service",
-                        GameFingerprint.Compute(game.PgnText),
-                        analyzedSide,
-                        promptContext));
+                    context: adviceContext);
 
-            moveAnalyses.Add(new MoveAnalysisResult(
+            MoveAnalysisResult moveAnalysis = new(
                 ply,
                 beforeAnalysis,
                 afterAnalysis,
@@ -116,7 +121,8 @@ public sealed class GameAnalysisService
                 quality,
                 materialDelta,
                 tag,
-                explanation));
+                explanation);
+            moveAnalyses.Add(qualityGate.Apply(moveAnalysis, gameFingerprint, analyzedSide, adviceContext));
         }
 
         IReadOnlyList<SelectedMistake> highlightedMistakes = mistakeSelector.Select(moveAnalyses);
@@ -312,7 +318,12 @@ public sealed class GameAnalysisService
         return Math.Max(0, bestCp - playedCp);
     }
 
-    private static MoveQualityBucket ClassifyQuality(ScoreSnapshot best, ScoreSnapshot played, int? centipawnLoss)
+    private static MoveQualityBucket ClassifyQuality(
+        ScoreSnapshot best,
+        ScoreSnapshot played,
+        int? centipawnLoss,
+        string playedMoveUci,
+        string? bestMoveUci)
     {
         if (best.MateIn is > 0 && played.MateIn is null)
         {
@@ -343,6 +354,22 @@ public sealed class GameAnalysisService
         if (loss > 80)
         {
             return MoveQualityBucket.Inaccuracy;
+        }
+
+        if (!string.IsNullOrWhiteSpace(bestMoveUci)
+            && string.Equals(playedMoveUci, bestMoveUci, StringComparison.Ordinal))
+        {
+            return MoveQualityBucket.Best;
+        }
+
+        if (loss <= 5)
+        {
+            return MoveQualityBucket.Best;
+        }
+
+        if (loss <= 20)
+        {
+            return MoveQualityBucket.Excellent;
         }
 
         return MoveQualityBucket.Good;

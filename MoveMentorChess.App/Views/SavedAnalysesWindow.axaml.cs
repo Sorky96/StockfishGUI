@@ -73,7 +73,13 @@ public partial class SavedAnalysesWindow : Window
             : items.Where(result => MatchesExtendedFilter(result, normalizedFilter));
 
         AnalysesListBox.ItemsSource = filtered
-            .Select(result => new SavedAnalysisListItem(result, BuildListLabel(result)))
+            .Select(result => new SavedAnalysisListItem(
+                result,
+                $"{result.Game.WhitePlayer ?? "White"} vs {result.Game.BlackPlayer ?? "Black"}",
+                result.AnalyzedSide == PlayerSide.White ? "White" : "Black",
+                string.IsNullOrWhiteSpace(result.Game.DateText) ? "?" : result.Game.DateText!,
+                OpeningCatalog.GetName(result.Game.Eco),
+                result.HighlightedMistakes.Count.ToString()))
             .ToList();
 
         if (AnalysesListBox.ItemCount > 0)
@@ -119,6 +125,7 @@ public partial class SavedAnalysesWindow : Window
         builder.AppendLine($"Date: {result.Game.DateText ?? "?"}");
         builder.AppendLine($"Result: {result.Game.Result ?? "?"}");
         builder.AppendLine($"Opening: {OpeningCatalog.GetName(result.Game.Eco)}");
+        builder.AppendLine($"Move labels: {BuildQualityBreakdown(result.MoveAnalyses)}");
         builder.AppendLine($"Highlights: {result.HighlightedMistakes.Count} total");
         builder.AppendLine($"Breakdown: {blunders} blunders, {mistakes} mistakes, {inaccuracies} inaccuracies");
 
@@ -197,15 +204,6 @@ public partial class SavedAnalysesWindow : Window
                 || mistake.Quality.ToString().Contains(filterText, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string BuildListLabel(GameAnalysisResult result)
-    {
-        string players = $"{result.Game.WhitePlayer ?? "White"} vs {result.Game.BlackPlayer ?? "Black"}";
-        string date = string.IsNullOrWhiteSpace(result.Game.DateText) ? "date ?" : result.Game.DateText!;
-        string opening = OpeningCatalog.GetName(result.Game.Eco);
-        string side = result.AnalyzedSide == PlayerSide.White ? "White" : "Black";
-        return $"{players,-28} | {side,-5} | {date,-10} | {opening,-22} | {result.HighlightedMistakes.Count,2} highlights";
-    }
-
     private static string FormatMistakeLabel(string label)
     {
         return label switch
@@ -221,9 +219,29 @@ public partial class SavedAnalysesWindow : Window
         };
     }
 
-    private sealed record SavedAnalysisListItem(GameAnalysisResult Result, string Label)
+    private static string BuildQualityBreakdown(IReadOnlyList<MoveAnalysisResult> moveAnalyses)
     {
-        public override string ToString() => Label;
+        return string.Join(", ", new[]
+            {
+                MoveQualityBucket.Best,
+                MoveQualityBucket.Excellent,
+                MoveQualityBucket.Good,
+                MoveQualityBucket.Inaccuracy,
+                MoveQualityBucket.Mistake,
+                MoveQualityBucket.Blunder
+            }
+            .Select(quality => $"{quality} {moveAnalyses.Count(move => move.Quality == quality)}"));
+    }
+
+    private sealed record SavedAnalysisListItem(
+        GameAnalysisResult Result,
+        string Players,
+        string Side,
+        string Date,
+        string Opening,
+        string Highlights)
+    {
+        public override string ToString() => $"{Players} {Side} {Date} {Opening}";
     }
 }
 

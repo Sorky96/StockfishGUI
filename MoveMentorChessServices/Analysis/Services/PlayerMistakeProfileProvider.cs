@@ -101,7 +101,7 @@ public static class PlayerMistakeProfileProvider
     {
         var phaseGroups = results
             .SelectMany(result => result.MoveAnalyses)
-            .Where(move => move.Quality != MoveQualityBucket.Good)
+            .Where(move => move.Quality.IsProblem())
             .GroupBy(move => move.Replay.Phase)
             .Select(group => new { Phase = group.Key, Count = group.Count() })
             .OrderByDescending(item => item.Count)

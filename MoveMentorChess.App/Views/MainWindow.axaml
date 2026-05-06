@@ -55,7 +55,14 @@
           <Button Grid.Row="1" Grid.Column="0" Height="36" Margin="0,8,6,0" HorizontalAlignment="Stretch" Command="{Binding ApplyNextImportedMoveCommand}" Content="APPLY NEXT" />
           <Button Grid.Row="1" Grid.Column="1" Height="36" Margin="6,8,0,0" HorizontalAlignment="Stretch" Command="{Binding ApplySelectedImportedMoveCommand}" Content="APPLY SELECTED" />
 
-          <Button Grid.Row="2" Grid.Column="0" Height="36" Margin="0,8,6,0" HorizontalAlignment="Stretch" Click="AnalyzeImportedButton_Click" Content="ANALYZE IMPORTED" />
+          <Button Grid.Row="2"
+                  Grid.Column="0"
+                  Height="36"
+                  Margin="0,8,6,0"
+                  HorizontalAlignment="Stretch"
+                  Click="AnalyzeImportedButton_Click"
+                  Content="ANALYZE IMPORTED"
+                  IsEnabled="{Binding CanOpenImportedAnalysis}" />
           <Button Grid.Row="2" Grid.Column="1" Height="36" Margin="6,8,0,0" HorizontalAlignment="Stretch" Click="ProfilesButton_Click" Content="PROFILES" />
 
           <Button Grid.Row="3"
@@ -86,56 +93,82 @@
         <Grid Grid.Row="2" Grid.ColumnSpan="2" ColumnDefinitions="*,*">
           <Grid RowDefinitions="32,*" Margin="0,0,6,0">
             <TextBlock VerticalAlignment="Center" Foreground="White" FontSize="16" Text="{Binding ImportedGameSummary}" />
-            <Border Grid.Row="1" Background="White" BorderBrush="#C9C9C9" BorderThickness="1">
+            <Border Grid.Row="1" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1">
               <ListBox ItemsSource="{Binding ImportedMoves}"
                        SelectedItem="{Binding SelectedImportedMove}"
-                       Background="White"
-                       Foreground="Black"
+                       Background="{DynamicResource ChromeBrush}"
+                       Foreground="#D7E2EA"
                        BorderThickness="0">
                 <ListBox.Styles>
                   <Style Selector="ListBoxItem">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#D7E2EA" />
                     <Setter Property="Background" Value="Transparent" />
                   </Style>
                   <Style Selector="ListBoxItem ContentPresenter">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#D7E2EA" />
                   </Style>
                   <Style Selector="ListBoxItem TextBlock">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#D7E2EA" />
                   </Style>
                   <Style Selector="ListBoxItem:pointerover">
-                    <Setter Property="Foreground" Value="Black" />
-                    <Setter Property="Background" Value="#DCE8F2" />
+                    <Setter Property="Foreground" Value="#F5FAFD" />
+                    <Setter Property="Background" Value="#203746" />
                   </Style>
                   <Style Selector="ListBoxItem:pointerover ContentPresenter">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#F5FAFD" />
                   </Style>
                   <Style Selector="ListBoxItem:pointerover TextBlock">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#F5FAFD" />
                   </Style>
                   <Style Selector="ListBoxItem:selected">
-                    <Setter Property="Foreground" Value="Black" />
-                    <Setter Property="Background" Value="#AFC6D9" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="Background" Value="{DynamicResource PanelAccentBrush}" />
                   </Style>
                   <Style Selector="ListBoxItem:selected ContentPresenter">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
                   </Style>
                   <Style Selector="ListBoxItem:selected TextBlock">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
                   </Style>
                   <Style Selector="ListBoxItem:selected:pointerover ContentPresenter">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
                   </Style>
                   <Style Selector="ListBoxItem:selected:pointerover TextBlock">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
                   </Style>
                 </ListBox.Styles>
                 <ListBox.ItemTemplate>
                   <DataTemplate x:DataType="vm:ImportedMoveItemViewModel">
-                    <TextBlock Margin="6,2"
-                               Foreground="Black"
-                               FontFamily="Cascadia Code, Consolas, monospace"
-                               Text="{Binding DisplayText}" />
+                    <Grid Margin="6,3" ColumnDefinitions="Auto,*,58">
+                      <Border Grid.Column="0"
+                              MinWidth="78"
+                              Padding="7,3"
+                              CornerRadius="4"
+                              Background="{Binding QualityLabelBrush}"
+                              IsVisible="{Binding HasAnalysisLabel}">
+                        <TextBlock HorizontalAlignment="Center"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{Binding QualityLabelForeground}"
+                                   Text="{Binding QualityLabel}"
+                                   TextTrimming="CharacterEllipsis" />
+                      </Border>
+                      <TextBlock Grid.Column="1"
+                                 Margin="6,0"
+                                 VerticalAlignment="Center"
+                                 Foreground="#EAF2F7"
+                                 FontFamily="Cascadia Code, Consolas, monospace"
+                                 Text="{Binding DisplayText}"
+                                 TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Column="2"
+                                 HorizontalAlignment="Right"
+                                 VerticalAlignment="Center"
+                                 FontFamily="Cascadia Code, Consolas, monospace"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 Foreground="{Binding EvalDeltaBrush}"
+                                 Text="{Binding EvalDeltaText}" />
+                    </Grid>
                   </DataTemplate>
                 </ListBox.ItemTemplate>
               </ListBox>
@@ -144,56 +177,68 @@
 
           <Grid Grid.Column="1" RowDefinitions="32,*" Margin="6,0,0,0">
             <TextBlock VerticalAlignment="Center" Foreground="White" FontSize="16" Text="{Binding PieceMoveOptionsHeader}" />
-            <Border Grid.Row="1" Background="White" BorderBrush="#C9C9C9" BorderThickness="1">
+            <Border Grid.Row="1" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1">
               <ListBox ItemsSource="{Binding PieceMoveOptions}"
                        SelectedItem="{Binding SelectedPieceMoveOption}"
-                       Background="White"
-                       Foreground="Black"
+                       Background="{DynamicResource ChromeBrush}"
+                       Foreground="#D7E2EA"
                        BorderThickness="0">
                 <ListBox.Styles>
                   <Style Selector="ListBoxItem">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#D7E2EA" />
                     <Setter Property="Background" Value="Transparent" />
                   </Style>
                   <Style Selector="ListBoxItem ContentPresenter">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#D7E2EA" />
                   </Style>
                   <Style Selector="ListBoxItem TextBlock">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#D7E2EA" />
                   </Style>
                   <Style Selector="ListBoxItem:pointerover">
-                    <Setter Property="Foreground" Value="Black" />
-                    <Setter Property="Background" Value="#DCE8F2" />
+                    <Setter Property="Foreground" Value="#F5FAFD" />
+                    <Setter Property="Background" Value="#203746" />
                   </Style>
                   <Style Selector="ListBoxItem:pointerover ContentPresenter">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#F5FAFD" />
                   </Style>
                   <Style Selector="ListBoxItem:pointerover TextBlock">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#F5FAFD" />
                   </Style>
                   <Style Selector="ListBoxItem:selected">
-                    <Setter Property="Foreground" Value="Black" />
-                    <Setter Property="Background" Value="#AFC6D9" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="Background" Value="{DynamicResource PanelAccentBrush}" />
                   </Style>
                   <Style Selector="ListBoxItem:selected ContentPresenter">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
                   </Style>
                   <Style Selector="ListBoxItem:selected TextBlock">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
                   </Style>
                   <Style Selector="ListBoxItem:selected:pointerover ContentPresenter">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
                   </Style>
                   <Style Selector="ListBoxItem:selected:pointerover TextBlock">
-                    <Setter Property="Foreground" Value="Black" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
                   </Style>
                 </ListBox.Styles>
                 <ListBox.ItemTemplate>
                   <DataTemplate x:DataType="vm:PieceMoveOptionViewModel">
-                    <TextBlock Margin="6,2"
-                               Foreground="Black"
-                               FontFamily="Cascadia Code, Consolas, monospace"
-                               Text="{Binding Label}" />
+                    <Grid Margin="6,2" ColumnDefinitions="*,58">
+                      <TextBlock Grid.Column="0"
+                                 VerticalAlignment="Center"
+                                 Foreground="#EAF2F7"
+                                 FontFamily="Cascadia Code, Consolas, monospace"
+                                 Text="{Binding Label}"
+                                 TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Column="1"
+                                 HorizontalAlignment="Right"
+                                 VerticalAlignment="Center"
+                                 FontFamily="Cascadia Code, Consolas, monospace"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 Foreground="{Binding EvalBrush}"
+                                 Text="{Binding EvalText}" />
+                    </Grid>
                   </DataTemplate>
                 </ListBox.ItemTemplate>
               </ListBox>

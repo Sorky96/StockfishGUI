@@ -18,6 +18,9 @@
                    Text="Saved Analyses" />
         <TextBox x:Name="FilterTextBox"
                  Grid.Column="1"
+                 Background="{DynamicResource ChromeBrush}"
+                 Foreground="#EAF2F7"
+                 BorderBrush="{DynamicResource PanelAccentBrush}"
                  Watermark="Filter by player, opening, result or labels..."
                  TextChanged="FilterTextBox_OnTextChanged" />
         <Button x:Name="LoadGameButton"
@@ -41,53 +44,83 @@
 
     <Grid Grid.Row="1" Margin="0,14,0,0" ColumnDefinitions="1.1*,1.4*">
       <Border Padding="12" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+        <Grid RowDefinitions="Auto,*">
+          <Grid Margin="8,0,8,8" ColumnDefinitions="2.1*,70,92,*,72">
+            <TextBlock Foreground="#9EB5C5" FontSize="12" FontWeight="SemiBold" Text="Players" />
+            <TextBlock Grid.Column="1" Foreground="#9EB5C5" FontSize="12" FontWeight="SemiBold" Text="Side" />
+            <TextBlock Grid.Column="2" Foreground="#9EB5C5" FontSize="12" FontWeight="SemiBold" Text="Date" />
+            <TextBlock Grid.Column="3" Foreground="#9EB5C5" FontSize="12" FontWeight="SemiBold" Text="Opening" />
+            <TextBlock Grid.Column="4" HorizontalAlignment="Right" Foreground="#9EB5C5" FontSize="12" FontWeight="SemiBold" Text="Marks" />
+          </Grid>
         <ListBox x:Name="AnalysesListBox"
+                 Grid.Row="1"
                  SelectionChanged="AnalysesListBox_OnSelectionChanged"
                  DoubleTapped="AnalysesListBox_OnDoubleTapped"
-                 Background="White"
-                 Foreground="Black"
+                 Background="{DynamicResource ChromeBrush}"
+                 Foreground="#D7E2EA"
                  BorderThickness="0">
           <ListBox.Styles>
             <Style Selector="ListBoxItem">
-              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Foreground" Value="#D7E2EA" />
               <Setter Property="Background" Value="Transparent" />
             </Style>
             <Style Selector="ListBoxItem ContentPresenter">
-              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Foreground" Value="#D7E2EA" />
             </Style>
             <Style Selector="ListBoxItem TextBlock">
-              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Foreground" Value="#D7E2EA" />
             </Style>
             <Style Selector="ListBoxItem:pointerover">
-              <Setter Property="Foreground" Value="Black" />
-              <Setter Property="Background" Value="#DCE8F2" />
+              <Setter Property="Foreground" Value="#F5FAFD" />
+              <Setter Property="Background" Value="#203746" />
             </Style>
             <Style Selector="ListBoxItem:pointerover ContentPresenter">
-              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Foreground" Value="#F5FAFD" />
             </Style>
             <Style Selector="ListBoxItem:pointerover TextBlock">
-              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Foreground" Value="#F5FAFD" />
             </Style>
             <Style Selector="ListBoxItem:selected">
-              <Setter Property="Foreground" Value="Black" />
-              <Setter Property="Background" Value="#AFC6D9" />
+              <Setter Property="Foreground" Value="#FFFFFF" />
+              <Setter Property="Background" Value="{DynamicResource PanelAccentBrush}" />
             </Style>
             <Style Selector="ListBoxItem:selected ContentPresenter">
-              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Foreground" Value="#FFFFFF" />
             </Style>
             <Style Selector="ListBoxItem:selected TextBlock">
-              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Foreground" Value="#FFFFFF" />
             </Style>
           </ListBox.Styles>
           <ListBox.ItemTemplate>
-            <DataTemplate>
-              <TextBlock Margin="8,4"
-                         FontFamily="Cascadia Code, Consolas, monospace"
-                         Foreground="Black"
-                         Text="{Binding}" />
+            <DataTemplate x:CompileBindings="False">
+              <Grid Margin="8,6" ColumnDefinitions="2.1*,70,92,*,72">
+                <TextBlock Grid.Column="0"
+                           Foreground="#EAF2F7"
+                           FontWeight="SemiBold"
+                           Text="{Binding Players}"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1"
+                           Foreground="#D7E2EA"
+                           Text="{Binding Side}"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="2"
+                           Foreground="#D7E2EA"
+                           Text="{Binding Date}"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="3"
+                           Foreground="#D7E2EA"
+                           Text="{Binding Opening}"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="4"
+                           HorizontalAlignment="Right"
+                           Foreground="#9EB5C5"
+                           Text="{Binding Highlights}"
+                           TextTrimming="CharacterEllipsis" />
+              </Grid>
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
+        </Grid>
       </Border>
 
       <Border Grid.Column="1"

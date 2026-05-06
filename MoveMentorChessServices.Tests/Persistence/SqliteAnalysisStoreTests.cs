@@ -248,6 +248,121 @@ public sealed class SqliteAnalysisStoreTests
     }
 
     [Fact]
+    public void SqliteAnalysisStore_AppliesLatestManualLabelCorrectionToStoredMoves()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            ImportedGame game = PgnGameParser.Parse(GameOnePgn);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions(Depth: 16, MultiPv: 2));
+            MoveAnalysisResult move = CreateMoveAnalysis(
+                ply: 3,
+                moveNumber: 2,
+                phase: GamePhase.Opening,
+                quality: MoveQualityBucket.Mistake,
+                centipawnLoss: 145,
+                label: "missed_tactic");
+            GameAnalysisResult result = new(game, PlayerSide.White, [move.Replay], [move], []);
+
+            store.SaveResult(key, result);
+            store.SaveMoveAdviceFeedback(CreateFeedback(key, move, AdviceFeedbackKind.WrongLabel, "hanging_piece", "first"));
+            store.SaveMoveAdviceFeedback(CreateFeedback(key, move, AdviceFeedbackKind.WrongLabel, "material_loss", "latest"));
+
+            StoredMoveAnalysis storedMove = Assert.Single(store.ListMoveAnalyses("Alpha"));
+            MoveAdviceFeedback latest = Assert.Single(store.ListMoveAdviceFeedback("latest"));
+
+            Assert.Equal("material_loss", storedMove.MistakeLabel);
+            Assert.Equal("missed_tactic", storedMove.OriginalMistakeLabel);
+            Assert.Equal(AdviceFeedbackKind.WrongLabel, storedMove.ManualFeedbackKind);
+            Assert.Equal("material_loss", storedMove.ManualCorrectedLabel);
+            Assert.Equal("latest", storedMove.ManualComment);
+            Assert.NotNull(storedMove.ManualCorrectedUtc);
+            Assert.Equal("material_loss", latest.CorrectedLabel);
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void SqliteAnalysisStore_DeletesManualFeedbackWithImportedGame()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            ImportedGame game = PgnGameParser.Parse(GameOnePgn);
+            string fingerprint = GameFingerprint.Compute(game.PgnText);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions());
+            MoveAnalysisResult move = CreateMoveAnalysis(
+                ply: 3,
+                moveNumber: 2,
+                phase: GamePhase.Opening,
+                quality: MoveQualityBucket.Mistake,
+                centipawnLoss: 145,
+                label: "missed_tactic");
+
+            store.SaveImportedGame(game);
+            store.SaveResult(key, new GameAnalysisResult(game, PlayerSide.White, [move.Replay], [move], []));
+            store.SaveMoveAdviceFeedback(CreateFeedback(key, move, AdviceFeedbackKind.WrongLabel, "hanging_piece", "delete me"));
+
+            bool deleted = store.DeleteImportedGame(fingerprint);
+
+            Assert.True(deleted);
+            Assert.Empty(store.ListMoveAdviceFeedback());
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void DatasetExporter_IncludesManualCorrectionFields()
+    {
+        string databasePath = CreateTempDatabasePath();
+        string outputPath = Path.Combine(Path.GetTempPath(), $"MoveMentorChessServices-dataset-{Guid.NewGuid():N}.jsonl");
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            ImportedGame game = PgnGameParser.Parse(GameOnePgn);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions());
+            MoveAnalysisResult move = CreateMoveAnalysis(
+                ply: 3,
+                moveNumber: 2,
+                phase: GamePhase.Opening,
+                quality: MoveQualityBucket.Mistake,
+                centipawnLoss: 145,
+                label: "missed_tactic");
+            store.SaveResult(key, new GameAnalysisResult(game, PlayerSide.White, [move.Replay], [move], []));
+            store.SaveMoveAdviceFeedback(CreateFeedback(key, move, AdviceFeedbackKind.WrongLabel, "hanging_piece", "custom fix"));
+
+            int count = DatasetExporter.ExportJsonl(store, outputPath);
+            string jsonl = File.ReadAllText(outputPath);
+
+            Assert.Equal(1, count);
+            Assert.Contains("\"OriginalMistakeLabel\":\"missed_tactic\"", jsonl);
+            Assert.Contains("\"EffectiveMistakeLabel\":\"hanging_piece\"", jsonl);
+            Assert.Contains("\"ManualFeedbackKind\":\"WrongLabel\"", jsonl);
+            Assert.Contains("\"ManualCorrectedLabel\":\"hanging_piece\"", jsonl);
+            Assert.Contains("\"ManualComment\":\"custom fix\"", jsonl);
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [Fact]
     public void SqliteAnalysisStore_RestoresLegacyHighlightedLabelsFromMoveTags()
     {
         string databasePath = CreateTempDatabasePath();
@@ -596,6 +711,41 @@ public sealed class SqliteAnalysisStoreTests
             -20,
             new MistakeTag(label, 0.82, ["late_development", "king_uncastled"]),
             new MoveExplanation("Short", "Hint", "Detailed"));
+    }
+
+    private static MoveAdviceFeedback CreateFeedback(
+        GameAnalysisCacheKey key,
+        MoveAnalysisResult move,
+        AdviceFeedbackKind kind,
+        string? correctedLabel,
+        string? comment)
+    {
+        return new MoveAdviceFeedback(
+            Guid.NewGuid().ToString("N"),
+            DateTime.UtcNow,
+            key.GameFingerprint,
+            key.Side,
+            key.Depth,
+            key.MultiPv,
+            key.MoveTimeMs,
+            move.Replay.Ply,
+            move.Replay.MoveNumber,
+            move.Replay.San,
+            move.Replay.Uci,
+            move.Replay.FenBefore,
+            move.Replay.FenAfter,
+            move.EvalBeforeCp,
+            move.EvalAfterCp,
+            move.BeforeAnalysis.BestMoveUci,
+            move.MistakeTag?.Label,
+            move.MistakeTag?.Confidence,
+            move.MistakeTag?.Evidence ?? [],
+            move.Quality,
+            move.CentipawnLoss,
+            kind,
+            correctedLabel,
+            comment,
+            "test");
     }
 
     private static OpeningTreeBuildResult BuildOpeningTree(params string[] pgns)

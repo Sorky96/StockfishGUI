@@ -12,7 +12,7 @@ public sealed class MistakeClassifier
     {
         ArgumentNullException.ThrowIfNull(replay);
 
-        if (quality == MoveQualityBucket.Good)
+        if (!quality.IsProblem())
         {
             return null;
         }

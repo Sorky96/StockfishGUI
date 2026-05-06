@@ -253,7 +253,7 @@ public sealed partial class PlayerProfileService
 
         return snapshots
             .SelectMany(snapshot => snapshot.Moves)
-            .Where(move => move.Quality != MoveQualityBucket.Good && !string.IsNullOrWhiteSpace(move.MistakeLabel))
+            .Where(move => move.Quality.IsProblem() && !string.IsNullOrWhiteSpace(move.MistakeLabel))
             .Select(move => move.MistakeLabel!)
             .Distinct(StringComparer.Ordinal)
             .Select(label => BuildLabelTrend(label, selection.Previous, selection.Recent))
@@ -381,7 +381,7 @@ public sealed partial class PlayerProfileService
         return snapshots
             .SelectMany(snapshot => snapshot.Moves)
             .Where(move =>
-                move.Quality != MoveQualityBucket.Good
+                move.Quality.IsProblem()
                 && string.Equals(move.MistakeLabel, label, StringComparison.Ordinal))
             .ToList();
     }
@@ -415,7 +415,7 @@ public sealed partial class PlayerProfileService
             .ToList();
         IReadOnlyList<StoredMoveAnalysis> mistakeMoves = snapshots
             .SelectMany(snapshot => snapshot.Moves)
-            .Where(move => move.Quality != MoveQualityBucket.Good && !string.IsNullOrWhiteSpace(move.MistakeLabel))
+            .Where(move => move.Quality.IsProblem() && !string.IsNullOrWhiteSpace(move.MistakeLabel))
             .ToList();
 
         IReadOnlyList<ProfileLabelStat> topLabels = highlightedGroups
@@ -446,7 +446,7 @@ public sealed partial class PlayerProfileService
 
         IReadOnlyList<ProfilePhaseStat> mistakesByPhase = snapshots
             .SelectMany(snapshot => snapshot.Moves)
-            .Where(move => move.Quality != MoveQualityBucket.Good)
+            .Where(move => move.Quality.IsProblem())
             .GroupBy(move => move.Phase)
             .Select(group => new ProfilePhaseStat(group.Key, group.Count()))
             .OrderByDescending(item => item.Count)
@@ -455,7 +455,7 @@ public sealed partial class PlayerProfileService
 
         IReadOnlyList<ProfileOpeningStat> mistakesByOpening = snapshots
             .SelectMany(snapshot => snapshot.Moves
-                .Where(move => move.Quality != MoveQualityBucket.Good)
+                .Where(move => move.Quality.IsProblem())
                 .Select(_ => snapshot.Eco))
             .GroupBy(eco => eco, StringComparer.OrdinalIgnoreCase)
             .Select(group => new ProfileOpeningStat(group.First(), group.Count()))

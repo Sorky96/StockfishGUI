@@ -194,6 +194,10 @@ public partial class MainWindow : Window
         }
 
         await dialog.ShowDialog(this);
+        if (dialog.CurrentResult is not null)
+        {
+            viewModel.LoadAnalysisResult(dialog.CurrentResult);
+        }
     }
 
     private async void SavedAnalysesButton_Click(object? sender, RoutedEventArgs e)
@@ -216,8 +220,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        viewModel.LoadImportedGame(dialog.SelectedResult.Game);
-        viewModel.SelectedAnalysisSide = dialog.SelectedResult.AnalyzedSide;
+        viewModel.LoadAnalysisResult(dialog.SelectedResult);
 
         if (dialog.RequestedAction == SavedAnalysisAction.OpenAnalysis)
         {
@@ -225,6 +228,10 @@ public partial class MainWindow : Window
             if (analysisWindow is not null)
             {
                 await analysisWindow.ShowDialog(this);
+                if (analysisWindow.CurrentResult is not null)
+                {
+                    viewModel.LoadAnalysisResult(analysisWindow.CurrentResult);
+                }
             }
         }
     }

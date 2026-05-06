@@ -7,13 +7,17 @@ public sealed class PieceMoveOptionViewModel
         string uci,
         string label,
         string toSquare,
-        bool isBestMove)
+        bool isBestMove,
+        string evalText = "",
+        string evalBrush = "#657386")
     {
         San = san;
         Uci = uci;
         Label = label;
         ToSquare = toSquare;
         IsBestMove = isBestMove;
+        EvalText = evalText;
+        EvalBrush = evalBrush;
     }
 
     public string San { get; }
@@ -25,4 +29,8 @@ public sealed class PieceMoveOptionViewModel
     public string ToSquare { get; }
 
     public bool IsBestMove { get; }
+
+    public string EvalText { get; }
+
+    public string EvalBrush { get; }
 }

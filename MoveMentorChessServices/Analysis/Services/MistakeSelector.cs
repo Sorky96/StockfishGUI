@@ -9,7 +9,7 @@ public sealed class MistakeSelector
         ArgumentNullException.ThrowIfNull(moveAnalyses);
 
         List<MoveAnalysisResult> ordered = moveAnalyses
-            .Where(result => result.Quality != MoveQualityBucket.Good)
+            .Where(result => result.Quality.IsProblem())
             .OrderBy(result => result.Replay.Ply)
             .ToList();
 

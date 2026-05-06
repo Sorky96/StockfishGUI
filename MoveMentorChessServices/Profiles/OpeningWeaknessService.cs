@@ -428,7 +428,7 @@ public sealed class OpeningWeaknessService
         string? label = move.MistakeLabel;
         if (label is null || !FallbackLabels.Contains(label))
         {
-            return move.Quality != MoveQualityBucket.Good && loss >= SignificantMistakeThresholdCp;
+            return move.Quality.IsProblem() && loss >= SignificantMistakeThresholdCp;
         }
 
         if (label.Equals("opening_principles", StringComparison.OrdinalIgnoreCase))

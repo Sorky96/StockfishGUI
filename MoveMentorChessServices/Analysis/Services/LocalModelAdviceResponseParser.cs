@@ -4,7 +4,15 @@ namespace MoveMentorChessServices;
 
 public static class LocalModelAdviceResponseParser
 {
-    private static readonly string[] SupportedKeys = ["short_text", "detailed_text", "training_hint"];
+    private static readonly string[] SupportedKeys =
+    [
+        "short_text",
+        "detailed_text",
+        "training_hint",
+        "referenced_best_move_uci",
+        "referenced_label",
+        "confidence"
+    ];
 
     public static bool TryParse(string? rawResponse, out LocalModelAdviceResponse? response)
     {
@@ -56,13 +64,16 @@ public static class LocalModelAdviceResponseParser
             string shortText = ReadString(root, "short_text");
             string detailedText = ReadString(root, "detailed_text");
             string trainingHint = ReadString(root, "training_hint");
+            string? referencedBestMoveUci = ReadOptionalString(root, "referenced_best_move_uci");
+            string? referencedLabel = ReadOptionalString(root, "referenced_label");
+            double? confidence = ReadOptionalDouble(root, "confidence");
 
             if (!IsComplete(shortText, detailedText, trainingHint))
             {
                 return false;
             }
 
-            response = new LocalModelAdviceResponse(shortText, trainingHint, detailedText);
+            response = new LocalModelAdviceResponse(shortText, trainingHint, detailedText, referencedBestMoveUci, referencedLabel, confidence);
             return true;
         }
         catch (JsonException)
@@ -106,7 +117,14 @@ public static class LocalModelAdviceResponseParser
             return false;
         }
 
-        response = new LocalModelAdviceResponse(shortText, trainingHint, detailedText);
+        values.TryGetValue("referenced_best_move_uci", out string? referencedBestMoveUci);
+        values.TryGetValue("referenced_label", out string? referencedLabel);
+        double? confidence = values.TryGetValue("confidence", out string? rawConfidence)
+            && double.TryParse(rawConfidence, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsedConfidence)
+                ? parsedConfidence
+                : null;
+
+        response = new LocalModelAdviceResponse(shortText, trainingHint, detailedText, referencedBestMoveUci, referencedLabel, confidence);
         return true;
     }
 
@@ -225,6 +243,33 @@ public static class LocalModelAdviceResponseParser
         return value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? string.Empty
             : value.ToString();
+    }
+
+    private static string? ReadOptionalString(JsonElement root, string propertyName)
+    {
+        string value = ReadString(root, propertyName);
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static double? ReadOptionalDouble(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out double number))
+        {
+            return number;
+        }
+
+        if (value.ValueKind == JsonValueKind.String
+            && double.TryParse(value.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out number))
+        {
+            return number;
+        }
+
+        return null;
     }
 
     private static bool IsComplete(string shortText, string detailedText, string trainingHint)

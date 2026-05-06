@@ -8,6 +8,17 @@ namespace MoveMentorChess.App.Views;
 public partial class AnalysisWindow : Window
 {
     private static readonly EngineAnalysisOptions DefaultAnalysisOptions = new();
+    private static readonly string[] KnownMistakeLabels =
+    [
+        "hanging_piece",
+        "material_loss",
+        "missed_tactic",
+        "king_safety",
+        "opening_principles",
+        "endgame_technique",
+        "piece_activity",
+        "unclassified"
+    ];
 
     private readonly ImportedGame? importedGame;
     private readonly IEngineAnalyzer? engineAnalyzer;
@@ -24,6 +35,8 @@ public partial class AnalysisWindow : Window
     {
         InitializeComponent();
     }
+
+    public GameAnalysisResult? CurrentResult => currentResult;
 
     public AnalysisWindow(
         ImportedGame importedGame,
@@ -51,11 +64,14 @@ public partial class AnalysisWindow : Window
             new FilterOption("Mistakes only", MoveQualityBucket.Mistake),
             new FilterOption("Inaccuracies only", MoveQualityBucket.Inaccuracy)
         };
+        CorrectedLabelComboBox.ItemsSource = KnownMistakeLabels;
+        CorrectedLabelComboBox.SelectedIndex = 0;
         SideComboBox.SelectedIndex = initialSide == PlayerSide.Black ? 1 : 0;
         QualityFilterComboBox.SelectedIndex = 0;
         SideComboBox.SelectionChanged += (_, _) => TryLoadCachedResultForSelectedSide();
         QualityFilterComboBox.SelectionChanged += (_, _) => ApplyFilter();
         ShowOnBoardButton.IsEnabled = false;
+        SetFeedbackButtonsEnabled(false);
         DetailsTextBlock.Text = "Run analysis to inspect highlighted mistakes.";
         RefreshAdviceRuntimeState();
 
@@ -127,6 +143,7 @@ public partial class AnalysisWindow : Window
         MistakesListBox.ItemsSource = null;
         DetailsTextBlock.Text = "The analysis engine is reviewing the imported game. This may take a moment.";
         ShowOnBoardButton.IsEnabled = false;
+        SetFeedbackButtonsEnabled(false);
 
         try
         {
@@ -171,6 +188,7 @@ public partial class AnalysisWindow : Window
         {
             DetailsTextBlock.Text = "Select a highlighted mistake to inspect details.";
             ShowOnBoardButton.IsEnabled = false;
+            SetFeedbackButtonsEnabled(false);
             return;
         }
 
@@ -187,8 +205,10 @@ public partial class AnalysisWindow : Window
             explanation = cachedExplanation;
         }
 
-        DetailsTextBlock.Text = BuildDetailsText(item.Mistake, item.LeadMove, currentResult?.OpeningReview, explanation, !isCached);
+        MoveAdviceFeedback? feedback = FindLatestFeedback(item.LeadMove);
+        DetailsTextBlock.Text = BuildDetailsText(item.Mistake, item.LeadMove, currentResult?.OpeningReview, explanation, !isCached, feedback);
         ShowOnBoardButton.IsEnabled = true;
+        SetFeedbackButtonsEnabled(true);
 
         if (!isCached)
         {
@@ -215,6 +235,7 @@ public partial class AnalysisWindow : Window
             MistakesListBox.ItemsSource = null;
             DetailsTextBlock.Text = "Run analysis to inspect highlighted mistakes.";
             ShowOnBoardButton.IsEnabled = false;
+            SetFeedbackButtonsEnabled(false);
             return;
         }
 
@@ -232,8 +253,9 @@ public partial class AnalysisWindow : Window
         int blunders = currentResult.HighlightedMistakes.Count(item => item.Quality == MoveQualityBucket.Blunder);
         int mistakes = currentResult.HighlightedMistakes.Count(item => item.Quality == MoveQualityBucket.Mistake);
         int inaccuracies = currentResult.HighlightedMistakes.Count(item => item.Quality == MoveQualityBucket.Inaccuracy);
+        string qualityBreakdown = BuildQualityBreakdown(currentResult.MoveAnalyses);
         string cacheSuffix = currentResultIsCached ? " Loaded from cache." : string.Empty;
-        SummaryTextBlock.Text = $"Showing {items.Count} items for {currentResult.AnalyzedSide}. Highlights: {blunders} blunders, {mistakes} mistakes, {inaccuracies} inaccuracies.{cacheSuffix}";
+        SummaryTextBlock.Text = $"Showing {items.Count} items for {currentResult.AnalyzedSide}. Move labels: {qualityBreakdown}. Highlights: {blunders} blunders, {mistakes} mistakes, {inaccuracies} inaccuracies.{cacheSuffix}";
 
         if (items.Count > 0)
         {
@@ -243,6 +265,119 @@ public partial class AnalysisWindow : Window
         {
             DetailsTextBlock.Text = "No items match the current filter.";
             ShowOnBoardButton.IsEnabled = false;
+            SetFeedbackButtonsEnabled(false);
+        }
+    }
+
+    private void CorrectFeedbackButton_Click(object? sender, RoutedEventArgs e)
+        => RecordSelectedFeedback(AdviceFeedbackKind.Correct);
+
+    private void WrongLabelFeedbackButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (MistakesListBox.SelectedItem is SelectedMistakeViewItem item)
+        {
+            CorrectedLabelComboBox.SelectedItem = KnownMistakeLabels.Contains(item.RawLabel, StringComparer.Ordinal)
+                ? item.RawLabel
+                : "unclassified";
+            CustomLabelTextBox.Text = string.Empty;
+            FeedbackCommentTextBox.Text = string.Empty;
+        }
+
+        ManualCorrectionPanel.IsVisible = true;
+    }
+
+    private void NotUsefulFeedbackButton_Click(object? sender, RoutedEventArgs e)
+        => RecordSelectedFeedback(AdviceFeedbackKind.NotUseful);
+
+    private void TooGenericFeedbackButton_Click(object? sender, RoutedEventArgs e)
+        => RecordSelectedFeedback(AdviceFeedbackKind.TooGeneric);
+
+    private void GoodExplanationFeedbackButton_Click(object? sender, RoutedEventArgs e)
+        => RecordSelectedFeedback(AdviceFeedbackKind.GoodExplanation);
+
+    private void SaveManualCorrectionButton_Click(object? sender, RoutedEventArgs e)
+    {
+        string? correctedLabel = NormalizeManualLabel(
+            CustomLabelTextBox.Text,
+            CorrectedLabelComboBox.SelectedItem?.ToString());
+        if (string.IsNullOrWhiteSpace(correctedLabel))
+        {
+            StatusTextBlock.Text = "Choose or enter a corrected label first.";
+            return;
+        }
+
+        RecordSelectedFeedback(AdviceFeedbackKind.WrongLabel, correctedLabel, FeedbackCommentTextBox.Text);
+        ManualCorrectionPanel.IsVisible = false;
+    }
+
+    private void RecordSelectedFeedback(AdviceFeedbackKind feedbackKind, string? correctedLabel = null, string? comment = null)
+    {
+        if (MistakesListBox.SelectedItem is not SelectedMistakeViewItem item || importedGame is null)
+        {
+            return;
+        }
+
+        MoveAnalysisResult lead = item.LeadMove;
+        string gameFingerprint = GameFingerprint.Compute(importedGame.PgnText);
+        GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(importedGame, currentResult?.AnalyzedSide ?? initialSide, DefaultAnalysisOptions);
+        MoveAdviceFeedback feedback = new(
+            Guid.NewGuid().ToString("N"),
+            DateTime.UtcNow,
+            gameFingerprint,
+            currentResult?.AnalyzedSide ?? initialSide,
+            key.Depth,
+            key.MultiPv,
+            key.MoveTimeMs,
+            lead.Replay.Ply,
+            lead.Replay.MoveNumber,
+            lead.Replay.San,
+            lead.Replay.Uci,
+            lead.Replay.FenBefore,
+            lead.Replay.FenAfter,
+            lead.EvalBeforeCp,
+            lead.EvalAfterCp,
+            lead.BeforeAnalysis.BestMoveUci,
+            item.RawLabel,
+            lead.MistakeTag?.Confidence ?? item.Mistake.Tag?.Confidence,
+            lead.MistakeTag?.Evidence ?? item.Mistake.Tag?.Evidence ?? [],
+            item.Mistake.Quality,
+            lead.CentipawnLoss,
+            feedbackKind,
+            correctedLabel,
+            string.IsNullOrWhiteSpace(comment) ? null : comment.Trim(),
+            "analysis-window");
+
+        AnalysisStoreProvider.GetStore()?.SaveMoveAdviceFeedback(feedback);
+        AdviceFeedbackEntry entry = new(
+            DateTime.UtcNow,
+            gameFingerprint,
+            lead.Replay.Ply,
+            feedbackKind,
+            item.RawLabel,
+            item.Mistake.Quality,
+            lead.CentipawnLoss,
+            UsedFallback: false,
+            lead.Replay.San,
+            lead.Replay.Uci,
+            lead.BeforeAnalysis.BestMoveUci,
+            "analysis-window");
+
+        AdviceFeedbackLogger.CreateDefault().Record(entry);
+        StatusTextBlock.Text = $"Feedback saved: {FormatFeedbackKind(feedbackKind)}.";
+        UpdateDetails();
+    }
+
+    private void SetFeedbackButtonsEnabled(bool enabled)
+    {
+        CorrectFeedbackButton.IsEnabled = enabled;
+        WrongLabelFeedbackButton.IsEnabled = enabled;
+        NotUsefulFeedbackButton.IsEnabled = enabled;
+        TooGenericFeedbackButton.IsEnabled = enabled;
+        GoodExplanationFeedbackButton.IsEnabled = enabled;
+        SaveManualCorrectionButton.IsEnabled = enabled;
+        if (!enabled)
+        {
+            ManualCorrectionPanel.IsVisible = false;
         }
     }
 
@@ -305,7 +440,7 @@ public partial class AnalysisWindow : Window
             return;
         }
 
-        DetailsTextBlock.Text = BuildDetailsText(item.Mistake, lead, currentResult?.OpeningReview, explanation, false);
+        DetailsTextBlock.Text = BuildDetailsText(item.Mistake, lead, currentResult?.OpeningReview, explanation, false, FindLatestFeedback(lead));
     }
 
     private static string BuildDetailsText(
@@ -313,12 +448,28 @@ public partial class AnalysisWindow : Window
         MoveAnalysisResult lead,
         OpeningPhaseReview? openingReview,
         MoveExplanation explanation,
-        bool isLoading)
+        bool isLoading,
+        MoveAdviceFeedback? feedback)
     {
         StringBuilder builder = new();
         builder.AppendLine($"Moves: {BuildMoveRange(mistake)}");
         builder.AppendLine($"Quality: {mistake.Quality}");
-        builder.AppendLine($"Label: {FormatMistakeLabel(mistake.Tag?.Label ?? "unclassified")}");
+        string effectiveLabel = feedback?.CorrectedLabel ?? mistake.Tag?.Label ?? "unclassified";
+        builder.AppendLine($"Label: {FormatMistakeLabel(effectiveLabel)}");
+        if (feedback is not null)
+        {
+            builder.AppendLine($"Original label: {FormatMistakeLabel(feedback.OriginalLabel ?? "unclassified")}");
+            builder.AppendLine($"Manual feedback: {feedback.FeedbackKind}");
+            if (!string.IsNullOrWhiteSpace(feedback.CorrectedLabel))
+            {
+                builder.AppendLine($"Manual/effective label: {FormatMistakeLabel(feedback.CorrectedLabel)}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(feedback.Comment))
+            {
+                builder.AppendLine($"Manual comment: {feedback.Comment}");
+            }
+        }
         builder.AppendLine($"Confidence: {(mistake.Tag?.Confidence ?? 0):0.00}");
         builder.AppendLine($"Phase: {lead.Replay.Phase}");
         builder.AppendLine($"Played move: {FormatSanAndUci(lead.Replay.San, lead.Replay.Uci)}");
@@ -406,6 +557,35 @@ public partial class AnalysisWindow : Window
         AdviceStatusTextBlock.Text = status.StatusText;
     }
 
+    private MoveAdviceFeedback? FindLatestFeedback(MoveAnalysisResult lead)
+    {
+        if (importedGame is null || currentResult is null)
+        {
+            return null;
+        }
+
+        GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(importedGame, currentResult.AnalyzedSide, DefaultAnalysisOptions);
+        return AnalysisStoreProvider.GetStore()
+            ?.ListMoveAdviceFeedback(limit: 2000)
+            .Where(feedback =>
+                feedback.GameFingerprint == key.GameFingerprint
+                && feedback.AnalyzedSide == key.Side
+                && feedback.Depth == key.Depth
+                && feedback.MultiPv == key.MultiPv
+                && feedback.MoveTimeMs == key.MoveTimeMs
+                && feedback.Ply == lead.Replay.Ply)
+            .OrderByDescending(feedback => feedback.TimestampUtc)
+            .ThenByDescending(feedback => feedback.FeedbackId, StringComparer.Ordinal)
+            .FirstOrDefault();
+    }
+
+    private static string? NormalizeManualLabel(string? customLabel, string? selectedLabel)
+    {
+        string candidate = string.IsNullOrWhiteSpace(customLabel) ? selectedLabel ?? string.Empty : customLabel;
+        candidate = candidate.Trim().ToLowerInvariant().Replace(' ', '_').Replace('-', '_');
+        return string.IsNullOrWhiteSpace(candidate) ? null : candidate;
+    }
+
     private static IAdviceGenerator CreateSettingsBackedAdviceGenerator(IAdviceGenerator inner)
         => new SettingsBackedAdviceGenerator(inner);
 
@@ -414,6 +594,7 @@ public partial class AnalysisWindow : Window
         MistakesListBox.ItemsSource = null;
         DetailsTextBlock.Text = "Run analysis to inspect highlighted mistakes.";
         ShowOnBoardButton.IsEnabled = false;
+        SetFeedbackButtonsEnabled(false);
         explanationRequestId++;
 
         if (importedGame is null || SideComboBox.SelectedItem is not SideOption selectedSide)
@@ -555,6 +736,20 @@ public partial class AnalysisWindow : Window
         };
     }
 
+    private static string BuildQualityBreakdown(IReadOnlyList<MoveAnalysisResult> moveAnalyses)
+    {
+        return string.Join(", ", new[]
+            {
+                MoveQualityBucket.Best,
+                MoveQualityBucket.Excellent,
+                MoveQualityBucket.Good,
+                MoveQualityBucket.Inaccuracy,
+                MoveQualityBucket.Mistake,
+                MoveQualityBucket.Blunder
+            }
+            .Select(quality => $"{quality} {moveAnalyses.Count(move => move.Quality == quality)}"));
+    }
+
     private sealed record SideOption(PlayerSide Side, string Label)
     {
         public override string ToString() => Label;
@@ -575,10 +770,10 @@ public partial class AnalysisWindow : Window
                 .ThenByDescending(move => move.CentipawnLoss ?? 0)
                 .First();
             MoveRange = BuildMoveRange(Mistake);
-            string rawLabel = Mistake.Tag?.Label ?? LeadMove.MistakeTag?.Label ?? "unclassified";
-            LabelText = FormatMistakeLabel(rawLabel);
-            LabelBrush = GetMistakeLabelBrush(rawLabel);
-            LabelForeground = GetMistakeLabelForeground(rawLabel);
+            RawLabel = Mistake.Tag?.Label ?? LeadMove.MistakeTag?.Label ?? "unclassified";
+            LabelText = FormatMistakeLabel(RawLabel);
+            LabelBrush = GetMistakeLabelBrush(RawLabel);
+            LabelForeground = GetMistakeLabelForeground(RawLabel);
             MetaText = $"{Mistake.Quality} | CPL {LeadMove.CentipawnLoss?.ToString() ?? "n/a"}";
         }
 
@@ -589,6 +784,8 @@ public partial class AnalysisWindow : Window
         public string MoveRange { get; }
 
         public string LabelText { get; }
+
+        public string RawLabel { get; }
 
         public string LabelBrush { get; }
 
@@ -623,6 +820,19 @@ public partial class AnalysisWindow : Window
         {
             "king_safety" => "#111827",
             _ => "White"
+        };
+    }
+
+    private static string FormatFeedbackKind(AdviceFeedbackKind kind)
+    {
+        return kind switch
+        {
+            AdviceFeedbackKind.Correct => "Correct",
+            AdviceFeedbackKind.WrongLabel => "Wrong label",
+            AdviceFeedbackKind.NotUseful => "Not useful",
+            AdviceFeedbackKind.TooGeneric => "Too generic",
+            AdviceFeedbackKind.GoodExplanation => "Good explanation",
+            _ => kind.ToString()
         };
     }
 

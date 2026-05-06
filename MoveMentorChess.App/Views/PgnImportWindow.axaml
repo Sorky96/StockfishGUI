@@ -22,6 +22,10 @@
                  HorizontalAlignment="Stretch"
                  MinHeight="360"
                  Padding="12"
+                 Background="{DynamicResource ChromeBrush}"
+                 Foreground="#EAF2F7"
+                 BorderBrush="{DynamicResource PanelAccentBrush}"
+                 FontFamily="Cascadia Code, Consolas, monospace"
                  TextWrapping="Wrap" />
       </Grid>
     </Border>
