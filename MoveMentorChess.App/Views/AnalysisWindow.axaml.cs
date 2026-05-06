@@ -149,7 +149,8 @@ public partial class AnalysisWindow : Window
         {
             GameAnalysisService analysisService = new(
                 engineAnalyzer,
-                adviceGenerator: CreateSettingsBackedAdviceGenerator(AdviceGeneratorFactory.CreateBulkAnalysisGenerator()));
+                adviceGenerator: CreateSettingsBackedAdviceGenerator(AdviceGeneratorFactory.CreateBulkAnalysisGenerator()),
+                openingTheory: CreateOpeningTheory());
             IProgress<GameAnalysisProgress>? progress = analysisProgress is null
                 ? null
                 : new Progress<GameAnalysisProgress>(analysisProgress);
@@ -740,6 +741,9 @@ public partial class AnalysisWindow : Window
     {
         return string.Join(", ", new[]
             {
+                MoveQualityBucket.Book,
+                MoveQualityBucket.Brilliant,
+                MoveQualityBucket.Great,
                 MoveQualityBucket.Best,
                 MoveQualityBucket.Excellent,
                 MoveQualityBucket.Good,
@@ -748,6 +752,12 @@ public partial class AnalysisWindow : Window
                 MoveQualityBucket.Blunder
             }
             .Select(quality => $"{quality} {moveAnalyses.Count(move => move.Quality == quality)}"));
+    }
+
+    private static OpeningTheoryQueryService? CreateOpeningTheory()
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        return store is null ? null : OpeningTheorySourceResolver.Create(store);
     }
 
     private sealed record SideOption(PlayerSide Side, string Label)

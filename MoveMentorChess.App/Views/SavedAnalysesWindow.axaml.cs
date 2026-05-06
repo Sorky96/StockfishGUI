@@ -223,6 +223,9 @@ public partial class SavedAnalysesWindow : Window
     {
         return string.Join(", ", new[]
             {
+                MoveQualityBucket.Book,
+                MoveQualityBucket.Brilliant,
+                MoveQualityBucket.Great,
                 MoveQualityBucket.Best,
                 MoveQualityBucket.Excellent,
                 MoveQualityBucket.Good,

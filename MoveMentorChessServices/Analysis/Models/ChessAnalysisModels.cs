@@ -17,12 +17,15 @@ public enum GamePhase
 
 public enum MoveQualityBucket
 {
-    Best = -2,
-    Excellent = -1,
-    Good = 0,
-    Inaccuracy = 1,
-    Mistake = 2,
-    Blunder = 3
+    Book = 0,
+    Brilliant = 1,
+    Great = 2,
+    Best = 3,
+    Excellent = 4,
+    Good = 5,
+    Inaccuracy = 6,
+    Mistake = 7,
+    Blunder = 8
 }
 
 public static class MoveQualityBucketExtensions

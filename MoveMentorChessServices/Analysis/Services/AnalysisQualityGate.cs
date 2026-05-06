@@ -4,6 +4,9 @@ public sealed class AnalysisQualityGate
 {
     private const double WeakEvidenceConfidenceCap = 0.49;
     private const double ContradictoryEvidenceConfidence = 0.25;
+    private const int GreatMoveMaxCentipawnLoss = 20;
+    private const int GreatMoveAlternativeDropCp = 80;
+    private const int GreatMoveCloseAlternativeCp = 40;
 
     private readonly JsonlDiagnosticsLogger<QualityGateReport>? logger;
     private readonly IAdviceGenerator fallbackAdviceGenerator;
@@ -35,7 +38,7 @@ public sealed class AnalysisQualityGate
 
         AddEngineConsistencyFindings(result, gameFingerprint, findings);
 
-        MoveQualityBucket expectedQuality = ClassifyQuality(result);
+        MoveQualityBucket expectedQuality = ClassifyQuality(result, analyzedSide);
         if (expectedQuality != result.Quality)
         {
             findings.Add(CreateFinding(
@@ -195,8 +198,13 @@ public sealed class AnalysisQualityGate
         }
     }
 
-    private static MoveQualityBucket ClassifyQuality(MoveAnalysisResult result)
+    private static MoveQualityBucket ClassifyQuality(MoveAnalysisResult result, PlayerSide analyzedSide)
     {
+        if (result.Quality == MoveQualityBucket.Book)
+        {
+            return MoveQualityBucket.Book;
+        }
+
         if (result.BestMateIn is > 0 && result.PlayedMateIn is null)
         {
             return MoveQualityBucket.Blunder;
@@ -228,6 +236,16 @@ public sealed class AnalysisQualityGate
             return MoveQualityBucket.Inaccuracy;
         }
 
+        if (MoveBrilliancyDetector.IsBrilliant(result, analyzedSide))
+        {
+            return MoveQualityBucket.Brilliant;
+        }
+
+        if (IsGreatMove(result, analyzedSide))
+        {
+            return MoveQualityBucket.Great;
+        }
+
         if (!string.IsNullOrWhiteSpace(result.BeforeAnalysis.BestMoveUci)
             && string.Equals(result.Replay.Uci, result.BeforeAnalysis.BestMoveUci, StringComparison.Ordinal))
         {
@@ -245,6 +263,38 @@ public sealed class AnalysisQualityGate
         }
 
         return MoveQualityBucket.Good;
+    }
+
+    private static bool IsGreatMove(MoveAnalysisResult result, PlayerSide analyzedSide)
+    {
+        if (result.CentipawnLoss is not int loss
+            || loss > GreatMoveMaxCentipawnLoss
+            || result.EvalAfterCp is not int playedCp)
+        {
+            return false;
+        }
+
+        List<int> alternativeScores = result.BeforeAnalysis.Lines
+            .Where(line => !string.Equals(line.MoveUci, result.Replay.Uci, StringComparison.Ordinal))
+            .Select(line => NormalizeScore(line, analyzedSide, result.Replay.Side))
+            .Where(score => score.HasValue)
+            .Select(score => score!.Value)
+            .ToList();
+        if (alternativeScores.Count == 0)
+        {
+            return false;
+        }
+
+        bool hasClearlyWorseAlternative = alternativeScores.Any(score => playedCp - score >= GreatMoveAlternativeDropCp);
+        int closeAlternativeCount = alternativeScores.Count(score => score >= playedCp - GreatMoveCloseAlternativeCp);
+
+        return hasClearlyWorseAlternative && closeAlternativeCount <= 1;
+    }
+
+    private static int? NormalizeScore(EngineLine line, PlayerSide analyzedSide, PlayerSide sideToMove)
+    {
+        int sign = analyzedSide == sideToMove ? 1 : -1;
+        return line.Centipawns is int cp ? cp * sign : null;
     }
 
     private static EvidenceValidation ValidateEvidence(MoveAnalysisResult result, MistakeTag tag)

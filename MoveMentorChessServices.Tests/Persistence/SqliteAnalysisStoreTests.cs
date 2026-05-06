@@ -521,6 +521,129 @@ public sealed class SqliteAnalysisStoreTests
     }
 
     [Fact]
+    public void SqliteAnalysisStore_ClearsImportedAnalysisDataWithoutOpeningOrTrainingData()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            ImportedGame game = PgnGameParser.Parse(GameOnePgn);
+            string fingerprint = GameFingerprint.Compute(game.PgnText);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions());
+            MoveAnalysisResult move = CreateMoveAnalysis(
+                ply: 3,
+                moveNumber: 2,
+                phase: GamePhase.Opening,
+                quality: MoveQualityBucket.Mistake,
+                centipawnLoss: 145,
+                label: "missed_tactic");
+            DateTime completedUtc = DateTime.Parse("2026-04-20T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal);
+            OpeningTrainingSessionResult trainingResult = new(
+                "opening-trainer:alpha:clear",
+                "alpha",
+                "Alpha",
+                completedUtc.AddMinutes(-15),
+                completedUtc,
+                OpeningTrainingSessionOutcome.Completed,
+                1,
+                1,
+                1,
+                1,
+                0,
+                ["C20"],
+                ["opening_principles"],
+                []);
+
+            store.SaveImportedGame(game);
+            store.SaveResult(key, new GameAnalysisResult(game, PlayerSide.White, [move.Replay], [move], []));
+            store.SaveWindowState(fingerprint, new AnalysisWindowState(PlayerSide.White, 1, 2));
+            store.SaveMoveAdviceFeedback(CreateFeedback(key, move, AdviceFeedbackKind.WrongLabel, "hanging_piece", "clear me"));
+            store.SaveOpeningTree(BuildOpeningTree(OpeningImportGameOnePgn, OpeningImportGameTwoPgn));
+            store.SaveOpeningTrainingSessionResult(trainingResult);
+
+            OpeningTreeStoreSummary openingSummaryBefore = store.GetOpeningTreeSummary();
+
+            store.ClearImportedAnalysisData();
+
+            Assert.Empty(store.ListImportedGames());
+            Assert.Empty(store.ListResults());
+            Assert.Empty(store.ListMoveAnalyses());
+            Assert.Empty(store.ListMoveAdviceFeedback());
+            Assert.False(store.TryLoadImportedGame(fingerprint, out _));
+            Assert.False(store.TryLoadResult(key, out _));
+            Assert.False(store.TryLoadWindowState(fingerprint, out _));
+            Assert.Equal(openingSummaryBefore, store.GetOpeningTreeSummary());
+            OpeningTrainingSessionResult restoredTraining = Assert.Single(store.ListOpeningTrainingSessionResults("alpha"));
+            Assert.Equal(trainingResult.SessionId, restoredTraining.SessionId);
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void SqliteAnalysisStore_RoundTripsPositiveMoveQualityValues()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            ImportedGame game = PgnGameParser.Parse(GameOnePgn);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions());
+            MoveAnalysisResult move = CreateMoveAnalysis(
+                ply: 3,
+                moveNumber: 2,
+                phase: GamePhase.Opening,
+                quality: MoveQualityBucket.Great,
+                centipawnLoss: 8,
+                label: "opening_principles");
+            GameAnalysisResult result = new(game, PlayerSide.White, [move.Replay], [move], []);
+
+            store.SaveResult(key, result);
+
+            StoredMoveAnalysis storedMove = Assert.Single(store.ListMoveAnalyses("Alpha"));
+            bool found = store.TryLoadResult(key, out GameAnalysisResult? restored);
+
+            Assert.True(found);
+            Assert.NotNull(restored);
+            Assert.Equal(MoveQualityBucket.Great, storedMove.Quality);
+            Assert.Equal(MoveQualityBucket.Great, restored!.MoveAnalyses[0].Quality);
+            Assert.Equal(2, (int)MoveQualityBucket.Great);
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void MoveQualityBucketExtensions_ClassifyProblemAndPositiveRanges()
+    {
+        Assert.False(MoveQualityBucket.Book.IsProblem());
+        Assert.False(MoveQualityBucket.Brilliant.IsProblem());
+        Assert.False(MoveQualityBucket.Great.IsProblem());
+        Assert.False(MoveQualityBucket.Best.IsProblem());
+        Assert.False(MoveQualityBucket.Excellent.IsProblem());
+        Assert.False(MoveQualityBucket.Good.IsProblem());
+        Assert.True(MoveQualityBucket.Inaccuracy.IsProblem());
+        Assert.True(MoveQualityBucket.Mistake.IsProblem());
+        Assert.True(MoveQualityBucket.Blunder.IsProblem());
+
+        Assert.True(MoveQualityBucket.Book.IsPositiveOrNeutral());
+        Assert.True(MoveQualityBucket.Brilliant.IsPositiveOrNeutral());
+        Assert.True(MoveQualityBucket.Great.IsPositiveOrNeutral());
+        Assert.True(MoveQualityBucket.Best.IsPositiveOrNeutral());
+        Assert.True(MoveQualityBucket.Excellent.IsPositiveOrNeutral());
+        Assert.True(MoveQualityBucket.Good.IsPositiveOrNeutral());
+        Assert.False(MoveQualityBucket.Inaccuracy.IsPositiveOrNeutral());
+        Assert.False(MoveQualityBucket.Mistake.IsPositiveOrNeutral());
+        Assert.False(MoveQualityBucket.Blunder.IsPositiveOrNeutral());
+    }
+
+    [Fact]
     public void SqliteAnalysisStore_SavesOpeningTreeWithUpserts()
     {
         string databasePath = CreateTempDatabasePath();

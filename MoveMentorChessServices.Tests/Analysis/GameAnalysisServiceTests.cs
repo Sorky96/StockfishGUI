@@ -812,6 +812,123 @@ Kxa2 62. Qb2# 1-0
         Assert.Empty(result.HighlightedMistakes);
     }
 
+    [Fact]
+    public void GameAnalysisService_ClassifiesKnownOpeningMoveAsBook()
+    {
+        ImportedGame game = PgnGameParser.Parse("1. d4");
+        GameReplayService replayService = new();
+        ReplayPly move = replayService.Replay(game)[0];
+        FakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [move.FenBefore] = AnalysisFor(move.FenBefore, "e2e4", 100, null, "e2e4"),
+            [move.FenAfter] = AnalysisFor(move.FenAfter, "d7d5", 30, null, "d7d5")
+        });
+        FakeOpeningTheoryStore theoryStore = new(
+            OpeningPositionKeyBuilder.Build(move.FenBefore),
+            new OpeningTheoryMove(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                move.Uci,
+                move.San,
+                42,
+                12,
+                true,
+                true,
+                1,
+                OpeningPositionKeyBuilder.Build(move.FenAfter),
+                move.FenAfter,
+                new OpeningGameMetadata("D00", "Queen's Pawn Game", string.Empty)));
+
+        GameAnalysisService service = new(
+            fakeEngine,
+            replayService,
+            openingTheory: new OpeningTheoryQueryService(theoryStore));
+        GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
+
+        Assert.Single(result.MoveAnalyses);
+        Assert.Equal(MoveQualityBucket.Book, result.MoveAnalyses[0].Quality);
+        Assert.Empty(result.HighlightedMistakes);
+    }
+
+    [Fact]
+    public void GameAnalysisService_ClassifiesCriticalBestMoveAsGreat()
+    {
+        ImportedGame game = PgnGameParser.Parse("1. e4");
+        GameReplayService replayService = new();
+        ReplayPly move = replayService.Replay(game)[0];
+        FakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [move.FenBefore] = AnalysisFor(
+                move.FenBefore,
+                [
+                    new EngineLine(move.Uci, 120, null, [move.Uci]),
+                    new EngineLine("d2d4", 30, null, ["d2d4"]),
+                    new EngineLine("g1f3", 10, null, ["g1f3"])
+                ]),
+            [move.FenAfter] = AnalysisFor(move.FenAfter, "e7e5", -120, null, "e7e5")
+        });
+
+        GameAnalysisService service = new(fakeEngine, replayService);
+        GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
+
+        Assert.Single(result.MoveAnalyses);
+        Assert.Equal(MoveQualityBucket.Great, result.MoveAnalyses[0].Quality);
+        Assert.Empty(result.HighlightedMistakes);
+    }
+
+    [Fact]
+    public void GameAnalysisService_KeepsOrdinaryBestMoveAsBest()
+    {
+        ImportedGame game = PgnGameParser.Parse("1. e4");
+        GameReplayService replayService = new();
+        ReplayPly move = replayService.Replay(game)[0];
+        FakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [move.FenBefore] = AnalysisFor(
+                move.FenBefore,
+                [
+                    new EngineLine(move.Uci, 100, null, [move.Uci]),
+                    new EngineLine("d2d4", 80, null, ["d2d4"]),
+                    new EngineLine("g1f3", 75, null, ["g1f3"])
+                ]),
+            [move.FenAfter] = AnalysisFor(move.FenAfter, "e7e5", -100, null, "e7e5")
+        });
+
+        GameAnalysisService service = new(fakeEngine, replayService);
+        GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
+
+        Assert.Single(result.MoveAnalyses);
+        Assert.Equal(MoveQualityBucket.Best, result.MoveAnalyses[0].Quality);
+        Assert.Empty(result.HighlightedMistakes);
+    }
+
+    [Fact]
+    public void GameAnalysisService_ClassifiesNearBestMoveUnderPressureAsGreat()
+    {
+        ImportedGame game = PgnGameParser.Parse("1. d4");
+        GameReplayService replayService = new();
+        ReplayPly move = replayService.Replay(game)[0];
+        FakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [move.FenBefore] = AnalysisFor(
+                move.FenBefore,
+                [
+                    new EngineLine("e2e4", 100, null, ["e2e4"]),
+                    new EngineLine(move.Uci, 90, null, [move.Uci]),
+                    new EngineLine("g1f3", 0, null, ["g1f3"])
+                ]),
+            [move.FenAfter] = AnalysisFor(move.FenAfter, "d7d5", -90, null, "d7d5")
+        });
+
+        GameAnalysisService service = new(fakeEngine, replayService);
+        GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
+
+        Assert.Single(result.MoveAnalyses);
+        Assert.Equal(MoveQualityBucket.Great, result.MoveAnalyses[0].Quality);
+        Assert.Empty(result.HighlightedMistakes);
+    }
+
     [Theory]
     [InlineData(-30, MoveQualityBucket.Excellent)]
     [InlineData(10, MoveQualityBucket.Good)]
@@ -832,6 +949,96 @@ Kxa2 62. Qb2# 1-0
 
         Assert.Single(result.MoveAnalyses);
         Assert.Equal(expectedQuality, result.MoveAnalyses[0].Quality);
+        Assert.Empty(result.HighlightedMistakes);
+    }
+
+    [Fact]
+    public void MoveBrilliancyDetector_DetectsSoundValuablePieceSacrifice()
+    {
+        ReplayPly replay = CreateReplay(
+            GamePhase.Middlegame,
+            "B",
+            "c4",
+            "f7",
+            "fen-before",
+            "fen-after");
+        MoveHeuristicContext context = CreateContext(
+            MovedPieceHangingAfterMove: true,
+            MovedPieceValueCp: 330);
+
+        bool brilliant = MoveBrilliancyDetector.IsBrilliant(
+            replay,
+            centipawnLoss: 0,
+            evalAfterCp: 120,
+            playedMateIn: null,
+            materialDeltaCp: 100,
+            isBookMove: false,
+            context);
+
+        Assert.True(brilliant);
+    }
+
+    [Fact]
+    public void MoveBrilliancyDetector_RejectsBookOrUnsoundSacrifice()
+    {
+        ReplayPly replay = CreateReplay(
+            GamePhase.Opening,
+            "B",
+            "c4",
+            "f7",
+            "fen-before",
+            "fen-after");
+        MoveHeuristicContext context = CreateContext(
+            MovedPieceHangingAfterMove: true,
+            MovedPieceValueCp: 330);
+
+        Assert.False(MoveBrilliancyDetector.IsBrilliant(
+            replay,
+            centipawnLoss: 0,
+            evalAfterCp: 120,
+            playedMateIn: null,
+            materialDeltaCp: 100,
+            isBookMove: true,
+            context));
+        Assert.False(MoveBrilliancyDetector.IsBrilliant(
+            replay,
+            centipawnLoss: 0,
+            evalAfterCp: -120,
+            playedMateIn: null,
+            materialDeltaCp: 100,
+            isBookMove: false,
+            context));
+    }
+
+    [Fact]
+    public void GameAnalysisService_ClassifiesSoundBishopSacrificeAsBrilliant()
+    {
+        ImportedGame game = PgnGameParser.Parse("1. e4 e5 2. Bc4 Nf6 3. Bxf7+");
+        GameReplayService replayService = new();
+        IReadOnlyList<ReplayPly> replay = replayService.Replay(game);
+        ReplayPly whiteFirst = replay[0];
+        ReplayPly whiteSecond = replay[2];
+        ReplayPly sacrifice = replay[4];
+
+        FakeEngineAnalyzer fakeEngine = new(new Dictionary<string, EngineAnalysis>
+        {
+            [whiteFirst.FenBefore] = AnalysisFor(whiteFirst.FenBefore, "e2e4", 40, null, "e2e4"),
+            [whiteFirst.FenAfter] = AnalysisFor(whiteFirst.FenAfter, "e7e5", -40, null, "e7e5"),
+            [whiteSecond.FenBefore] = AnalysisFor(whiteSecond.FenBefore, "f1c4", 35, null, "f1c4"),
+            [whiteSecond.FenAfter] = AnalysisFor(whiteSecond.FenAfter, "g8f6", -35, null, "g8f6"),
+            [sacrifice.FenBefore] = AnalysisFor(
+                sacrifice.FenBefore,
+                [
+                    new EngineLine(sacrifice.Uci, 120, null, [sacrifice.Uci]),
+                    new EngineLine("g1f3", 20, null, ["g1f3"])
+                ]),
+            [sacrifice.FenAfter] = AnalysisFor(sacrifice.FenAfter, "e8f7", -120, null, "e8f7")
+        });
+
+        GameAnalysisService service = new(fakeEngine, replayService);
+        GameAnalysisResult result = service.AnalyzeGame(game, PlayerSide.White, new EngineAnalysisOptions());
+
+        Assert.Equal(MoveQualityBucket.Brilliant, result.MoveAnalyses[2].Quality);
         Assert.Empty(result.HighlightedMistakes);
     }
 
@@ -2094,6 +2301,12 @@ confidence: 0.82
             bestMove);
     }
 
+    private static EngineAnalysis AnalysisFor(string fen, IReadOnlyList<EngineLine> lines)
+    {
+        EngineLine? bestLine = lines.FirstOrDefault();
+        return new EngineAnalysis(fen, lines, bestLine?.MoveUci);
+    }
+
     private static string? TryFindStockfishExe()
     {
         string[] candidates =
@@ -2221,6 +2434,40 @@ confidence: 0.82
             }
 
             throw new InvalidOperationException($"No fake analysis configured for FEN: {fen}");
+        }
+    }
+
+    private sealed class FakeOpeningTheoryStore : IOpeningTheoryStore
+    {
+        private readonly string positionKey;
+        private readonly IReadOnlyList<OpeningTheoryMove> moves;
+
+        public FakeOpeningTheoryStore(string positionKey, OpeningTheoryMove move)
+        {
+            this.positionKey = positionKey;
+            moves = [move];
+        }
+
+        public bool TryGetOpeningPositionByKey(string positionKey, out OpeningTheoryPosition? position)
+        {
+            position = null;
+            return false;
+        }
+
+        public IReadOnlyList<OpeningTheoryMove> GetOpeningMovesByPositionKey(
+            string positionKey,
+            int limit = 10,
+            bool playableOnly = false)
+        {
+            if (!string.Equals(positionKey, this.positionKey, StringComparison.Ordinal))
+            {
+                return [];
+            }
+
+            IEnumerable<OpeningTheoryMove> filtered = playableOnly
+                ? moves.Where(move => move.IsPlayableMove)
+                : moves;
+            return filtered.Take(limit).ToList();
         }
     }
 

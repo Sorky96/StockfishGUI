@@ -422,9 +422,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             LoadImportedGameCore(result.Game);
         }
 
-        SelectedAnalysisSide = result.AnalyzedSide;
         cachedAnalysisResultsBySide[result.AnalyzedSide] = result;
-        cachedAnalysisResult = result;
+        LoadCachedAnalysisResultsForCurrentGame(new EngineAnalysisOptions());
+        SelectedAnalysisSide = result.AnalyzedSide;
+        cachedAnalysisResult = cachedAnalysisResultsBySide.TryGetValue(result.AnalyzedSide, out GameAnalysisResult? selectedResult)
+            ? selectedResult
+            : result;
         ApplyAnalysisToImportedMoves();
         ApplyAnalysisFilter();
         StatusMessage = $"Loaded analysis for {result.AnalyzedSide}.";
@@ -454,7 +457,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 : $"The analysis engine is reviewing games for {primaryPlayer}. This may take a while.";
 
             EngineAnalysisOptions options = StockfishSettingsStore.Load().ToBulkAnalysisOptions();
-            GameAnalysisService analysisService = new(engine);
+            GameAnalysisService analysisService = new(engine, openingTheory: CreateOpeningTheory());
             GameAnalysisResult? lastResult = null;
 
             foreach (ImportedGame game in games)
@@ -765,7 +768,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             ApplyAnalysisToImportedMoves();
             IProgress<GameAnalysisProgress> progress = new Progress<GameAnalysisProgress>(ShowAnalysisProgressOnBoard);
 
-            GameAnalysisService analysisService = new(engine);
+            GameAnalysisService analysisService = new(engine, openingTheory: CreateOpeningTheory());
             cachedAnalysisResult = await Task.Run(() => analysisService.AnalyzeGame(
                 importedGame,
                 SelectedAnalysisSide,
@@ -870,6 +873,28 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             if (analysesByPly.TryGetValue(item.ReplayPly.Ply, out MoveAnalysisResult? analysis))
             {
                 item.ApplyAnalysis(analysis);
+            }
+        }
+    }
+
+    private void LoadCachedAnalysisResultsForCurrentGame(EngineAnalysisOptions options)
+    {
+        if (importedGame is null)
+        {
+            return;
+        }
+
+        foreach (PlayerSide side in AnalysisSides)
+        {
+            if (cachedAnalysisResultsBySide.ContainsKey(side))
+            {
+                continue;
+            }
+
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(importedGame, side, options);
+            if (GameAnalysisCache.TryGetResult(key, out GameAnalysisResult? cachedResult) && cachedResult is not null)
+            {
+                cachedAnalysisResultsBySide[side] = cachedResult;
             }
         }
     }
@@ -1527,6 +1552,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         return null;
+    }
+
+    private static OpeningTheoryQueryService? CreateOpeningTheory()
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        return store is null ? null : OpeningTheorySourceResolver.Create(store);
     }
 
     private sealed record PieceMovePresentation(string Label, string EvalText, string EvalBrush);

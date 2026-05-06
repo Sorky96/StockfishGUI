@@ -111,6 +111,9 @@ public sealed class ImportedMoveItemViewModel : ViewModelBase
     {
         return quality switch
         {
+            MoveQualityBucket.Book => "#5B6875",
+            MoveQualityBucket.Brilliant => "#22B8CF",
+            MoveQualityBucket.Great => "#1D7ED0",
             MoveQualityBucket.Best => "#1F7A55",
             MoveQualityBucket.Excellent => "#2F6FB3",
             MoveQualityBucket.Good => "#4D6B2E",
@@ -126,6 +129,7 @@ public sealed class ImportedMoveItemViewModel : ViewModelBase
         return quality switch
         {
             MoveQualityBucket.Inaccuracy => "#111827",
+            MoveQualityBucket.Brilliant => "#082F38",
             _ => "White"
         };
     }

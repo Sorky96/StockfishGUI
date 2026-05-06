@@ -452,6 +452,29 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
         }
     }
 
+    public void ClearImportedAnalysisData()
+    {
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            database.ExecuteNonQuery("BEGIN IMMEDIATE;");
+            try
+            {
+                database.ExecuteNonQuery("DELETE FROM move_advice_feedbacks;");
+                database.ExecuteNonQuery("DELETE FROM analysis_window_states;");
+                database.ExecuteNonQuery("DELETE FROM analysis_moves;");
+                database.ExecuteNonQuery("DELETE FROM analysis_results;");
+                database.ExecuteNonQuery("DELETE FROM imported_games;");
+                database.ExecuteNonQuery("COMMIT;");
+            }
+            catch
+            {
+                database.ExecuteNonQuery("ROLLBACK;");
+                throw;
+            }
+        }
+    }
+
     public IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText = null, int limit = 200)
     {
         string normalizedFilter = filterText?.Trim().ToLowerInvariant() ?? string.Empty;

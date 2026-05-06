@@ -2,12 +2,17 @@ namespace MoveMentorChessServices;
 
 public sealed class GameAnalysisService
 {
+    private const int GreatMoveMaxCentipawnLoss = 20;
+    private const int GreatMoveAlternativeDropCp = 80;
+    private const int GreatMoveCloseAlternativeCp = 40;
+
     private readonly IEngineAnalyzer engineAnalyzer;
     private readonly GameReplayService replayService;
     private readonly DiagnosticMistakeClassifier mistakeClassifier;
     private readonly IAdviceGenerator adviceGenerator;
     private readonly MistakeSelector mistakeSelector;
     private readonly AnalysisQualityGate qualityGate;
+    private readonly OpeningTheoryQueryService? openingTheory;
 
     public GameAnalysisService(
         IEngineAnalyzer engineAnalyzer,
@@ -15,7 +20,8 @@ public sealed class GameAnalysisService
         DiagnosticMistakeClassifier? mistakeClassifier = null,
         IAdviceGenerator? adviceGenerator = null,
         MistakeSelector? mistakeSelector = null,
-        AnalysisQualityGate? qualityGate = null)
+        AnalysisQualityGate? qualityGate = null,
+        OpeningTheoryQueryService? openingTheory = null)
     {
         this.engineAnalyzer = engineAnalyzer ?? throw new ArgumentNullException(nameof(engineAnalyzer));
         this.replayService = replayService ?? new GameReplayService();
@@ -23,6 +29,7 @@ public sealed class GameAnalysisService
         this.adviceGenerator = adviceGenerator ?? AdviceGeneratorFactory.CreateBulkAnalysisGenerator();
         this.mistakeSelector = mistakeSelector ?? new MistakeSelector();
         this.qualityGate = qualityGate ?? new AnalysisQualityGate();
+        this.openingTheory = openingTheory;
     }
 
     public GameAnalysisResult AnalyzeGame(
@@ -74,8 +81,18 @@ public sealed class GameAnalysisService
             int materialAfter = PositionInspector.MaterialScore(ply.FenAfter, analyzedSide);
             int materialDelta = materialAfter - materialBefore;
             int? centipawnLoss = ComputeCentipawnLoss(bestScore, playedScore);
-            MoveQualityBucket quality = ClassifyQuality(bestScore, playedScore, centipawnLoss, ply.Uci, beforeAnalysis.BestMoveUci);
+            bool isBookMove = IsBookMove(ply);
+            bool isGreatMove = IsGreatMove(beforeAnalysis, analyzedSide, ply.Side, playedScore, centipawnLoss, ply.Uci);
             MoveHeuristicContext heuristicContext = BuildHeuristicContext(ply, analyzedSide, beforeAnalysis, afterAnalysis);
+            bool isBrilliantMove = MoveBrilliancyDetector.IsBrilliant(
+                ply,
+                centipawnLoss,
+                playedScore.Centipawns,
+                playedScore.MateIn,
+                materialDelta,
+                isBookMove,
+                heuristicContext);
+            MoveQualityBucket quality = ClassifyQuality(bestScore, playedScore, centipawnLoss, ply.Uci, beforeAnalysis.BestMoveUci, isBookMove, isGreatMove, isBrilliantMove);
 
             MistakeTag? tag = mistakeClassifier.Classify(
                 ply,
@@ -323,8 +340,16 @@ public sealed class GameAnalysisService
         ScoreSnapshot played,
         int? centipawnLoss,
         string playedMoveUci,
-        string? bestMoveUci)
+        string? bestMoveUci,
+        bool isBookMove = false,
+        bool isGreatMove = false,
+        bool isBrilliantMove = false)
     {
+        if (isBookMove)
+        {
+            return MoveQualityBucket.Book;
+        }
+
         if (best.MateIn is > 0 && played.MateIn is null)
         {
             return MoveQualityBucket.Blunder;
@@ -356,6 +381,16 @@ public sealed class GameAnalysisService
             return MoveQualityBucket.Inaccuracy;
         }
 
+        if (isBrilliantMove)
+        {
+            return MoveQualityBucket.Brilliant;
+        }
+
+        if (isGreatMove)
+        {
+            return MoveQualityBucket.Great;
+        }
+
         if (!string.IsNullOrWhiteSpace(bestMoveUci)
             && string.Equals(playedMoveUci, bestMoveUci, StringComparison.Ordinal))
         {
@@ -373,6 +408,49 @@ public sealed class GameAnalysisService
         }
 
         return MoveQualityBucket.Good;
+    }
+
+    private bool IsBookMove(ReplayPly ply)
+    {
+        if (openingTheory is null || ply.Phase != GamePhase.Opening)
+        {
+            return false;
+        }
+
+        IReadOnlyList<OpeningTheoryMove> theoryMoves = openingTheory.GetTopMovesForFen(ply.FenBefore, limit: 50);
+        return theoryMoves.Any(move => string.Equals(move.MoveUci, ply.Uci, StringComparison.Ordinal));
+    }
+
+    private static bool IsGreatMove(
+        EngineAnalysis beforeAnalysis,
+        PlayerSide analyzedSide,
+        PlayerSide sideToMove,
+        ScoreSnapshot playedScore,
+        int? centipawnLoss,
+        string playedMoveUci)
+    {
+        if (centipawnLoss is not int loss
+            || loss > GreatMoveMaxCentipawnLoss
+            || playedScore.Centipawns is not int playedCp)
+        {
+            return false;
+        }
+
+        List<int> alternativeScores = beforeAnalysis.Lines
+            .Where(line => !string.Equals(line.MoveUci, playedMoveUci, StringComparison.Ordinal))
+            .Select(line => NormalizeScore(line, analyzedSide, sideToMove).Centipawns)
+            .Where(score => score.HasValue)
+            .Select(score => score!.Value)
+            .ToList();
+        if (alternativeScores.Count == 0)
+        {
+            return false;
+        }
+
+        bool hasClearlyWorseAlternative = alternativeScores.Any(score => playedCp - score >= GreatMoveAlternativeDropCp);
+        int closeAlternativeCount = alternativeScores.Count(score => score >= playedCp - GreatMoveCloseAlternativeCp);
+
+        return hasClearlyWorseAlternative && closeAlternativeCount <= 1;
     }
 
     private static PlayerSide Opponent(PlayerSide side) => side == PlayerSide.White ? PlayerSide.Black : PlayerSide.White;

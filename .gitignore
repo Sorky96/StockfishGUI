@@ -23,7 +23,7 @@ out/
 *.db
 *.db-shm
 *.db-wal
-!StockifhsGUI/OpeningSeed/opening-seed.db
+!MoveMentorChessServices/OpeningSeed/opening-seed.db
 
 # OS files
 Thumbs.db

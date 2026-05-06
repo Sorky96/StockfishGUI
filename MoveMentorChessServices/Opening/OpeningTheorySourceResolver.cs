@@ -1,6 +1,6 @@
 namespace MoveMentorChessServices;
 
-internal static class OpeningTheorySourceResolver
+public static class OpeningTheorySourceResolver
 {
     public static OpeningTheoryQueryService? Create(IAnalysisStore analysisStore)
     {
