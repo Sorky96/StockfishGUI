@@ -169,6 +169,7 @@ public partial class ProfilesWindow : Window
         DetailsPanel.Children.Add(CreateCollapsibleSection("Summary", summaryPanel, isExpanded: true));
         DetailsPanel.Children.Add(CreateSnapshotCard(report));
         DetailsPanel.Children.Add(CreateMetricsCard(report));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Rating & form", BuildRatingAndFormRows(report), isExpanded: true));
         DetailsPanel.Children.Add(CreateCollapsibleSection("Profile summary", BuildProfileSummaryRows(report), isExpanded: true));
         DetailsPanel.Children.Add(CreateDetailedWindowsSection(report, openingReport));
         DetailsPanel.Children.Add(CreateCollapsibleSection("Opening weaknesses", BuildOpeningWeaknessRows(openingReport), isExpanded: true));
@@ -341,6 +342,14 @@ public partial class ProfilesWindow : Window
         wrap.Children.Add(CreateMetricTile("Moves analyzed", report.TotalAnalyzedMoves.ToString()));
         wrap.Children.Add(CreateMetricTile("Highlighted mistakes", report.HighlightedMistakes.ToString()));
         wrap.Children.Add(CreateMetricTile("Average CPL", report.AverageCentipawnLoss?.ToString() ?? "n/a"));
+        if (report.RatingTrend.CurrentStrength is not null)
+        {
+            MoveMentorStrengthPoint strength = report.RatingTrend.CurrentStrength;
+            wrap.Children.Add(CreateMetricTile(
+                "MoveMentor estimated strength",
+                $"{strength.EstimatedStrength} ({strength.Low}-{strength.High})",
+                300));
+        }
 
         if (report.GamesBySide.Count > 0)
         {
@@ -350,6 +359,92 @@ public partial class ProfilesWindow : Window
         }
 
         card.Child = wrap;
+        return card;
+    }
+
+    private IEnumerable<Control> BuildRatingAndFormRows(PlayerProfileReport report)
+    {
+        yield return CreateBodyText(report.RatingTrend.Summary, "#D7E2EA");
+        yield return CreateBodyText("Currently estimated with MoveMentor heuristic model. Future versions can calibrate this with a per-profile ML model as more games are analyzed.", "#9EB5C5");
+
+        if (report.RatingTrend.RatingPoints.Count == 0 && report.RatingTrend.StrengthPoints.Count == 0)
+        {
+            yield return CreateBodyText("No rating or strength trend data yet.");
+            yield break;
+        }
+
+        yield return CreateChartCard(
+            "Rating trend",
+            [
+                new ProfileTrendChartSeries(
+                    "Chess.com rating",
+                    Brush.Parse("#7DD3FC"),
+                    report.RatingTrend.RatingPoints.Select(point => new ProfileTrendChartPoint(FormatChartDate(point.GameDate), point.PlayerRating)).ToList()),
+                new ProfileTrendChartSeries(
+                    "MoveMentor estimated strength",
+                    Brush.Parse("#FACC15"),
+                    report.RatingTrend.StrengthPoints.Select(point => new ProfileTrendChartPoint(FormatChartDate(point.GameDate), point.EstimatedStrength)).ToList())
+            ]);
+
+        yield return CreateChartCard(
+            "Average CPL",
+            [
+                new ProfileTrendChartSeries(
+                    "Average CPL",
+                    Brush.Parse("#FB7185"),
+                    report.RatingTrend.AverageCentipawnLossTrend.Select(point => new ProfileTrendChartPoint(point.MonthKey, point.AverageCentipawnLoss)).ToList(),
+                    ProfileTrendChartKind.Bars)
+            ]);
+
+        yield return CreateChartCard(
+            "Move quality per game",
+            [
+                new ProfileTrendChartSeries(
+                    "Blunders",
+                    Brush.Parse("#F87171"),
+                    report.RatingTrend.MoveQualityTrend.Select(point => new ProfileTrendChartPoint(point.PeriodKey, point.BlundersPerGame)).ToList(),
+                    ProfileTrendChartKind.Bars),
+                new ProfileTrendChartSeries(
+                    "Mistakes",
+                    Brush.Parse("#FDBA74"),
+                    report.RatingTrend.MoveQualityTrend.Select(point => new ProfileTrendChartPoint(point.PeriodKey, point.MistakesPerGame)).ToList(),
+                    ProfileTrendChartKind.Bars),
+                new ProfileTrendChartSeries(
+                    "Brilliant/great/best",
+                    Brush.Parse("#86EFAC"),
+                    report.RatingTrend.MoveQualityTrend.Select(point => new ProfileTrendChartPoint(point.PeriodKey, point.BrilliantGreatBestPerGame)).ToList(),
+                    ProfileTrendChartKind.Bars)
+            ]);
+
+        if (report.RatingTrendsByTimeControl.Count > 0)
+        {
+            yield return CreateBodyText("By time control", "#9EB5C5");
+            foreach (PlayerRatingTrendReport trend in report.RatingTrendsByTimeControl)
+            {
+                yield return CreateBulletText(trend.Summary);
+            }
+        }
+    }
+
+    private static Control CreateChartCard(string title, IReadOnlyList<ProfileTrendChartSeries> series)
+    {
+        Border card = new()
+        {
+            Background = Brush.Parse("#182B37"),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 0, 0, 8),
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+
+        StackPanel panel = new() { Spacing = 8 };
+        panel.Children.Add(CreateBodyText(title, "#FFFFFF"));
+        panel.Children.Add(new ProfileTrendChartView
+        {
+            Height = 190,
+            Series = series
+        });
+        card.Child = panel;
         return card;
     }
 
@@ -2297,6 +2392,11 @@ public partial class ProfilesWindow : Window
     }
 
     private static string FormatTimes(int count) => count == 1 ? "1 time" : $"{count} times";
+
+    private static string FormatChartDate(DateTime? date)
+    {
+        return date?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "Unknown";
+    }
 
     private static string FormatOpening(string eco)
     {

@@ -463,6 +463,39 @@ public sealed class PlayerProfileServiceTests
         Assert.Equal(3, report.MonthlyTrend.Sum(item => item.GamesAnalyzed));
     }
 
+    [Fact]
+    public void PlayerProfileService_BuildsMoveMentorEstimatedStrengthTrend()
+    {
+        GameAnalysisResult result = CreateResult(
+            "Alpha",
+            "Beta",
+            PlayerSide.White,
+            "C20",
+            "2026.04.21",
+            [CreateSelectedMistake("missed_tactic", MoveQualityBucket.Mistake)],
+            [
+                CreateMoveAnalysis(GamePhase.Opening, 20, "opening_principles", 1),
+                CreateMoveAnalysis(GamePhase.Middlegame, 45, "missed_tactic", 2),
+                CreateMoveAnalysis(GamePhase.Middlegame, 70, "missed_tactic", 3)
+            ],
+            whiteElo: 812,
+            blackElo: 799,
+            timeControl: "600");
+        FakeAnalysisStore store = new([result]);
+        PlayerProfileService service = new(store);
+
+        bool found = service.TryBuildProfile("Alpha", out PlayerProfileReport? report);
+
+        Assert.True(found);
+        Assert.NotNull(report);
+        Assert.NotNull(report!.RatingTrend.CurrentStrength);
+        Assert.Equal(MoveMentorStrengthEstimatorKind.HeuristicV1, report.RatingTrend.CurrentStrength!.EstimatorKind);
+        Assert.Equal(GameTimeControlCategory.Rapid, report.RatingTrend.CurrentStrength.TimeControlCategory);
+        Assert.Single(report.RatingTrend.RatingPoints);
+        Assert.Equal(812, report.RatingTrend.RatingPoints[0].PlayerRating);
+        Assert.Contains(report.RatingTrendsByTimeControl, trend => trend.TimeControlCategory == GameTimeControlCategory.Rapid);
+    }
+
     private static GameAnalysisResult CreateResult(
         string whitePlayer,
         string blackPlayer,
@@ -470,19 +503,36 @@ public sealed class PlayerProfileServiceTests
         string eco,
         string dateText,
         IReadOnlyList<SelectedMistake> highlightedMistakes,
-        IReadOnlyList<MoveAnalysisResult> moveAnalyses)
+        IReadOnlyList<MoveAnalysisResult> moveAnalyses,
+        int? whiteElo = null,
+        int? blackElo = null,
+        string? timeControl = null)
     {
         ImportedGame game = new(
             $"[White \"{whitePlayer}\"] [Black \"{blackPlayer}\"]",
             [],
             whitePlayer,
             blackPlayer,
-            null,
-            null,
+            whiteElo,
+            blackElo,
             dateText,
             "1-0",
             eco,
-            "Local");
+            "Local",
+            new PgnGameMetadata(
+                null,
+                null,
+                null,
+                null,
+                dateText,
+                null,
+                timeControl,
+                null,
+                null,
+                null,
+                null,
+                null,
+                PgnGameParser.ClassifyTimeControl(timeControl)));
 
         return new GameAnalysisResult(game, side, [], moveAnalyses, highlightedMistakes);
     }
@@ -700,7 +750,17 @@ public sealed class PlayerProfileServiceTests
                     move.Explanation?.ShortText,
                     move.Explanation?.DetailedText,
                     move.Explanation?.TrainingHint,
-                    highlightedLabels.Contains(move.MistakeTag?.Label ?? "unclassified")));
+                    highlightedLabels.Contains(move.MistakeTag?.Label ?? "unclassified"),
+                    WhiteElo: result.Game.WhiteElo,
+                    BlackElo: result.Game.BlackElo,
+                    TimeControl: result.Game.Metadata?.TimeControl,
+                    TimeControlCategory: result.Game.Metadata?.TimeControlCategory ?? GameTimeControlCategory.Unknown,
+                    UtcDate: result.Game.Metadata?.UtcDate,
+                    UtcTime: result.Game.Metadata?.UtcTime,
+                    EndDate: result.Game.Metadata?.EndDate,
+                    EndTime: result.Game.Metadata?.EndTime,
+                    Termination: result.Game.Metadata?.Termination,
+                    Link: result.Game.Metadata?.Link));
             })
             .ToList();
     }

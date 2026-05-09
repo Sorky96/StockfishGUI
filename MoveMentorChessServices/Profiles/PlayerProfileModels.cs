@@ -44,6 +44,58 @@ public sealed record ProfileQuarterlyTrend(
     int HighlightedMistakes,
     int? AverageCentipawnLoss);
 
+public enum MoveMentorStrengthConfidence
+{
+    Low,
+    Medium,
+    High
+}
+
+public enum MoveMentorStrengthEstimatorKind
+{
+    HeuristicV1,
+    ProfileMl
+}
+
+public sealed record PlayerRatingSnapshot(
+    string GameFingerprint,
+    DateTime? GameDate,
+    GameTimeControlCategory TimeControlCategory,
+    int? PlayerRating,
+    int? OpponentRating,
+    double? ActualScore,
+    double? ExpectedScore);
+
+public sealed record MoveMentorStrengthPoint(
+    string GameFingerprint,
+    DateTime? GameDate,
+    GameTimeControlCategory TimeControlCategory,
+    int EstimatedStrength,
+    int Low,
+    int High,
+    MoveMentorStrengthConfidence Confidence,
+    MoveMentorStrengthEstimatorKind EstimatorKind,
+    string ReasonSummary);
+
+public sealed record PlayerRatingTrendReport(
+    GameTimeControlCategory? TimeControlCategory,
+    int GamesAnalyzed,
+    int? CurrentImportedRating,
+    MoveMentorStrengthPoint? CurrentStrength,
+    IReadOnlyList<PlayerRatingSnapshot> RatingPoints,
+    IReadOnlyList<MoveMentorStrengthPoint> StrengthPoints,
+    IReadOnlyList<ProfileMonthlyTrend> AverageCentipawnLossTrend,
+    IReadOnlyList<ProfileMoveQualityTrend> MoveQualityTrend,
+    string Summary);
+
+public sealed record ProfileMoveQualityTrend(
+    string PeriodKey,
+    int GamesAnalyzed,
+    double BlundersPerGame,
+    double MistakesPerGame,
+    double InaccuraciesPerGame,
+    double BrilliantGreatBestPerGame);
+
 public enum ProfileProgressDirection
 {
     InsufficientData,
@@ -231,12 +283,74 @@ public sealed record PlayerProfileReport(
     IReadOnlyList<ProfileSideStat> GamesBySide,
     IReadOnlyList<ProfileMonthlyTrend> MonthlyTrend,
     IReadOnlyList<ProfileQuarterlyTrend> QuarterlyTrend,
+    PlayerRatingTrendReport RatingTrend,
+    IReadOnlyList<PlayerRatingTrendReport> RatingTrendsByTimeControl,
     ProfileProgressSignal ProgressSignal,
     IReadOnlyList<ProfileLabelTrend> LabelTrends,
     IReadOnlyList<TrainingRecommendation> Recommendations,
     WeeklyTrainingPlan WeeklyPlan,
     IReadOnlyList<ProfileMistakeExample> MistakeExamples,
-    TrainingPlanReport TrainingPlan);
+    TrainingPlanReport TrainingPlan)
+{
+    public PlayerProfileReport(
+        string PlayerKey,
+        string DisplayName,
+        int GamesAnalyzed,
+        int TotalAnalyzedMoves,
+        int HighlightedMistakes,
+        int? AverageCentipawnLoss,
+        IReadOnlyList<ProfileLabelStat> TopMistakeLabels,
+        IReadOnlyList<ProfileCostlyLabelStat> CostliestMistakeLabels,
+        IReadOnlyList<ProfilePhaseStat> MistakesByPhase,
+        IReadOnlyList<ProfileOpeningStat> MistakesByOpening,
+        IReadOnlyList<ProfileSideStat> GamesBySide,
+        IReadOnlyList<ProfileMonthlyTrend> MonthlyTrend,
+        IReadOnlyList<ProfileQuarterlyTrend> QuarterlyTrend,
+        ProfileProgressSignal ProgressSignal,
+        IReadOnlyList<ProfileLabelTrend> LabelTrends,
+        IReadOnlyList<TrainingRecommendation> Recommendations,
+        WeeklyTrainingPlan WeeklyPlan,
+        IReadOnlyList<ProfileMistakeExample> MistakeExamples,
+        TrainingPlanReport TrainingPlan)
+        : this(
+            PlayerKey,
+            DisplayName,
+            GamesAnalyzed,
+            TotalAnalyzedMoves,
+            HighlightedMistakes,
+            AverageCentipawnLoss,
+            TopMistakeLabels,
+            CostliestMistakeLabels,
+            MistakesByPhase,
+            MistakesByOpening,
+            GamesBySide,
+            MonthlyTrend,
+            QuarterlyTrend,
+            EmptyRatingTrend(),
+            [],
+            ProgressSignal,
+            LabelTrends,
+            Recommendations,
+            WeeklyPlan,
+            MistakeExamples,
+            TrainingPlan)
+    {
+    }
+
+    private static PlayerRatingTrendReport EmptyRatingTrend()
+    {
+        return new PlayerRatingTrendReport(
+            null,
+            0,
+            null,
+            null,
+            [],
+            [],
+            [],
+            [],
+            "No MoveMentor estimated strength data yet.");
+    }
+}
 
 public enum PlayerProfileAudienceLevel
 {

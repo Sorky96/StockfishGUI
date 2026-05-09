@@ -485,11 +485,12 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
         {
             using SqliteDatabase database = OpenDatabase();
             using SqliteStatement statement = database.Prepare($"""
-                SELECT game_fingerprint, white_player, black_player, date_text, result_text, eco, site, updated_utc
+                SELECT game_fingerprint, white_player, black_player, date_text, result_text, eco, site,
+                       white_elo, black_elo, time_control, time_control_category, updated_utc
                 FROM imported_games
                 {(string.IsNullOrWhiteSpace(normalizedFilter)
                     ? string.Empty
-                    : "WHERE lower(coalesce(white_player, '')) LIKE ?1 OR lower(coalesce(black_player, '')) LIKE ?1 OR lower(coalesce(date_text, '')) LIKE ?1 OR lower(coalesce(result_text, '')) LIKE ?1 OR lower(coalesce(eco, '')) LIKE ?1 OR lower(coalesce(site, '')) LIKE ?1")}
+                    : "WHERE lower(coalesce(white_player, '')) LIKE ?1 OR lower(coalesce(black_player, '')) LIKE ?1 OR lower(coalesce(date_text, '')) LIKE ?1 OR lower(coalesce(result_text, '')) LIKE ?1 OR lower(coalesce(eco, '')) LIKE ?1 OR lower(coalesce(site, '')) LIKE ?1 OR lower(coalesce(time_control, '')) LIKE ?1")}
                 ORDER BY updated_utc DESC
                 LIMIT {safeLimit};
                 """);
@@ -508,7 +509,11 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                 string? result = statement.GetText(4);
                 string? eco = statement.GetText(5);
                 string? site = statement.GetText(6);
-                string? updatedUtcText = statement.GetText(7);
+                int? whiteElo = statement.GetNullableInt(7);
+                int? blackElo = statement.GetNullableInt(8);
+                string? timeControl = statement.GetText(9);
+                GameTimeControlCategory category = ParseTimeControlCategory(statement.GetNullableInt(10), timeControl);
+                string? updatedUtcText = statement.GetText(11);
                 DateTime.TryParse(updatedUtcText, out DateTime updatedUtc);
 
                 items.Add(new SavedImportedGameSummary(
@@ -520,6 +525,10 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                     result,
                     eco,
                     site,
+                    whiteElo,
+                    blackElo,
+                    timeControl,
+                    category,
                     updatedUtc));
             }
         }
@@ -606,6 +615,16 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                     imported_games.result_text,
                     imported_games.eco,
                     imported_games.site,
+                    imported_games.white_elo,
+                    imported_games.black_elo,
+                    imported_games.time_control,
+                    imported_games.time_control_category,
+                    imported_games.utc_date,
+                    imported_games.utc_time,
+                    imported_games.end_date,
+                    imported_games.end_time,
+                    imported_games.termination,
+                    imported_games.link,
                     analysis_moves.ply,
                     analysis_moves.move_number,
                     analysis_moves.san,
@@ -665,10 +684,11 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
 
             while (statement.Step() == SqliteRow)
             {
-                string? originalLabel = statement.GetText(27);
-                string? correctedLabel = statement.GetText(35);
-                AdviceFeedbackKind? manualFeedbackKind = ParseNullableFeedbackKind(statement.GetText(34));
-                DateTime? manualCorrectedUtc = ParseNullableUtc(statement.GetText(37));
+                string? timeControl = statement.GetText(14);
+                string? originalLabel = statement.GetText(37);
+                string? correctedLabel = statement.GetText(45);
+                AdviceFeedbackKind? manualFeedbackKind = ParseNullableFeedbackKind(statement.GetText(44));
+                DateTime? manualCorrectedUtc = ParseNullableUtc(statement.GetText(47));
                 items.Add(new StoredMoveAnalysis(
                     statement.GetText(0) ?? string.Empty,
                     (PlayerSide)statement.GetInt(1),
@@ -682,33 +702,43 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                     statement.GetText(9),
                     statement.GetText(10),
                     statement.GetText(11),
-                    statement.GetInt(12),
-                    statement.GetInt(13),
-                    statement.GetText(14) ?? string.Empty,
-                    statement.GetText(15) ?? string.Empty,
-                    statement.GetText(16) ?? string.Empty,
-                    statement.GetText(17) ?? string.Empty,
-                    (GamePhase)statement.GetInt(18),
-                    statement.GetNullableInt(19),
-                    statement.GetNullableInt(20),
-                    statement.GetNullableInt(21),
-                    statement.GetNullableInt(22),
-                    statement.GetNullableInt(23),
-                    (MoveQualityBucket)statement.GetInt(24),
-                    statement.GetInt(25),
-                    statement.GetText(26),
+                    statement.GetInt(22),
+                    statement.GetInt(23),
+                    statement.GetText(24) ?? string.Empty,
+                    statement.GetText(25) ?? string.Empty,
+                    statement.GetText(26) ?? string.Empty,
+                    statement.GetText(27) ?? string.Empty,
+                    (GamePhase)statement.GetInt(28),
+                    statement.GetNullableInt(29),
+                    statement.GetNullableInt(30),
+                    statement.GetNullableInt(31),
+                    statement.GetNullableInt(32),
+                    statement.GetNullableInt(33),
+                    (MoveQualityBucket)statement.GetInt(34),
+                    statement.GetInt(35),
+                    statement.GetText(36),
                     string.IsNullOrWhiteSpace(correctedLabel) ? originalLabel : correctedLabel,
-                    ParseNullableDouble(statement.GetText(28)),
-                    DeserializeEvidence(statement.GetText(29)),
-                    statement.GetText(30),
-                    statement.GetText(31),
-                    statement.GetText(32),
-                    statement.GetInt(33) != 0,
+                    ParseNullableDouble(statement.GetText(38)),
+                    DeserializeEvidence(statement.GetText(39)),
+                    statement.GetText(40),
+                    statement.GetText(41),
+                    statement.GetText(42),
+                    statement.GetInt(43) != 0,
                     originalLabel,
                     manualFeedbackKind,
                     correctedLabel,
-                    statement.GetText(36),
-                    manualCorrectedUtc));
+                    statement.GetText(46),
+                    manualCorrectedUtc,
+                    WhiteElo: statement.GetNullableInt(12),
+                    BlackElo: statement.GetNullableInt(13),
+                    TimeControl: timeControl,
+                    TimeControlCategory: ParseTimeControlCategory(statement.GetNullableInt(15), timeControl),
+                    UtcDate: statement.GetText(16),
+                    UtcTime: statement.GetText(17),
+                    EndDate: statement.GetText(18),
+                    EndTime: statement.GetText(19),
+                    Termination: statement.GetText(20),
+                    Link: statement.GetText(21)));
             }
         }
 
@@ -1109,10 +1139,25 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                     pgn_text TEXT NOT NULL,
                     white_player TEXT NULL,
                     black_player TEXT NULL,
+                    white_elo INTEGER NULL,
+                    black_elo INTEGER NULL,
                     date_text TEXT NULL,
                     result_text TEXT NULL,
                     eco TEXT NULL,
                     site TEXT NULL,
+                    round_text TEXT NULL,
+                    current_position TEXT NULL,
+                    timezone TEXT NULL,
+                    eco_url TEXT NULL,
+                    utc_date TEXT NULL,
+                    utc_time TEXT NULL,
+                    time_control TEXT NULL,
+                    time_control_category INTEGER NOT NULL DEFAULT 0,
+                    termination TEXT NULL,
+                    start_time TEXT NULL,
+                    end_date TEXT NULL,
+                    end_time TEXT NULL,
+                    link TEXT NULL,
                     updated_utc TEXT NOT NULL
                 );
                 """);
@@ -1236,6 +1281,21 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                 "analysis_window_states",
                 "explanation_level_index",
                 "INTEGER NOT NULL DEFAULT 1");
+            EnsureColumnExists(database, "imported_games", "white_elo", "INTEGER NULL");
+            EnsureColumnExists(database, "imported_games", "black_elo", "INTEGER NULL");
+            EnsureColumnExists(database, "imported_games", "round_text", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "current_position", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "timezone", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "eco_url", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "utc_date", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "utc_time", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "time_control", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "time_control_category", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumnExists(database, "imported_games", "termination", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "start_time", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "end_date", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "end_time", "TEXT NULL");
+            EnsureColumnExists(database, "imported_games", "link", "TEXT NULL");
             EnsureOpeningTreeSchema(database);
         }
     }
@@ -1377,6 +1437,17 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
     private static int NormalizeMoveTime(int? moveTimeMs) => moveTimeMs ?? NoMoveTimeMs;
 
     private static int? ReadMoveTime(int rawMoveTime) => rawMoveTime == NoMoveTimeMs ? null : rawMoveTime;
+
+    private static GameTimeControlCategory ParseTimeControlCategory(int? storedValue, string? timeControl)
+    {
+        if (storedValue.HasValue
+            && Enum.IsDefined(typeof(GameTimeControlCategory), storedValue.Value))
+        {
+            return (GameTimeControlCategory)storedValue.Value;
+        }
+
+        return PgnGameParser.ClassifyTimeControl(timeControl);
+    }
 
     private static string NormalizePlayerKey(string? playerKey)
         => string.IsNullOrWhiteSpace(playerKey) ? string.Empty : playerKey.Trim().ToLowerInvariant();
@@ -1802,21 +1873,51 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
                 pgn_text,
                 white_player,
                 black_player,
+                white_elo,
+                black_elo,
                 date_text,
                 result_text,
                 eco,
                 site,
+                round_text,
+                current_position,
+                timezone,
+                eco_url,
+                utc_date,
+                utc_time,
+                time_control,
+                time_control_category,
+                termination,
+                start_time,
+                end_date,
+                end_time,
+                link,
                 updated_utc)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
             ON CONFLICT (game_fingerprint)
             DO UPDATE SET
                 pgn_text = excluded.pgn_text,
                 white_player = excluded.white_player,
                 black_player = excluded.black_player,
+                white_elo = excluded.white_elo,
+                black_elo = excluded.black_elo,
                 date_text = excluded.date_text,
                 result_text = excluded.result_text,
                 eco = excluded.eco,
                 site = excluded.site,
+                round_text = excluded.round_text,
+                current_position = excluded.current_position,
+                timezone = excluded.timezone,
+                eco_url = excluded.eco_url,
+                utc_date = excluded.utc_date,
+                utc_time = excluded.utc_time,
+                time_control = excluded.time_control,
+                time_control_category = excluded.time_control_category,
+                termination = excluded.termination,
+                start_time = excluded.start_time,
+                end_date = excluded.end_date,
+                end_time = excluded.end_time,
+                link = excluded.link,
                 updated_utc = excluded.updated_utc;
             """);
 
@@ -1828,11 +1929,26 @@ public sealed class SqliteAnalysisStore : IAnalysisStore, IOpeningTreeStore, IOp
             statement.BindText(2, game.PgnText);
             statement.BindNullableText(3, game.WhitePlayer);
             statement.BindNullableText(4, game.BlackPlayer);
-            statement.BindNullableText(5, game.DateText);
-            statement.BindNullableText(6, game.Result);
-            statement.BindNullableText(7, game.Eco);
-            statement.BindNullableText(8, game.Site);
-            statement.BindText(9, timestamp);
+            BindNullableInt(statement, 5, game.WhiteElo);
+            BindNullableInt(statement, 6, game.BlackElo);
+            statement.BindNullableText(7, game.DateText);
+            statement.BindNullableText(8, game.Result);
+            statement.BindNullableText(9, game.Eco);
+            statement.BindNullableText(10, game.Site);
+            statement.BindNullableText(11, game.Metadata?.Round);
+            statement.BindNullableText(12, game.Metadata?.CurrentPosition);
+            statement.BindNullableText(13, game.Metadata?.Timezone);
+            statement.BindNullableText(14, game.Metadata?.EcoUrl);
+            statement.BindNullableText(15, game.Metadata?.UtcDate);
+            statement.BindNullableText(16, game.Metadata?.UtcTime);
+            statement.BindNullableText(17, game.Metadata?.TimeControl);
+            statement.BindInt(18, (int)(game.Metadata?.TimeControlCategory ?? GameTimeControlCategory.Unknown));
+            statement.BindNullableText(19, game.Metadata?.Termination);
+            statement.BindNullableText(20, game.Metadata?.StartTime);
+            statement.BindNullableText(21, game.Metadata?.EndDate);
+            statement.BindNullableText(22, game.Metadata?.EndTime);
+            statement.BindNullableText(23, game.Metadata?.Link);
+            statement.BindText(24, timestamp);
             statement.StepUntilDone();
         }
     }

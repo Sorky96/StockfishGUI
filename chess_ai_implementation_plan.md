@@ -1279,6 +1279,24 @@ sprawić, żeby plan treningowy był bardziej ludzki, czytelny i motywujący, be
 Cel sprintu:
 zamknąć pętlę między analizą partii, profilem, planem treningowym i treningiem debiutowym.
 
+### Sprint 26 - MoveMentor Estimated Strength
+- [ ] Rozszerzyć import PGN chess.com o pełne metadane ratingowe i czasowe: `WhiteElo`, `BlackElo`, `TimeControl`, `UTCDate`, `UTCTime`, `EndDate`, `EndTime`, `Termination`, `Link` oraz kategorię tempa gry.
+- [ ] Dodać `MoveMentor estimated strength` jako osobny wskaźnik profilu gracza, a nie oficjalne ELO rankingowe.
+- [ ] W wersji v1 liczyć strength deterministycznie z danych Stockfisha i profilu: CPL, rozkład jakości ruchów, blundery, mistakes, brilliant/great/best moves, wynik partii, rating przeciwnika i tempo gry.
+- [ ] Pokazywać wynik jako liczbę, zakres i confidence, osobno per tempo gry oraz jako ogólny trend.
+- [ ] Dodać wykresy profilu: chess.com rating, MoveMentor estimated strength, average CPL, błędy na partię i wynik kontra expected score.
+- [ ] Zbierać dane pod docelowy model ML per profil: cechy jakości ruchów, prawdziwy chess.com rating, rating przeciwnika, tempo, wynik, data i trend jakości gry.
+- [ ] Przygotować kontrakt estymatora tak, aby `HeuristicV1` można było później zastąpić lub skalibrować przez model ML trenowany na historii konkretnego gracza.
+
+Zasada architektoniczna:
+- Stockfish pozostaje źródłem prawdy szachowej.
+- Heurystyka v1 daje natychmiastowy, offline-friendly strength estimate.
+- Docelowy ML per profil ma kalibrować MoveMentor estimated strength na podstawie historii danego gracza, ale nie zastępuje analizy silnikowej ani deterministycznych danych wejściowych.
+- UI może komunikować: `Currently estimated with MoveMentor heuristic model. Future versions can calibrate this with a per-profile ML model as more games are analyzed.`
+
+Cel sprintu:
+żeby profil gracza pokazywał nie tylko listę błędów, ale też czytelną ocenę aktualnej siły gry i jej trend, z fundamentem pod późniejsze uczenie per profil.
+
 ### Rekomendowana Kolejność Po Sprint 15
 1. Sprint 16 - Przykłady Do Profilu
 2. Sprint 17 - Silnik Planu Treningowego v1
@@ -1290,6 +1308,7 @@ zamknąć pętlę między analizą partii, profilem, planem treningowym i trenin
 8. Sprint 23 - LLM Formatter Profilu Gracza
 9. Sprint 24 - LLM Formatter Planu Treningowego
 10. Sprint 25 - Zamknięcie Pętli Treningowej
+11. Sprint 26 - MoveMentor Estimated Strength
 
 ### Uwaga Końcowa
 Najpierw warto domknąć dane, przykłady i deterministyczny plan treningowy, a dopiero potem dołożyć warstwę LLM do formatowania. Dzięki temu model będzie poprawiał UX i personalizację języka, ale nie stanie się pojedynczym punktem awarii ani źródłem halucynacji w logice treningowej.

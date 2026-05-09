@@ -31,7 +31,21 @@ public static class PgnGameParser
             GetValue(headers, "Date"),
             GetValue(headers, "Result"),
             GetValue(headers, "ECO"),
-            GetValue(headers, "Site"));
+            GetValue(headers, "Site"),
+            new PgnGameMetadata(
+                GetValue(headers, "Round"),
+                GetValue(headers, "CurrentPosition"),
+                GetValue(headers, "Timezone"),
+                GetValue(headers, "ECOUrl"),
+                GetValue(headers, "UTCDate"),
+                GetValue(headers, "UTCTime"),
+                GetValue(headers, "TimeControl"),
+                GetValue(headers, "Termination"),
+                GetValue(headers, "StartTime"),
+                GetValue(headers, "EndDate"),
+                GetValue(headers, "EndTime"),
+                GetValue(headers, "Link"),
+                ClassifyTimeControl(GetValue(headers, "TimeControl"))));
     }
 
     public static PgnBatchParseResult ParseMany(string pgnText)
@@ -114,6 +128,34 @@ public static class PgnGameParser
         return headers.TryGetValue(key, out string? value) && int.TryParse(value, out int parsed)
             ? parsed
             : null;
+    }
+
+    public static GameTimeControlCategory ClassifyTimeControl(string? timeControl)
+    {
+        if (string.IsNullOrWhiteSpace(timeControl))
+        {
+            return GameTimeControlCategory.Unknown;
+        }
+
+        string trimmed = timeControl.Trim();
+        if (trimmed.Contains('/', StringComparison.Ordinal))
+        {
+            return GameTimeControlCategory.Daily;
+        }
+
+        string baseSecondsText = trimmed.Split('+', StringSplitOptions.TrimEntries)[0];
+        if (!int.TryParse(baseSecondsText, out int baseSeconds))
+        {
+            return GameTimeControlCategory.Unknown;
+        }
+
+        return baseSeconds switch
+        {
+            < 180 => GameTimeControlCategory.Bullet,
+            < 600 => GameTimeControlCategory.Blitz,
+            < 1800 => GameTimeControlCategory.Rapid,
+            _ => GameTimeControlCategory.Classical
+        };
     }
 }
 

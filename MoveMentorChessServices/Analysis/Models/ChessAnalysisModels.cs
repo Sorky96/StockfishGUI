@@ -28,6 +28,31 @@ public enum MoveQualityBucket
     Blunder = 8
 }
 
+    public enum GameTimeControlCategory
+{
+    Unknown,
+    Bullet,
+    Blitz,
+    Rapid,
+    Classical,
+    Daily
+}
+
+public sealed record PgnGameMetadata(
+    string? Round,
+    string? CurrentPosition,
+    string? Timezone,
+    string? EcoUrl,
+    string? UtcDate,
+    string? UtcTime,
+    string? TimeControl,
+    string? Termination,
+    string? StartTime,
+    string? EndDate,
+    string? EndTime,
+    string? Link,
+    GameTimeControlCategory TimeControlCategory);
+
 public static class MoveQualityBucketExtensions
 {
     public static bool IsProblem(this MoveQualityBucket quality) => quality >= MoveQualityBucket.Inaccuracy;
@@ -67,7 +92,8 @@ public sealed record ImportedGame(
     string? DateText,
     string? Result,
     string? Eco,
-    string? Site);
+    string? Site,
+    PgnGameMetadata? Metadata = null);
 
 public sealed record SavedImportedGameSummary(
     string GameFingerprint,
@@ -78,7 +104,39 @@ public sealed record SavedImportedGameSummary(
     string? Result,
     string? Eco,
     string? Site,
-    DateTime UpdatedUtc);
+    int? WhiteElo,
+    int? BlackElo,
+    string? TimeControl,
+    GameTimeControlCategory TimeControlCategory,
+    DateTime UpdatedUtc)
+{
+    public SavedImportedGameSummary(
+        string GameFingerprint,
+        string DisplayTitle,
+        string? WhitePlayer,
+        string? BlackPlayer,
+        string? DateText,
+        string? Result,
+        string? Eco,
+        string? Site,
+        DateTime UpdatedUtc)
+        : this(
+            GameFingerprint,
+            DisplayTitle,
+            WhitePlayer,
+            BlackPlayer,
+            DateText,
+            Result,
+            Eco,
+            Site,
+            null,
+            null,
+            null,
+            GameTimeControlCategory.Unknown,
+            UpdatedUtc)
+    {
+    }
+}
 
 public sealed record ReplayPly(
     int Ply,
@@ -239,4 +297,14 @@ public sealed record StoredMoveAnalysis(
     AdviceFeedbackKind? ManualFeedbackKind = null,
     string? ManualCorrectedLabel = null,
     string? ManualComment = null,
-    DateTime? ManualCorrectedUtc = null);
+    DateTime? ManualCorrectedUtc = null,
+    int? WhiteElo = null,
+    int? BlackElo = null,
+    string? TimeControl = null,
+    GameTimeControlCategory TimeControlCategory = GameTimeControlCategory.Unknown,
+    string? UtcDate = null,
+    string? UtcTime = null,
+    string? EndDate = null,
+    string? EndTime = null,
+    string? Termination = null,
+    string? Link = null);

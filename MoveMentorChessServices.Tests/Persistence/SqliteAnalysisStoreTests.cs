@@ -14,6 +14,11 @@ public sealed class SqliteAnalysisStoreTests
 [Black "Beta"]
 [Result "1-0"]
 [ECO "C20"]
+[WhiteElo "812"]
+[BlackElo "799"]
+[TimeControl "600"]
+[Termination "Alpha won by checkmate"]
+[Link "https://www.chess.com/game/live/1"]
 
 1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7# 1-0
 """;
@@ -92,6 +97,12 @@ public sealed class SqliteAnalysisStoreTests
             Assert.Equal(savedGame.PgnText, loadedGame!.PgnText);
             Assert.Equal(savedGame.WhitePlayer, loadedGame.WhitePlayer);
             Assert.Equal(savedGame.BlackPlayer, loadedGame.BlackPlayer);
+            Assert.Equal(812, loadedGame.WhiteElo);
+            Assert.Equal(799, loadedGame.BlackElo);
+            Assert.Equal("600", loadedGame.Metadata?.TimeControl);
+            Assert.Equal(GameTimeControlCategory.Rapid, loadedGame.Metadata?.TimeControlCategory);
+            Assert.Equal("Alpha won by checkmate", loadedGame.Metadata?.Termination);
+            Assert.Equal("https://www.chess.com/game/live/1", loadedGame.Metadata?.Link);
         }
         finally
         {

@@ -9,16 +9,21 @@ public sealed partial class PlayerProfileService
 
     private readonly IAnalysisStore analysisStore;
     private readonly ProfileAnalysisDataSource analysisDataSource;
+    private readonly IPlayerStrengthEstimator strengthEstimator;
 
     public PlayerProfileService(IAnalysisStore analysisStore)
-        : this(analysisStore, new ProfileAnalysisDataSource(analysisStore))
+        : this(analysisStore, new ProfileAnalysisDataSource(analysisStore), new HeuristicPlayerStrengthEstimator())
     {
     }
 
-    internal PlayerProfileService(IAnalysisStore analysisStore, ProfileAnalysisDataSource analysisDataSource)
+    internal PlayerProfileService(
+        IAnalysisStore analysisStore,
+        ProfileAnalysisDataSource analysisDataSource,
+        IPlayerStrengthEstimator? strengthEstimator = null)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
         this.analysisDataSource = analysisDataSource ?? throw new ArgumentNullException(nameof(analysisDataSource));
+        this.strengthEstimator = strengthEstimator ?? new HeuristicPlayerStrengthEstimator();
     }
 
     public IReadOnlyList<PlayerProfileSummary> ListProfiles(string? filterText = null, int limit = 100)
@@ -400,6 +405,132 @@ public sealed partial class PlayerProfileService
             highlightsPerGame);
     }
 
+    private IReadOnlyList<PlayerRatingTrendReport> BuildRatingTrendsByTimeControl(IReadOnlyList<PlayerProfileSnapshot> snapshots)
+    {
+        return snapshots
+            .Where(snapshot => snapshot.TimeControlCategory != GameTimeControlCategory.Unknown)
+            .GroupBy(snapshot => snapshot.TimeControlCategory)
+            .OrderBy(group => group.Key)
+            .Select(group => BuildRatingTrend(group.ToList(), group.Key))
+            .ToList();
+    }
+
+    private PlayerRatingTrendReport BuildRatingTrend(
+        IReadOnlyList<PlayerProfileSnapshot> snapshots,
+        GameTimeControlCategory? category)
+    {
+        List<PlayerProfileSnapshot> ordered = snapshots
+            .Where(snapshot => !category.HasValue || snapshot.TimeControlCategory == category.Value)
+            .OrderBy(snapshot => GetSnapshotDate(snapshot) ?? DateTime.MaxValue)
+            .ThenBy(snapshot => snapshot.GameFingerprint, StringComparer.Ordinal)
+            .ToList();
+
+        Dictionary<GameTimeControlCategory, int> sampleSizes = ordered
+            .GroupBy(snapshot => snapshot.TimeControlCategory)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        List<PlayerRatingSnapshot> ratingPoints = [];
+        List<MoveMentorStrengthPoint> strengthPoints = [];
+        foreach (PlayerProfileSnapshot snapshot in ordered)
+        {
+            double? actualScore = GetActualScore(snapshot);
+            double? expectedScore = GetExpectedScore(snapshot.PlayerRating, snapshot.OpponentRating);
+            ratingPoints.Add(new PlayerRatingSnapshot(
+                snapshot.GameFingerprint,
+                GetSnapshotDate(snapshot),
+                snapshot.TimeControlCategory,
+                snapshot.PlayerRating,
+                snapshot.OpponentRating,
+                actualScore,
+                expectedScore));
+
+            int sampleSize = sampleSizes.TryGetValue(snapshot.TimeControlCategory, out int count) ? count : ordered.Count;
+            strengthPoints.Add(strengthEstimator.Estimate(new PlayerStrengthEstimateInput(
+                snapshot.GameFingerprint,
+                GetSnapshotDate(snapshot),
+                snapshot.TimeControlCategory,
+                snapshot.PlayerRating,
+                snapshot.OpponentRating,
+                actualScore,
+                expectedScore,
+                snapshot.Moves,
+                sampleSize)));
+        }
+
+        IReadOnlyList<ProfileMonthlyTrend> cplTrend = ordered
+            .GroupBy(snapshot => snapshot.MonthKey ?? "Unknown")
+            .Select(group => new ProfileMonthlyTrend(
+                group.Key,
+                group.Count(),
+                group.Sum(snapshot => GetHighlightedGroups(snapshot).Count),
+                TryAverage(group.SelectMany(snapshot => snapshot.Moves).Select(move => move.CentipawnLoss))))
+            .OrderBy(item => item.MonthKey, StringComparer.Ordinal)
+            .ToList();
+
+        IReadOnlyList<ProfileMoveQualityTrend> qualityTrend = ordered
+            .GroupBy(snapshot => snapshot.MonthKey ?? "Unknown")
+            .Select(group => BuildMoveQualityTrend(group.Key, group.ToList()))
+            .OrderBy(item => item.PeriodKey, StringComparer.Ordinal)
+            .ToList();
+
+        MoveMentorStrengthPoint? currentStrength = strengthPoints.LastOrDefault();
+        int? currentRating = ratingPoints.LastOrDefault(point => point.PlayerRating.HasValue)?.PlayerRating;
+        string label = category.HasValue ? category.Value.ToString() : "Overall";
+        string summary = currentStrength is null
+            ? $"No MoveMentor estimated strength data yet for {label}."
+            : $"{label}: MoveMentor estimated strength {currentStrength.EstimatedStrength} ({currentStrength.Low}-{currentStrength.High}), {currentStrength.Confidence.ToString().ToLowerInvariant()} confidence.";
+
+        return new PlayerRatingTrendReport(
+            category,
+            ordered.Count,
+            currentRating,
+            currentStrength,
+            ratingPoints,
+            strengthPoints,
+            cplTrend,
+            qualityTrend,
+            summary);
+    }
+
+    private static ProfileMoveQualityTrend BuildMoveQualityTrend(string periodKey, IReadOnlyList<PlayerProfileSnapshot> snapshots)
+    {
+        int gameCount = Math.Max(1, snapshots.Count);
+        IReadOnlyList<StoredMoveAnalysis> moves = snapshots.SelectMany(snapshot => snapshot.Moves).ToList();
+        return new ProfileMoveQualityTrend(
+            periodKey,
+            snapshots.Count,
+            Math.Round(moves.Count(move => move.Quality == MoveQualityBucket.Blunder) / (double)gameCount, 2),
+            Math.Round(moves.Count(move => move.Quality == MoveQualityBucket.Mistake) / (double)gameCount, 2),
+            Math.Round(moves.Count(move => move.Quality == MoveQualityBucket.Inaccuracy) / (double)gameCount, 2),
+            Math.Round(moves.Count(move => move.Quality is MoveQualityBucket.Brilliant or MoveQualityBucket.Great or MoveQualityBucket.Best) / (double)gameCount, 2));
+    }
+
+    private static double? GetExpectedScore(int? playerRating, int? opponentRating)
+    {
+        if (!playerRating.HasValue || !opponentRating.HasValue)
+        {
+            return null;
+        }
+
+        return 1.0 / (1.0 + Math.Pow(10.0, (opponentRating.Value - playerRating.Value) / 400.0));
+    }
+
+    private static double? GetActualScore(PlayerProfileSnapshot snapshot)
+    {
+        if (string.IsNullOrWhiteSpace(snapshot.Result))
+        {
+            return null;
+        }
+
+        return snapshot.Result.Trim() switch
+        {
+            "1/2-1/2" => 0.5,
+            "1-0" => snapshot.Side == PlayerSide.White ? 1.0 : 0.0,
+            "0-1" => snapshot.Side == PlayerSide.Black ? 1.0 : 0.0,
+            _ => null
+        };
+    }
+
     private PlayerProfileReport BuildReport(IReadOnlyList<PlayerProfileSnapshot> snapshots)
     {
         string playerKey = snapshots[0].PlayerKey;
@@ -495,6 +626,8 @@ public sealed partial class PlayerProfileService
 
         ProfileProgressSignal progressSignal = BuildProgressSignal(snapshots);
         IReadOnlyList<ProfileLabelTrend> labelTrends = BuildLabelTrends(snapshots);
+        PlayerRatingTrendReport overallRatingTrend = BuildRatingTrend(snapshots, null);
+        IReadOnlyList<PlayerRatingTrendReport> ratingTrendsByTimeControl = BuildRatingTrendsByTimeControl(snapshots);
 
         IReadOnlyList<ProfileMistakeExample> allExamples = BuildAllMistakeExamples(snapshots, topLabels, 9);
 
@@ -523,6 +656,8 @@ public sealed partial class PlayerProfileService
             gamesBySide,
             monthlyTrend,
             quarterlyTrend,
+            overallRatingTrend,
+            ratingTrendsByTimeControl,
             progressSignal,
             labelTrends,
             [],
@@ -559,6 +694,8 @@ public sealed partial class PlayerProfileService
             gamesBySide,
             monthlyTrend,
             quarterlyTrend,
+            overallRatingTrend,
+            ratingTrendsByTimeControl,
             progressSignal,
             labelTrends,
             trainingPlan.Recommendations,
@@ -604,6 +741,17 @@ public sealed partial class PlayerProfileService
             first.MultiPv,
             first.MoveTimeMs,
             first.AnalysisUpdatedUtc,
+            first.AnalyzedSide == PlayerSide.White ? first.WhiteElo : first.BlackElo,
+            first.AnalyzedSide == PlayerSide.White ? first.BlackElo : first.WhiteElo,
+            first.Result,
+            first.TimeControlCategory,
+            first.TimeControl,
+            first.UtcDate,
+            first.UtcTime,
+            first.EndDate,
+            first.EndTime,
+            first.Termination,
+            first.Link,
             moves);
     }
 
@@ -658,7 +806,17 @@ public sealed partial class PlayerProfileService
                 move.Explanation?.ShortText,
                 move.Explanation?.DetailedText,
                 move.Explanation?.TrainingHint,
-                highlightedPlys.Contains(move.Replay.Ply)))
+                highlightedPlys.Contains(move.Replay.Ply),
+                WhiteElo: result.Game.WhiteElo,
+                BlackElo: result.Game.BlackElo,
+                TimeControl: result.Game.Metadata?.TimeControl,
+                TimeControlCategory: result.Game.Metadata?.TimeControlCategory ?? GameTimeControlCategory.Unknown,
+                UtcDate: result.Game.Metadata?.UtcDate,
+                UtcTime: result.Game.Metadata?.UtcTime,
+                EndDate: result.Game.Metadata?.EndDate,
+                EndTime: result.Game.Metadata?.EndTime,
+                Termination: result.Game.Metadata?.Termination,
+                Link: result.Game.Metadata?.Link))
             .ToList();
 
         return new PlayerProfileSnapshot(
@@ -674,6 +832,17 @@ public sealed partial class PlayerProfileService
             0,
             null,
             DateTime.MinValue,
+            result.AnalyzedSide == PlayerSide.White ? result.Game.WhiteElo : result.Game.BlackElo,
+            result.AnalyzedSide == PlayerSide.White ? result.Game.BlackElo : result.Game.WhiteElo,
+            result.Game.Result,
+            result.Game.Metadata?.TimeControlCategory ?? GameTimeControlCategory.Unknown,
+            result.Game.Metadata?.TimeControl,
+            result.Game.Metadata?.UtcDate,
+            result.Game.Metadata?.UtcTime,
+            result.Game.Metadata?.EndDate,
+            result.Game.Metadata?.EndTime,
+            result.Game.Metadata?.Termination,
+            result.Game.Metadata?.Link,
             moves);
     }
 
@@ -758,6 +927,17 @@ public sealed partial class PlayerProfileService
         int MultiPv,
         int? MoveTimeMs,
         DateTime AnalysisUpdatedUtc,
+        int? PlayerRating,
+        int? OpponentRating,
+        string? Result,
+        GameTimeControlCategory TimeControlCategory,
+        string? TimeControl,
+        string? UtcDate,
+        string? UtcTime,
+        string? EndDate,
+        string? EndTime,
+        string? Termination,
+        string? Link,
         IReadOnlyList<StoredMoveAnalysis> Moves);
 
     private sealed record ProgressWindowSelection(

@@ -100,6 +100,14 @@ Kxa2 62. Qb2# 1-0
         Assert.Equal("awasate", game.WhitePlayer);
         Assert.Equal("Sorky1996", game.BlackPlayer);
         Assert.Equal("B00", game.Eco);
+        Assert.Equal(691, game.WhiteElo);
+        Assert.Equal(662, game.BlackElo);
+        Assert.Equal("600", game.Metadata?.TimeControl);
+        Assert.Equal(GameTimeControlCategory.Rapid, game.Metadata?.TimeControlCategory);
+        Assert.Equal("https://www.chess.com/game/live/167774345380", game.Metadata?.Link);
+        Assert.Equal("awasate won by resignation", game.Metadata?.Termination);
+        Assert.Equal("2026.04.24", game.Metadata?.UtcDate);
+        Assert.Equal("18:46:08", game.Metadata?.UtcTime);
         Assert.Equal(31, game.SanMoves.Count);
         Assert.Equal("Nxe3", game.SanMoves[^1]);
         Assert.Equal(31, replay.Count);

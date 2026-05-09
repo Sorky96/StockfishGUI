@@ -177,7 +177,17 @@ public sealed class OpeningWeaknessService
                 move.Explanation?.ShortText,
                 move.Explanation?.DetailedText,
                 move.Explanation?.TrainingHint,
-                result.HighlightedMistakes.SelectMany(item => item.Moves).Any(item => item.Replay.Ply == move.Replay.Ply)))
+                result.HighlightedMistakes.SelectMany(item => item.Moves).Any(item => item.Replay.Ply == move.Replay.Ply),
+                WhiteElo: result.Game.WhiteElo,
+                BlackElo: result.Game.BlackElo,
+                TimeControl: result.Game.Metadata?.TimeControl,
+                TimeControlCategory: result.Game.Metadata?.TimeControlCategory ?? GameTimeControlCategory.Unknown,
+                UtcDate: result.Game.Metadata?.UtcDate,
+                UtcTime: result.Game.Metadata?.UtcTime,
+                EndDate: result.Game.Metadata?.EndDate,
+                EndTime: result.Game.Metadata?.EndTime,
+                Termination: result.Game.Metadata?.Termination,
+                Link: result.Game.Metadata?.Link))
             .ToList();
 
         if (openingMoves.Count == 0)
