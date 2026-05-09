@@ -485,7 +485,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 }
 
                 SelectedAnalysisSide = side;
-                StatusMessage = BuildBulkAnalysisStatus(game, side, analyzed + cached + failed + skipped + 1, games.Count, primaryPlayer);
+                string bulkStatus = BuildBulkAnalysisStatus(game, side, analyzed + cached + failed + skipped + 1, games.Count, primaryPlayer);
+                StatusMessage = bulkStatus;
 
                 GameAnalysisCacheKey cacheKey = GameAnalysisCache.CreateKey(game, side, options);
                 if (GameAnalysisCache.TryGetResult(cacheKey, out GameAnalysisResult? cachedResult) && cachedResult is not null)
@@ -497,8 +498,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
                 try
                 {
+                    LoadImportedGameCore(game);
+                    SelectedAnalysisSide = side;
+                    IProgress<GameAnalysisProgress> progress = new Progress<GameAnalysisProgress>(
+                        item => ShowAnalysisProgressOnBoard(item, bulkStatus));
+
                     GameAnalysisResult result = await Task.Run(
-                        () => analysisService.AnalyzeGame(game, side, options, cancellationToken: cancellation.Token),
+                        () => analysisService.AnalyzeGame(game, side, options, progress, cancellation.Token),
                         cancellation.Token);
                     GameAnalysisCache.StoreResult(cacheKey, result);
                     analyzed++;
@@ -844,6 +850,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     private void ShowAnalysisProgressOnBoard(GameAnalysisProgress progress)
+        => ShowAnalysisProgressOnBoard(progress, bulkStatusPrefix: null);
+
+    private void ShowAnalysisProgressOnBoard(GameAnalysisProgress progress, string? bulkStatusPrefix)
     {
         if (!chessGame.TryLoadFen(progress.Fen, out _))
         {
@@ -866,7 +875,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         string positionText = progress.Stage == GameAnalysisProgressStage.BeforeMove
             ? "before"
             : "after";
-        StatusMessage = $"Analyzing {progress.CurrentAnalyzedMove}/{progress.TotalAnalyzedMoves}: {positionText} {progress.Replay.MoveNumber}{(progress.Replay.Side == PlayerSide.White ? "." : "...")} {progress.Replay.San}.";
+        string moveStatus = $"Analyzing {progress.CurrentAnalyzedMove}/{progress.TotalAnalyzedMoves}: {positionText} {progress.Replay.MoveNumber}{(progress.Replay.Side == PlayerSide.White ? "." : "...")} {progress.Replay.San}.";
+        StatusMessage = string.IsNullOrWhiteSpace(bulkStatusPrefix)
+            ? moveStatus
+            : $"{bulkStatusPrefix} {moveStatus}";
     }
 
     private void ApplyAnalysisFilter()

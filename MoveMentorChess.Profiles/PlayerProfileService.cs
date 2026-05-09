@@ -526,19 +526,21 @@ public sealed partial class PlayerProfileService
         }
 
         IReadOnlyList<ProfileMonthlyTrend> cplTrend = ordered
-            .GroupBy(snapshot => snapshot.MonthKey ?? "Unknown")
+            .GroupBy(BuildWeekKey)
             .Select(group => new ProfileMonthlyTrend(
                 group.Key,
                 group.Count(),
                 group.Sum(snapshot => GetHighlightedGroups(snapshot).Count),
                 TryAverage(group.SelectMany(snapshot => snapshot.Moves).Select(move => move.CentipawnLoss))))
             .OrderBy(item => item.MonthKey, StringComparer.Ordinal)
+            .TakeLast(8)
             .ToList();
 
         IReadOnlyList<ProfileMoveQualityTrend> qualityTrend = ordered
-            .GroupBy(snapshot => snapshot.MonthKey ?? "Unknown")
+            .GroupBy(BuildWeekKey)
             .Select(group => BuildMoveQualityTrend(group.Key, group.ToList()))
             .OrderBy(item => item.PeriodKey, StringComparer.Ordinal)
+            .TakeLast(8)
             .ToList();
 
         MoveMentorStrengthPoint? currentStrength = strengthPoints.LastOrDefault();
@@ -571,6 +573,14 @@ public sealed partial class PlayerProfileService
             Math.Round(moves.Count(move => move.Quality == MoveQualityBucket.Mistake) / (double)gameCount, 2),
             Math.Round(moves.Count(move => move.Quality == MoveQualityBucket.Inaccuracy) / (double)gameCount, 2),
             Math.Round(moves.Count(move => move.Quality is MoveQualityBucket.Brilliant or MoveQualityBucket.Great or MoveQualityBucket.Best) / (double)gameCount, 2));
+    }
+
+    private static string BuildWeekKey(PlayerProfileSnapshot snapshot)
+    {
+        DateTime date = (GetSnapshotDate(snapshot) ?? snapshot.AnalysisUpdatedUtc).Date;
+        int daysFromMonday = ((int)date.DayOfWeek + 6) % 7;
+        DateTime weekStart = date.AddDays(-daysFromMonday);
+        return weekStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
 
     private static double? GetExpectedScore(int? playerRating, int? opponentRating)

@@ -24,6 +24,7 @@ out/
 *.db-shm
 *.db-wal
 !MoveMentorChessServices/OpeningSeed/opening-seed.db
+!MoveMentorChess.Persistence/OpeningSeed/opening-seed.db
 
 # OS files
 Thumbs.db
