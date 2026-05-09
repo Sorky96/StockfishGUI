@@ -1,4 +1,5 @@
 using System.IO;
+using MoveMentorChess.Opening;
 using MoveMentorChessServices;
 using Xunit;
 
@@ -540,7 +541,7 @@ public sealed class OpeningImportServiceTests
         };
     }
 
-    private sealed class FakeAnalysisStore : IAnalysisStore
+    private sealed class FakeAnalysisStore : IImportedGameStore
     {
         public List<ImportedGame> SavedGames { get; } = new();
 
@@ -554,26 +555,5 @@ public sealed class OpeningImportServiceTests
 
         public bool DeleteImportedGame(string gameFingerprint) => false;
         public IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText = null, int limit = 200) => [];
-        public IReadOnlyList<GameAnalysisResult> ListResults(string? filterText = null, int limit = 500) => [];
-        public IReadOnlyList<StoredMoveAnalysis> ListMoveAnalyses(string? filterText = null, int limit = 5000) => [];
-        public bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result)
-        {
-            result = null;
-            return false;
-        }
-
-        public void SaveResult(GameAnalysisCacheKey key, GameAnalysisResult result)
-        {
-        }
-
-        public bool TryLoadWindowState(string gameFingerprint, out AnalysisWindowState? state)
-        {
-            state = null;
-            return false;
-        }
-
-        public void SaveWindowState(string gameFingerprint, AnalysisWindowState state)
-        {
-        }
     }
 }

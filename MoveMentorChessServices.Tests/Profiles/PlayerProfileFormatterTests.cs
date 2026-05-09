@@ -1,3 +1,5 @@
+using MoveMentorChess.Analysis;
+using MoveMentorChess.Profiles;
 using MoveMentorChessServices;
 using Xunit;
 

@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using MoveMentorChess.App.ViewModels;
+using MoveMentorChess.Persistence;
 
 namespace MoveMentorChess.App.Views;
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
+using MoveMentorChess.Tracking;
 using MoveMentorChessServices;
 using Xunit;
 

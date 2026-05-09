@@ -1,4 +1,8 @@
 using System.IO;
+using MoveMentorChess.Analysis;
+using MoveMentorChess.Opening;
+using MoveMentorChess.Diagnostics;
+using MoveMentorChess.Persistence;
 using MoveMentorChessServices;
 using Xunit;
 
@@ -237,20 +241,20 @@ public sealed class SqliteAnalysisStoreTests
             IReadOnlyList<StoredMoveAnalysis> storedMoves = store.ListMoveAnalyses("Alpha");
 
             StoredMoveAnalysis storedMove = Assert.Single(storedMoves);
-            Assert.Equal(GameFingerprint.Compute(game.PgnText), storedMove.GameFingerprint);
-            Assert.Equal(PlayerSide.White, storedMove.AnalyzedSide);
-            Assert.Equal(16, storedMove.Depth);
-            Assert.Equal(2, storedMove.MultiPv);
-            Assert.Equal(3, storedMove.Ply);
-            Assert.Equal("Nf3", storedMove.San);
-            Assert.Equal("g1f3", storedMove.Uci);
-            Assert.Equal("opening_principles", storedMove.MistakeLabel);
-            Assert.Equal(145, storedMove.CentipawnLoss);
-            Assert.True(storedMove.IsHighlighted);
-            Assert.Equal("Short", storedMove.ShortExplanation);
-            Assert.Equal("Detailed", storedMove.DetailedExplanation);
-            Assert.Equal("Hint", storedMove.TrainingHint);
-            Assert.Contains("late_development", storedMove.Evidence);
+            Assert.Equal(GameFingerprint.Compute(game.PgnText), storedMove.Game.GameFingerprint);
+            Assert.Equal(PlayerSide.White, storedMove.Analysis.AnalyzedSide);
+            Assert.Equal(16, storedMove.Analysis.Depth);
+            Assert.Equal(2, storedMove.Analysis.MultiPv);
+            Assert.Equal(3, storedMove.Move.Ply);
+            Assert.Equal("Nf3", storedMove.Move.San);
+            Assert.Equal("g1f3", storedMove.Move.Uci);
+            Assert.Equal("opening_principles", storedMove.Advice.MistakeLabel);
+            Assert.Equal(145, storedMove.Move.CentipawnLoss);
+            Assert.True(storedMove.Advice.IsHighlighted);
+            Assert.Equal("Short", storedMove.Advice.ShortExplanation);
+            Assert.Equal("Detailed", storedMove.Advice.DetailedExplanation);
+            Assert.Equal("Hint", storedMove.Advice.TrainingHint);
+            Assert.Contains("late_development", storedMove.Advice.Evidence);
         }
         finally
         {
@@ -284,12 +288,13 @@ public sealed class SqliteAnalysisStoreTests
             StoredMoveAnalysis storedMove = Assert.Single(store.ListMoveAnalyses("Alpha"));
             MoveAdviceFeedback latest = Assert.Single(store.ListMoveAdviceFeedback("latest"));
 
-            Assert.Equal("material_loss", storedMove.MistakeLabel);
-            Assert.Equal("missed_tactic", storedMove.OriginalMistakeLabel);
-            Assert.Equal(AdviceFeedbackKind.WrongLabel, storedMove.ManualFeedbackKind);
-            Assert.Equal("material_loss", storedMove.ManualCorrectedLabel);
-            Assert.Equal("latest", storedMove.ManualComment);
-            Assert.NotNull(storedMove.ManualCorrectedUtc);
+            Assert.Equal("material_loss", storedMove.Advice.MistakeLabel);
+            Assert.Equal("missed_tactic", storedMove.Advice.OriginalMistakeLabel);
+            Assert.NotNull(storedMove.ManualFeedback);
+            Assert.Equal(AdviceFeedbackKind.WrongLabel, storedMove.ManualFeedback.ManualFeedbackKind);
+            Assert.Equal("material_loss", storedMove.ManualFeedback.ManualCorrectedLabel);
+            Assert.Equal("latest", storedMove.ManualFeedback.ManualComment);
+            Assert.NotNull(storedMove.ManualFeedback.ManualCorrectedUtc);
             Assert.Equal("material_loss", latest.CorrectedLabel);
         }
         finally
@@ -595,6 +600,71 @@ public sealed class SqliteAnalysisStoreTests
     }
 
     [Fact]
+    public void SqliteAnalysisStore_ClearsOnlyDerivedAnalysisDataWhenVersionChanges()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            const string legacyDerivedVersion = "legacy-derived-analysis-v0";
+            SqliteAnalysisStore legacyStore = new(databasePath, legacyDerivedVersion);
+            ImportedGame game = PgnGameParser.Parse(GameOnePgn);
+            string fingerprint = GameFingerprint.Compute(game.PgnText);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions());
+            MoveAnalysisResult move = CreateMoveAnalysis(
+                ply: 3,
+                moveNumber: 2,
+                phase: GamePhase.Opening,
+                quality: MoveQualityBucket.Mistake,
+                centipawnLoss: 145,
+                label: "missed_tactic");
+            DateTime completedUtc = DateTime.Parse("2026-04-20T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal);
+            OpeningTrainingSessionResult trainingResult = new(
+                "opening-trainer:alpha:version-reset",
+                "alpha",
+                "Alpha",
+                completedUtc.AddMinutes(-15),
+                completedUtc,
+                OpeningTrainingSessionOutcome.Completed,
+                1,
+                1,
+                1,
+                1,
+                0,
+                ["C20"],
+                ["opening_principles"],
+                []);
+
+            legacyStore.SaveImportedGame(game);
+            legacyStore.SaveResult(key, new GameAnalysisResult(game, PlayerSide.White, [move.Replay], [move], []));
+            legacyStore.SaveWindowState(fingerprint, new AnalysisWindowState(PlayerSide.White, 1, 2));
+            legacyStore.SaveMoveAdviceFeedback(CreateFeedback(key, move, AdviceFeedbackKind.WrongLabel, "hanging_piece", "keep me"));
+            legacyStore.SaveOpeningTree(BuildOpeningTree(OpeningImportGameOnePgn, OpeningImportGameTwoPgn));
+            legacyStore.SaveOpeningTrainingSessionResult(trainingResult);
+            OpeningTreeStoreSummary openingSummaryBefore = legacyStore.GetOpeningTreeSummary();
+
+            SqliteAnalysisStore currentStore = new(databasePath);
+
+            Assert.Equal(SqliteAnalysisStore.CurrentDerivedAnalysisDataVersion, currentStore.GetDerivedAnalysisDataVersion());
+            Assert.True(currentStore.TryLoadImportedGame(fingerprint, out ImportedGame? restoredGame));
+            Assert.Equal(game.PgnText, restoredGame!.PgnText);
+            Assert.False(currentStore.TryLoadResult(key, out _));
+            Assert.False(currentStore.TryLoadWindowState(fingerprint, out _));
+            Assert.Empty(currentStore.ListResults());
+            Assert.Empty(currentStore.ListMoveAnalyses());
+            Assert.Equal(openingSummaryBefore, currentStore.GetOpeningTreeSummary());
+            MoveAdviceFeedback preservedFeedback = Assert.Single(currentStore.ListMoveAdviceFeedback("keep me"));
+            Assert.Equal("hanging_piece", preservedFeedback.CorrectedLabel);
+            OpeningTrainingSessionResult restoredTraining = Assert.Single(currentStore.ListOpeningTrainingSessionResults("alpha"));
+            Assert.Equal(trainingResult.SessionId, restoredTraining.SessionId);
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
     public void SqliteAnalysisStore_RoundTripsPositiveMoveQualityValues()
     {
         string databasePath = CreateTempDatabasePath();
@@ -620,7 +690,7 @@ public sealed class SqliteAnalysisStoreTests
 
             Assert.True(found);
             Assert.NotNull(restored);
-            Assert.Equal(MoveQualityBucket.Great, storedMove.Quality);
+            Assert.Equal(MoveQualityBucket.Great, storedMove.Move.Quality);
             Assert.Equal(MoveQualityBucket.Great, restored!.MoveAnalyses[0].Quality);
             Assert.Equal(2, (int)MoveQualityBucket.Great);
         }

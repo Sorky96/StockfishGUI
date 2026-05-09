@@ -9,7 +9,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MoveMentorChessServices\MoveMentorChessServices.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Analysis\MoveMentorChess.Analysis.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Diagnostics\MoveMentorChess.Diagnostics.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Domain\MoveMentorChess.Domain.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Engine\MoveMentorChess.Engine.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Opening\MoveMentorChess.Opening.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Persistence\MoveMentorChess.Persistence.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Presentation\MoveMentorChess.Presentation.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Profiles\MoveMentorChess.Profiles.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Training\MoveMentorChess.Training.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Tracking\MoveMentorChess.Tracking.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,3 +1,5 @@
+using MoveMentorChess.Analysis;
+using MoveMentorChess.Diagnostics;
 using MoveMentorChessServices;
 using Xunit;
 
@@ -163,41 +165,7 @@ training_hint: develop a piece
 
     private static StoredMoveAnalysis CreateStoredMove(int ply, string label)
     {
-        return new StoredMoveAnalysis(
-            "game",
-            PlayerSide.White,
-            14,
-            3,
-            null,
-            DateTime.UtcNow,
-            "White",
-            "Black",
-            "2026.04.29",
-            "1-0",
-            "A00",
-            "Local",
-            ply,
-            ply,
-            "a3",
-            "a2a3",
-            "4k3/8/8/8/8/8/P7/4K3 w - - 0 1",
-            "4k3/8/8/8/8/P7/8/4K3 b - - 0 1",
-            ply % 3 == 0 ? GamePhase.Endgame : ply % 2 == 0 ? GamePhase.Middlegame : GamePhase.Opening,
-            0,
-            -120,
-            null,
-            null,
-            120,
-            MoveQualityBucket.Inaccuracy,
-            0,
-            "a2a4",
-            label,
-            0.8,
-            ["evidence"],
-            "Short explanation",
-            "What: issue. Why: reason. Better: a2a4. Watch next time: cue.",
-            "Training hint",
-            true);
+        return StoredMoveAnalysisMapper.CreateTestFixture(ply: ply, mistakeLabel: label);
     }
 
     private sealed class FakeLocalAdviceModel(string response) : ILocalAdviceModel

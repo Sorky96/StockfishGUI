@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MoveMentorChess.Analysis\MoveMentorChess.Analysis.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Domain\MoveMentorChess.Domain.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Opening\MoveMentorChess.Opening.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Persistence\MoveMentorChess.Persistence.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Training\MoveMentorChess.Training.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,4 +1,8 @@
 using System.Globalization;
+using MoveMentorChess.Analysis;
+using MoveMentorChess.Opening;
+using MoveMentorChess.Persistence;
+using MoveMentorChess.Profiles;
 using Xunit;
 
 namespace MoveMentorChessServices.Tests;
@@ -595,7 +599,11 @@ public sealed class OpeningTrainerServiceTests
         string BestMoveUci,
         MoveQualityBucket? QualityOverride = null);
 
-    private sealed class FakeAnalysisStore : IAnalysisStore, IOpeningTheoryStore
+    private sealed class FakeAnalysisStore :
+        IImportedGameStore,
+        IAnalysisResultStore,
+        IStoredMoveAnalysisStore,
+        IOpeningTheoryStore
     {
         private readonly IReadOnlyList<GameAnalysisResult> results;
         private readonly IReadOnlyList<StoredMoveAnalysis> moveAnalyses;
@@ -700,8 +708,6 @@ public sealed class OpeningTrainerServiceTests
 
         public bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result) => throw new NotSupportedException();
         public void SaveResult(GameAnalysisCacheKey key, GameAnalysisResult result) => throw new NotSupportedException();
-        public bool TryLoadWindowState(string gameFingerprint, out AnalysisWindowState? state) => throw new NotSupportedException();
-        public void SaveWindowState(string gameFingerprint, AnalysisWindowState state) => throw new NotSupportedException();
     }
 
     private static (Dictionary<string, OpeningTheoryPosition> Positions, Dictionary<string, IReadOnlyList<OpeningTheoryMove>> Moves) BuildTheoryData(
@@ -833,42 +839,15 @@ public sealed class OpeningTrainerServiceTests
                 HashSet<string> highlightedLabels = result.HighlightedMistakes
                     .Select(mistake => mistake.Tag?.Label ?? "unclassified")
                     .ToHashSet(StringComparer.Ordinal);
+                GameAnalysisCacheKey key = new(GameFingerprint.Compute(result.Game.PgnText), result.AnalyzedSide, 14, 3, null);
+                DateTime updatedUtc = DateTime.Parse("2026-04-18T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
 
-                return result.MoveAnalyses.Select(move => new StoredMoveAnalysis(
-                    GameFingerprint.Compute(result.Game.PgnText),
-                    result.AnalyzedSide,
-                    14,
-                    3,
-                    null,
-                    DateTime.Parse("2026-04-18T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal),
-                    result.Game.WhitePlayer,
-                    result.Game.BlackPlayer,
-                    result.Game.DateText,
-                    result.Game.Result,
-                    result.Game.Eco,
-                    result.Game.Site,
-                    move.Replay.Ply,
-                    move.Replay.MoveNumber,
-                    move.Replay.San,
-                    move.Replay.Uci,
-                    move.Replay.FenBefore,
-                    move.Replay.FenAfter,
-                    move.Replay.Phase,
-                    move.EvalBeforeCp,
-                    move.EvalAfterCp,
-                    move.BestMateIn,
-                    move.PlayedMateIn,
-                    move.CentipawnLoss,
-                    move.Quality,
-                    move.MaterialDeltaCp,
-                    move.BeforeAnalysis.BestMoveUci,
-                    move.MistakeTag?.Label,
-                    move.MistakeTag?.Confidence,
-                    move.MistakeTag?.Evidence ?? [],
-                    move.Explanation?.ShortText,
-                    move.Explanation?.DetailedText,
-                    move.Explanation?.TrainingHint,
-                    highlightedLabels.Contains(move.MistakeTag?.Label ?? "unclassified")));
+                return result.MoveAnalyses.Select(move => StoredMoveAnalysisMapper.FromAnalysisResultMove(
+                    key,
+                    result,
+                    move,
+                    highlightedLabels.Contains(move.MistakeTag?.Label ?? "unclassified"),
+                    updatedUtc));
             })
             .ToList();
     }

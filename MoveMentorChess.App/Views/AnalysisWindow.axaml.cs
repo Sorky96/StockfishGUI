@@ -2,6 +2,10 @@ using System.Text;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using MoveMentorChess.Analysis;
+using MoveMentorChess.Engine;
+using MoveMentorChess.Opening;
+using MoveMentorChess.Persistence;
 
 namespace MoveMentorChess.App.Views;
 
@@ -25,6 +29,7 @@ public partial class AnalysisWindow : Window
     private readonly Func<MoveAnalysisResult, Task>? navigateToMoveAsync;
     private readonly Action<GameAnalysisProgress>? analysisProgress;
     private readonly PlayerSide initialSide;
+    private readonly Dictionary<PlayerSide, GameAnalysisResult> initialResultsBySide = [];
     private readonly Dictionary<string, MoveExplanation> explanationCache = [];
     private IAdviceGenerator adviceGenerator = CreateSettingsBackedAdviceGenerator(AdviceGeneratorFactory.CreateInteractiveGenerator());
     private GameAnalysisResult? currentResult;
@@ -43,13 +48,24 @@ public partial class AnalysisWindow : Window
         IEngineAnalyzer engineAnalyzer,
         Func<MoveAnalysisResult, Task> navigateToMoveAsync,
         Action<GameAnalysisProgress>? analysisProgress,
-        PlayerSide initialSide)
+        PlayerSide initialSide,
+        IReadOnlyDictionary<PlayerSide, GameAnalysisResult>? initialResultsBySide = null)
     {
         this.importedGame = importedGame;
         this.engineAnalyzer = engineAnalyzer;
         this.navigateToMoveAsync = navigateToMoveAsync;
         this.analysisProgress = analysisProgress;
         this.initialSide = initialSide;
+        if (initialResultsBySide is not null)
+        {
+            foreach ((PlayerSide side, GameAnalysisResult result) in initialResultsBySide)
+            {
+                if (IsAnalysisForGame(result, importedGame))
+                {
+                    this.initialResultsBySide[side] = result;
+                }
+            }
+        }
 
         InitializeComponent();
         SideComboBox.ItemsSource = new[]
@@ -125,6 +141,15 @@ public partial class AnalysisWindow : Window
         }
 
         GameAnalysisCacheKey cacheKey = GameAnalysisCache.CreateKey(importedGame, selectedSide.Side, DefaultAnalysisOptions);
+        if (TryGetInitialResult(selectedSide.Side, out GameAnalysisResult? initialResult) && initialResult is not null)
+        {
+            currentResult = initialResult;
+            currentResultIsCached = true;
+            ApplyFilter();
+            StatusTextBlock.Text = $"Loaded saved analysis for {selectedSide.Side}.";
+            return;
+        }
+
         if (GameAnalysisCache.TryGetResult(cacheKey, out GameAnalysisResult? cachedResult) && cachedResult is not null)
         {
             currentResult = cachedResult;
@@ -606,6 +631,15 @@ public partial class AnalysisWindow : Window
             return false;
         }
 
+        if (TryGetInitialResult(selectedSide.Side, out GameAnalysisResult? initialResult) && initialResult is not null)
+        {
+            currentResult = initialResult;
+            currentResultIsCached = true;
+            ApplyFilter();
+            StatusTextBlock.Text = $"Loaded saved analysis for {selectedSide.Side}.";
+            return true;
+        }
+
         GameAnalysisCacheKey cacheKey = GameAnalysisCache.CreateKey(importedGame, selectedSide.Side, DefaultAnalysisOptions);
         if (GameAnalysisCache.TryGetResult(cacheKey, out GameAnalysisResult? cachedResult) && cachedResult is not null)
         {
@@ -620,6 +654,28 @@ public partial class AnalysisWindow : Window
         currentResultIsCached = false;
         SummaryTextBlock.Text = $"No cached analysis for {selectedSide.Side}. Run analysis to generate it.";
         return false;
+    }
+
+    private bool TryGetInitialResult(PlayerSide side, out GameAnalysisResult? result)
+    {
+        result = null;
+        if (importedGame is null
+            || !initialResultsBySide.TryGetValue(side, out GameAnalysisResult? candidate)
+            || !IsAnalysisForGame(candidate, importedGame))
+        {
+            return false;
+        }
+
+        result = candidate;
+        return true;
+    }
+
+    private static bool IsAnalysisForGame(GameAnalysisResult result, ImportedGame game)
+    {
+        return string.Equals(
+            GameFingerprint.Compute(result.Game.PgnText),
+            GameFingerprint.Compute(game.PgnText),
+            StringComparison.Ordinal);
     }
 
     protected override void OnClosed(EventArgs e)

@@ -1,0 +1,28 @@
+namespace MoveMentorChess.Domain;
+
+public sealed record MoveAdviceFeedback(
+    string FeedbackId,
+    DateTime TimestampUtc,
+    string GameFingerprint,
+    PlayerSide AnalyzedSide,
+    int Depth,
+    int MultiPv,
+    int? MoveTimeMs,
+    int Ply,
+    int MoveNumber,
+    string PlayedSan,
+    string PlayedUci,
+    string FenBefore,
+    string FenAfter,
+    int? EvalBeforeCp,
+    int? EvalAfterCp,
+    string? BestMoveUci,
+    string? OriginalLabel,
+    double? OriginalConfidence,
+    IReadOnlyList<string> OriginalEvidence,
+    MoveQualityBucket Quality,
+    int? CentipawnLoss,
+    AdviceFeedbackKind FeedbackKind,
+    string? CorrectedLabel,
+    string? Comment,
+    string Source);

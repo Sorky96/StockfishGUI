@@ -1,4 +1,8 @@
 using System.IO;
+using MoveMentorChess.Analysis;
+using MoveMentorChess.Engine;
+using MoveMentorChess.Opening;
+using MoveMentorChess.Persistence;
 using MoveMentorChessServices;
 using Xunit;
 

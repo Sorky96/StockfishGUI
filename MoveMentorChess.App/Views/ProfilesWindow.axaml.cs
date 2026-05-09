@@ -5,8 +5,11 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using MoveMentorChess.Analysis;
 using MoveMentorChess.App.Controls;
 using MoveMentorChess.App.ViewModels;
+using MoveMentorChess.Persistence;
+using MoveMentorChess.Profiles;
 
 namespace MoveMentorChess.App.Views;
 

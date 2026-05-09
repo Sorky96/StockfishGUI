@@ -2,7 +2,11 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using Avalonia.Media;
+using MoveMentorChess.Analysis;
 using MoveMentorChess.App.Views;
+using MoveMentorChess.Engine;
+using MoveMentorChess.Opening;
+using MoveMentorChess.Persistence;
 
 namespace MoveMentorChess.App.ViewModels;
 
@@ -653,7 +657,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return null;
         }
 
-        return new AnalysisWindow(importedGame, engine, NavigateToAnalysisMistakeAsync, ShowAnalysisProgressOnBoard, SelectedAnalysisSide);
+        return new AnalysisWindow(
+            importedGame,
+            engine,
+            NavigateToAnalysisMistakeAsync,
+            ShowAnalysisProgressOnBoard,
+            SelectedAnalysisSide,
+            cachedAnalysisResultsBySide);
     }
 
     public bool HasAnalysisEngine()

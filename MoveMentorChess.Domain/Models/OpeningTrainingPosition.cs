@@ -1,0 +1,26 @@
+namespace MoveMentorChess.Domain;
+
+public sealed record OpeningTrainingPosition(
+    string PositionId,
+    OpeningTrainingMode Mode,
+    OpeningTrainingSourceKind SourceKind,
+    string Eco,
+    string OpeningName,
+    string Fen,
+    int Ply,
+    int MoveNumber,
+    PlayerSide SideToMove,
+    string Prompt,
+    string Instruction,
+    int Priority,
+    string? ThemeLabel,
+    string? PlayedMove,
+    string? BetterMove,
+    string? BetterMoveReason,
+    IReadOnlyList<string> Tags,
+    IReadOnlyList<OpeningTrainingMoveOption> CandidateMoves,
+    IReadOnlyList<OpeningTrainingMove> Continuation,
+    OpeningTrainingReference Reference,
+    string? LineId = null,
+    IReadOnlyList<OpeningTrainingBranch>? Branches = null,
+    string? BranchSelectionSummary = null);

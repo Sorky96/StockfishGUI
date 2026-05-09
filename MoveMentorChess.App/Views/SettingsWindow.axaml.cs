@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using MoveMentorChess.Analysis;
 
 namespace MoveMentorChess.App.Views;
 

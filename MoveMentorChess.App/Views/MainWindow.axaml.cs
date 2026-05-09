@@ -7,6 +7,8 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using MoveMentorChess.App.Controls;
 using MoveMentorChess.App.ViewModels;
+using MoveMentorChess.Persistence;
+using MoveMentorChess.Profiles;
 
 namespace MoveMentorChess.App.Views;
 

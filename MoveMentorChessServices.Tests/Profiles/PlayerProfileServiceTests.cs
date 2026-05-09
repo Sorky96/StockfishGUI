@@ -1,3 +1,5 @@
+using MoveMentorChess.Persistence;
+using MoveMentorChess.Profiles;
 using MoveMentorChessServices;
 using Xunit;
 
@@ -121,12 +123,16 @@ public sealed class PlayerProfileServiceTests
             [CreateMoveAnalysis(GamePhase.Middlegame, 220, "missed_tactic", moveNumber: 12, san: "Qh5", bestMoveUci: "g1f3")]);
         StoredMoveAnalysis correctedMove = BuildStoredMoves([result])[0] with
         {
-            MistakeLabel = "hanging_piece",
-            OriginalMistakeLabel = "missed_tactic",
-            ManualFeedbackKind = AdviceFeedbackKind.WrongLabel,
-            ManualCorrectedLabel = "hanging_piece",
-            ManualComment = "Loose queen, not tactic",
-            ManualCorrectedUtc = DateTime.Parse("2026-04-18T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal)
+            Advice = BuildStoredMoves([result])[0].Advice with
+            {
+                MistakeLabel = "hanging_piece",
+                OriginalMistakeLabel = "missed_tactic"
+            },
+            ManualFeedback = new StoredManualFeedbackContext(
+                AdviceFeedbackKind.WrongLabel,
+                "hanging_piece",
+                "Loose queen, not tactic",
+                DateTime.Parse("2026-04-18T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal))
         };
         FakeAnalysisStore store = new([result], [correctedMove]);
         PlayerProfileService service = new(store);
@@ -638,7 +644,11 @@ public sealed class PlayerProfileServiceTests
             attempts);
     }
 
-    private sealed class FakeAnalysisStore : IAnalysisStore, IOpeningTrainingHistoryStore
+    private sealed class FakeAnalysisStore :
+        IImportedGameStore,
+        IAnalysisResultStore,
+        IStoredMoveAnalysisStore,
+        IOpeningTrainingHistoryStore
     {
         private readonly IReadOnlyList<GameAnalysisResult> results;
         private readonly IReadOnlyList<StoredMoveAnalysis> moveAnalyses;
@@ -689,8 +699,6 @@ public sealed class PlayerProfileServiceTests
         public bool TryLoadImportedGame(string gameFingerprint, out ImportedGame? game) => throw new NotSupportedException();
         public bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result) => throw new NotSupportedException();
         public void SaveResult(GameAnalysisCacheKey key, GameAnalysisResult result) => throw new NotSupportedException();
-        public bool TryLoadWindowState(string gameFingerprint, out AnalysisWindowState? state) => throw new NotSupportedException();
-        public void SaveWindowState(string gameFingerprint, AnalysisWindowState state) => throw new NotSupportedException();
         public void SaveOpeningTrainingSessionResult(OpeningTrainingSessionResult result) => trainingHistory.Add(result);
         public IReadOnlyList<OpeningTrainingSessionResult> ListOpeningTrainingSessionResults(string? playerKey = null, int limit = 200)
         {
@@ -715,52 +723,15 @@ public sealed class PlayerProfileServiceTests
                 HashSet<string> highlightedLabels = result.HighlightedMistakes
                     .Select(mistake => mistake.Tag?.Label ?? "unclassified")
                     .ToHashSet(StringComparer.Ordinal);
+                GameAnalysisCacheKey key = new(GameFingerprint.Compute(result.Game.PgnText), result.AnalyzedSide, 14, 3, null);
+                DateTime updatedUtc = DateTime.Parse("2026-04-18T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal);
 
-                return result.MoveAnalyses.Select(move => new StoredMoveAnalysis(
-                    GameFingerprint.Compute(result.Game.PgnText),
-                    result.AnalyzedSide,
-                    14,
-                    3,
-                    null,
-                    DateTime.Parse("2026-04-18T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal),
-                    result.Game.WhitePlayer,
-                    result.Game.BlackPlayer,
-                    result.Game.DateText,
-                    result.Game.Result,
-                    result.Game.Eco,
-                    result.Game.Site,
-                    move.Replay.Ply,
-                    move.Replay.MoveNumber,
-                    move.Replay.San,
-                    move.Replay.Uci,
-                    move.Replay.FenBefore,
-                    move.Replay.FenAfter,
-                    move.Replay.Phase,
-                    move.EvalBeforeCp,
-                    move.EvalAfterCp,
-                    move.BestMateIn,
-                    move.PlayedMateIn,
-                    move.CentipawnLoss,
-                    move.Quality,
-                    move.MaterialDeltaCp,
-                    move.BeforeAnalysis.BestMoveUci,
-                    move.MistakeTag?.Label,
-                    move.MistakeTag?.Confidence,
-                    move.MistakeTag?.Evidence ?? [],
-                    move.Explanation?.ShortText,
-                    move.Explanation?.DetailedText,
-                    move.Explanation?.TrainingHint,
+                return result.MoveAnalyses.Select(move => StoredMoveAnalysisMapper.FromAnalysisResultMove(
+                    key,
+                    result,
+                    move,
                     highlightedLabels.Contains(move.MistakeTag?.Label ?? "unclassified"),
-                    WhiteElo: result.Game.WhiteElo,
-                    BlackElo: result.Game.BlackElo,
-                    TimeControl: result.Game.Metadata?.TimeControl,
-                    TimeControlCategory: result.Game.Metadata?.TimeControlCategory ?? GameTimeControlCategory.Unknown,
-                    UtcDate: result.Game.Metadata?.UtcDate,
-                    UtcTime: result.Game.Metadata?.UtcTime,
-                    EndDate: result.Game.Metadata?.EndDate,
-                    EndTime: result.Game.Metadata?.EndTime,
-                    Termination: result.Game.Metadata?.Termination,
-                    Link: result.Game.Metadata?.Link));
+                    updatedUtc));
             })
             .ToList();
     }

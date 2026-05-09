@@ -79,6 +79,25 @@ If the app is already running, a normal `dotnet build` may fail to overwrite `Mo
 - `MoveMentorChessServices/Engine/StockfishEngine.cs` - communication with Stockfish
 - `MoveMentorChessServices/Images` - piece assets copied to the output directory
 
+## Data reset and migration policy
+
+The SQLite database separates authoritative user data from derived analysis data.
+
+Authoritative data should be preserved across analysis model changes:
+
+- imported PGN records in `imported_games`
+- opening seed/tree data in the opening tables
+- opening training history in `opening_training_session_results`
+- manual advice feedback in `move_advice_feedbacks`
+
+Derived data can be rebuilt and is versioned with the `derived_analysis_data_version` metadata key:
+
+- serialized `GameAnalysisResult` payloads in `analysis_results`
+- normalized move analysis rows in `analysis_moves`
+- analysis window state in `analysis_window_states`
+
+When `SqliteAnalysisStore.CurrentDerivedAnalysisDataVersion` changes, startup clears only the derived tables above and records the new version. Schema migrations that need broader cleanup should add an explicit policy and test before deleting authoritative data.
+
 ## Notes
 
 - `Tracker.cs` still exists in the project for OCR-related work, but the current import flow uses PGN files. Might be used for importing chess positions.

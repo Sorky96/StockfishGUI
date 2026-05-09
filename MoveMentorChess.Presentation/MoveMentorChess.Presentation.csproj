@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MoveMentorChess.Analysis\MoveMentorChess.Analysis.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Domain\MoveMentorChess.Domain.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Opening\MoveMentorChess.Opening.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Profiles\MoveMentorChess.Profiles.csproj" />
+  </ItemGroup>
+
+</Project>
