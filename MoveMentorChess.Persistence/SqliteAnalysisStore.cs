@@ -15,6 +15,7 @@ public sealed class SqliteAnalysisStore :
     IOpeningTheoryStore,
     IOpeningTrainingHistoryStore
 {
+    private const char CompositeKeySeparator = '|';
     private const string AppDataDirectoryName = "MoveMentorChessServices";
     private const string DatabaseFileName = "analysis-cache.db";
     private const string DerivedAnalysisDataVersionKey = "derived_analysis_data_version";
@@ -339,6 +340,226 @@ public sealed class SqliteAnalysisStore :
         }
 
         return moves;
+    }
+
+    public IReadOnlyList<OpeningLineCatalogItem> ListOpeningLines(string? filterText = null, RepertoireSide? repertoireSide = null, int limit = 100)
+    {
+        int safeLimit = Math.Clamp(limit, 1, 500);
+        List<OpeningLineCatalogItem> items = [];
+
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            using SqliteStatement statement = database.Prepare($"""
+                SELECT
+                    coalesce(tags.eco, ''),
+                    coalesce(tags.opening_name, ''),
+                    coalesce(tags.variation_name, ''),
+                    nodes.position_key,
+                    nodes.fen,
+                    nodes.side_to_move,
+                    nodes.distinct_game_count,
+                    (
+                        SELECT COUNT(*)
+                        FROM opening_move_edges edges
+                        WHERE edges.from_node_id = nodes.id
+                    ) AS branch_count
+                FROM opening_position_nodes nodes
+                INNER JOIN opening_node_tags tags ON tags.node_id = nodes.id
+                WHERE nodes.ply <= 12
+                ORDER BY nodes.distinct_game_count DESC, tags.eco ASC, tags.opening_name ASC, tags.variation_name ASC
+                LIMIT {safeLimit * 4};
+                """);
+
+            HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+            while (statement.Step() == SqliteRow)
+            {
+                string eco = statement.GetText(0) ?? string.Empty;
+                string openingName = statement.GetText(1) ?? string.Empty;
+                string variationName = statement.GetText(2) ?? string.Empty;
+                OpeningPositionKey rootPositionKey = new(statement.GetText(3) ?? string.Empty);
+                string fen = statement.GetText(4) ?? string.Empty;
+                RepertoireSide side = ParseRepertoireSide(statement.GetText(5));
+                int gameCount = statement.GetInt(6);
+                int branchCount = statement.GetInt(7);
+
+                if (repertoireSide.HasValue
+                    && repertoireSide.Value != RepertoireSide.Both
+                    && side != repertoireSide.Value)
+                {
+                    continue;
+                }
+
+                string displayName = BuildDisplayName(eco, openingName, variationName);
+                if (!string.IsNullOrWhiteSpace(filterText)
+                    && displayName.Contains(filterText, StringComparison.OrdinalIgnoreCase) == false
+                    && eco.Contains(filterText, StringComparison.OrdinalIgnoreCase) == false)
+                {
+                    continue;
+                }
+
+                string dedupeKey = $"{eco}|{openingName}|{variationName}|{side}";
+                if (!seen.Add(dedupeKey))
+                {
+                    continue;
+                }
+
+                OpeningKey openingKey = new(BuildOpeningKey(eco, openingName));
+                OpeningLineKey lineKey = new(BuildOpeningLineKey(eco, openingName, variationName, side, rootPositionKey.Value));
+                items.Add(new OpeningLineCatalogItem(
+                    openingKey,
+                    lineKey,
+                    side,
+                    eco,
+                    openingName,
+                    variationName,
+                    displayName,
+                    rootPositionKey,
+                    fen,
+                    gameCount,
+                    branchCount));
+
+                if (items.Count >= safeLimit)
+                {
+                    break;
+                }
+            }
+        }
+
+        return items;
+    }
+
+    public bool TryGetOpeningOverview(
+        OpeningLineKey lineKey,
+        RepertoireSide repertoireSide,
+        int maxDepth,
+        out OpeningTrainerOverview? overview)
+    {
+        if (!TryParseOpeningLineKey(lineKey.Value, out string eco, out string openingName, out string variationName, out RepertoireSide parsedSide, out OpeningPositionKey rootPositionKey))
+        {
+            overview = null;
+            return false;
+        }
+
+        OpeningKey openingKey = new(BuildOpeningKey(eco, openingName));
+        List<OpeningLineMove> mainLine = [];
+        List<OpeningTrainingBranch> branches = [];
+        List<OpeningMoveIdea> ideas = [];
+        OpeningPositionKey currentPositionKey = rootPositionKey;
+        string? currentFen = null;
+        int maxPly = Math.Max(1, maxDepth);
+
+        if (TryGetOpeningPositionByKey(currentPositionKey.Value, out OpeningTheoryPosition? rootPosition) && rootPosition is not null)
+        {
+            currentFen = rootPosition.Fen;
+        }
+
+        for (int ply = 0; ply < maxPly; ply++)
+        {
+            IReadOnlyList<OpeningTheoryMove> moves = GetOpeningMovesByPositionKey(currentPositionKey.Value, 6, playableOnly: false);
+            if (moves.Count == 0)
+            {
+                break;
+            }
+
+            OpeningTheoryMove primary = moves[0];
+            OpeningMoveIdea primaryIdea = primary.Idea ?? BuildOpeningMoveIdea(primary.MoveSan, primary.IsMainMove);
+            ideas.Add(primaryIdea);
+
+            if (TryGetOpeningPositionByKey(primary.ToPositionKey, out OpeningTheoryPosition? nextPosition) && nextPosition is not null)
+            {
+                mainLine.Add(new OpeningLineMove(
+                    nextPosition.Ply,
+                    nextPosition.MoveNumber,
+                    ParsePlayerSide(nextPosition.SideToMove) == PlayerSide.White ? PlayerSide.Black : PlayerSide.White,
+                    primary.MoveSan,
+                    primary.MoveUci,
+                    currentPositionKey,
+                    primary.ToOpeningPositionKey,
+                    primary.IsMainMove,
+                    primaryIdea));
+                currentPositionKey = primary.ToOpeningPositionKey;
+                currentFen = nextPosition.Fen;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        IReadOnlyList<OpeningTheoryMove> branchMoves = GetOpeningMovesByPositionKey(rootPositionKey.Value, 5, playableOnly: false);
+        foreach (OpeningTheoryMove move in branchMoves)
+        {
+            OpeningMoveIdea idea = move.Idea ?? BuildOpeningMoveIdea(move.MoveSan, move.IsMainMove);
+            OpeningTrainingMoveOption? recommended = null;
+            IReadOnlyList<OpeningTheoryMove> replies = GetOpeningMovesByPositionKey(move.ToPositionKey, 1, playableOnly: false);
+            OpeningTheoryMove? bestReply = replies.FirstOrDefault();
+            if (bestReply is not null)
+            {
+                recommended = new OpeningTrainingMoveOption(
+                    bestReply.MoveSan,
+                    bestReply.MoveUci,
+                    OpeningTrainingMoveRole.Expected,
+                    bestReply.IsMainMove,
+                    "Best local book response.",
+                    OpeningLineRecallReferenceKind.BestMove,
+                    OpeningTrainingMoveSourceKind.OpeningBook,
+                    bestReply.Idea ?? BuildOpeningMoveIdea(bestReply.MoveSan, bestReply.IsMainMove),
+                    bestReply.ToOpeningPositionKey);
+            }
+
+            branches.Add(new OpeningTrainingBranch(
+                new OpeningBranchKey($"{lineKey.Value}|{move.MoveUci}"),
+                move.MoveSan,
+                move.MoveUci,
+                Math.Max(1, move.DistinctGameCount),
+                $"Book frequency: {move.OccurrenceCount} occurrence(s), {move.DistinctGameCount} game(s).",
+                recommended,
+                [],
+                [],
+                move.ToOpeningPositionKey));
+        }
+
+        OpeningCoverageSummary coverage = new(
+            TotalBookBranches: Math.Max(branches.Count, 1),
+            CoveredBranches: 0,
+            WeakBranches: branches.Count,
+            UnseenCommonBranches: branches.Count,
+            CoveragePercent: 0,
+            KnownPositions: mainLine.Count,
+            StableBranches: 0,
+            KnowledgeBoundaryPly: mainLine.LastOrDefault()?.Ply ?? 0);
+        OpponentReplyProfile opponentProfile = new(
+            lineKey,
+            parsedSide == RepertoireSide.Both ? repertoireSide : parsedSide,
+            branches.Select(branch => new OpponentMoveFrequency(
+                branch.OpponentMove,
+                branch.OpponentMoveUci,
+                branch.Frequency,
+                branch.Frequency,
+                0,
+                0,
+                false,
+                OpponentMoveFrequencySourceKind.BookFrequency,
+                branch.SourceSummary)).ToList(),
+            branches.Count == 0
+                ? "No opponent branches were found in the local opening book."
+                : $"Tracked {branches.Count} opponent branch(es) from the local opening book.");
+
+        overview = new OpeningTrainerOverview(
+            openingKey,
+            lineKey,
+            parsedSide,
+            eco,
+            openingName,
+            variationName,
+            mainLine,
+            branches,
+            opponentProfile,
+            coverage,
+            [],
+            ideas);
+        return true;
     }
 
     public void SaveImportedGame(ImportedGame game)
@@ -1182,6 +1403,102 @@ public sealed class SqliteAnalysisStore :
         return results;
     }
 
+    public void SaveOpeningReviewItems(string playerKey, IReadOnlyList<OpeningReviewItem> items)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(playerKey);
+        ArgumentNullException.ThrowIfNull(items);
+
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            database.ExecuteNonQuery("BEGIN IMMEDIATE;");
+            try
+            {
+                database.ExecuteNonQuery(
+                    "DELETE FROM opening_review_items WHERE player_key = ?1;",
+                    statement => statement.BindText(1, NormalizePlayerKey(playerKey)));
+
+                foreach (OpeningReviewItem item in items)
+                {
+                    string branchKey = item.BranchKey.Value;
+                    string positionKey = item.PositionKey.Value;
+                    database.ExecuteNonQuery(
+                        """
+                        INSERT INTO opening_review_items (
+                            player_key,
+                            branch_key,
+                            position_key,
+                            last_reviewed_utc,
+                            next_review_utc,
+                            ease,
+                            correct_streak,
+                            wrong_streak,
+                            total_attempts)
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9);
+                        """,
+                        statement =>
+                        {
+                            statement.BindText(1, NormalizePlayerKey(playerKey));
+                            statement.BindText(2, branchKey);
+                            statement.BindText(3, positionKey);
+                            statement.BindNullableText(4, item.LastReviewedUtc?.ToString("O", CultureInfo.InvariantCulture));
+                            statement.BindText(5, item.NextReviewUtc.ToString("O", CultureInfo.InvariantCulture));
+                            statement.BindText(6, item.Ease.ToString(CultureInfo.InvariantCulture));
+                            statement.BindInt(7, item.CorrectStreak);
+                            statement.BindInt(8, item.WrongStreak);
+                            statement.BindInt(9, item.TotalAttempts);
+                        });
+                }
+
+                database.ExecuteNonQuery("COMMIT;");
+            }
+            catch
+            {
+                database.ExecuteNonQuery("ROLLBACK;");
+                throw;
+            }
+        }
+    }
+
+    public IReadOnlyList<OpeningReviewItem> ListOpeningReviewItems(string? playerKey = null, int limit = 1000)
+    {
+        string normalizedPlayerKey = NormalizePlayerKey(playerKey);
+        int safeLimit = Math.Clamp(limit, 1, 5000);
+        List<OpeningReviewItem> items = [];
+
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            using SqliteStatement statement = database.Prepare($"""
+                SELECT branch_key, position_key, last_reviewed_utc, next_review_utc, ease, correct_streak, wrong_streak, total_attempts
+                FROM opening_review_items
+                {(string.IsNullOrWhiteSpace(normalizedPlayerKey) ? string.Empty : "WHERE player_key = ?1")}
+                ORDER BY next_review_utc ASC
+                LIMIT {safeLimit};
+                """);
+
+            if (!string.IsNullOrWhiteSpace(normalizedPlayerKey))
+            {
+                statement.BindText(1, normalizedPlayerKey);
+            }
+
+            while (statement.Step() == SqliteRow)
+            {
+                items.Add(new OpeningReviewItem(
+                    new OpeningBranchKey(statement.GetText(0) ?? string.Empty),
+                    new OpeningPositionKey(statement.GetText(1) ?? string.Empty),
+                    ParseNullableUtc(statement.GetText(2)),
+                    ParseUtc(statement.GetText(3)),
+                    ParseDouble(statement.GetText(4)),
+                    statement.GetInt(5),
+                    statement.GetInt(6),
+                    statement.GetInt(7)));
+            }
+        }
+
+        return items;
+    }
+
     private void InitializeSchema()
     {
         lock (sync)
@@ -1329,6 +1646,24 @@ public sealed class SqliteAnalysisStore :
             database.ExecuteNonQuery("""
                 CREATE INDEX IF NOT EXISTS idx_opening_training_session_results_player_completed
                 ON opening_training_session_results (player_key, completed_utc DESC);
+                """);
+            database.ExecuteNonQuery("""
+                CREATE TABLE IF NOT EXISTS opening_review_items (
+                    player_key TEXT NOT NULL,
+                    branch_key TEXT NOT NULL,
+                    position_key TEXT NOT NULL,
+                    last_reviewed_utc TEXT NULL,
+                    next_review_utc TEXT NOT NULL,
+                    ease TEXT NOT NULL,
+                    correct_streak INTEGER NOT NULL,
+                    wrong_streak INTEGER NOT NULL,
+                    total_attempts INTEGER NOT NULL,
+                    PRIMARY KEY (player_key, branch_key, position_key)
+                );
+                """);
+            database.ExecuteNonQuery("""
+                CREATE INDEX IF NOT EXISTS idx_opening_review_items_player_next_review
+                ON opening_review_items (player_key, next_review_utc ASC);
                 """);
             EnsureColumnExists(
                 database,
@@ -2114,6 +2449,7 @@ public sealed class SqliteAnalysisStore :
         return new OpeningTheoryPosition(
             ParseGuid(statement.GetText(0)),
             statement.GetText(1) ?? string.Empty,
+            new OpeningPositionKey(statement.GetText(1) ?? string.Empty),
             statement.GetText(2) ?? string.Empty,
             statement.GetInt(3),
             statement.GetInt(4),
@@ -2128,28 +2464,167 @@ public sealed class SqliteAnalysisStore :
 
     private static OpeningTheoryMove ReadOpeningTheoryMove(SqliteStatement statement)
     {
+        string moveSan = statement.GetText(4) ?? string.Empty;
+        bool isMainMove = statement.GetInt(7) != 0;
         return new OpeningTheoryMove(
             ParseGuid(statement.GetText(0)),
             ParseGuid(statement.GetText(1)),
             ParseGuid(statement.GetText(2)),
             statement.GetText(3) ?? string.Empty,
-            statement.GetText(4) ?? string.Empty,
+            moveSan,
             statement.GetInt(5),
             statement.GetInt(6),
-            statement.GetInt(7) != 0,
+            isMainMove,
             statement.GetInt(8) != 0,
             statement.GetInt(9),
             statement.GetText(10) ?? string.Empty,
+            new OpeningPositionKey(statement.GetText(10) ?? string.Empty),
             statement.GetText(11) ?? string.Empty,
             new OpeningGameMetadata(
                 statement.GetText(12) ?? string.Empty,
                 statement.GetText(13) ?? string.Empty,
-                statement.GetText(14) ?? string.Empty));
+                statement.GetText(14) ?? string.Empty),
+            "opening_book",
+            BuildOpeningMoveIdea(moveSan, isMainMove));
     }
 
     private static Guid ParseGuid(string? value)
     {
         return Guid.TryParse(value, out Guid parsed) ? parsed : Guid.Empty;
+    }
+
+    private static double ParseDouble(string? value)
+    {
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
+            ? parsed
+            : 0;
+    }
+
+    private static RepertoireSide ParseRepertoireSide(string? sideToMove)
+    {
+        return string.Equals(sideToMove, "Black", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sideToMove, "b", StringComparison.OrdinalIgnoreCase)
+            ? RepertoireSide.Black
+            : RepertoireSide.White;
+    }
+
+    private static PlayerSide ParsePlayerSide(string? sideToMove)
+    {
+        return string.Equals(sideToMove, "Black", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sideToMove, "b", StringComparison.OrdinalIgnoreCase)
+            ? PlayerSide.Black
+            : PlayerSide.White;
+    }
+
+    private static string BuildDisplayName(string eco, string openingName, string variationName)
+    {
+        string opening = string.IsNullOrWhiteSpace(openingName) ? OpeningCatalog.GetName(eco) : openingName;
+        return string.IsNullOrWhiteSpace(variationName)
+            ? $"{opening} ({eco})"
+            : $"{opening}: {variationName} ({eco})";
+    }
+
+    private static string BuildOpeningKey(string eco, string openingName)
+    {
+        return $"{SanitizeKeyPart(eco)}{CompositeKeySeparator}{SanitizeKeyPart(openingName)}";
+    }
+
+    private static string BuildOpeningLineKey(string eco, string openingName, string variationName, RepertoireSide side, string positionKey)
+    {
+        return string.Join(
+            CompositeKeySeparator,
+            SanitizeKeyPart(eco),
+            SanitizeKeyPart(openingName),
+            SanitizeKeyPart(variationName),
+            side.ToString(),
+            SanitizeKeyPart(positionKey));
+    }
+
+    private static bool TryParseOpeningLineKey(
+        string value,
+        out string eco,
+        out string openingName,
+        out string variationName,
+        out RepertoireSide side,
+        out OpeningPositionKey positionKey)
+    {
+        eco = string.Empty;
+        openingName = string.Empty;
+        variationName = string.Empty;
+        side = RepertoireSide.Both;
+        positionKey = default;
+
+        string[] parts = value.Split(CompositeKeySeparator);
+        if (parts.Length < 5)
+        {
+            return false;
+        }
+
+        eco = RestoreKeyPart(parts[0]);
+        openingName = RestoreKeyPart(parts[1]);
+        variationName = RestoreKeyPart(parts[2]);
+        _ = Enum.TryParse(parts[3], out side);
+        positionKey = new OpeningPositionKey(RestoreKeyPart(parts[4]));
+        return !positionKey.IsEmpty;
+    }
+
+    private static string SanitizeKeyPart(string? value)
+    {
+        return (value ?? string.Empty).Replace("\\", "\\\\", StringComparison.Ordinal).Replace("|", "\\|", StringComparison.Ordinal);
+    }
+
+    private static string RestoreKeyPart(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return value.Replace("\\|", "|", StringComparison.Ordinal).Replace("\\\\", "\\", StringComparison.Ordinal);
+    }
+
+    private static OpeningMoveIdea BuildOpeningMoveIdea(string moveSan, bool isMainMove)
+    {
+        List<OpeningMoveIdeaTag> tags = [];
+        string explanation;
+        string normalized = moveSan.Trim();
+
+        if (normalized.StartsWith("O-O", StringComparison.OrdinalIgnoreCase))
+        {
+            tags.Add(OpeningMoveIdeaTag.KingSafety);
+            explanation = "Castling improves king safety and activates the rooks.";
+        }
+        else if (normalized.StartsWith("N", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("B", StringComparison.OrdinalIgnoreCase))
+        {
+            tags.Add(OpeningMoveIdeaTag.DevelopPiece);
+            explanation = "This move develops a piece toward active play.";
+        }
+        else if (normalized.StartsWith("c", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("d", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("e", StringComparison.OrdinalIgnoreCase))
+        {
+            tags.Add(OpeningMoveIdeaTag.ControlCenter);
+            explanation = "This move fights for central space and influence.";
+        }
+        else
+        {
+            tags.Add(OpeningMoveIdeaTag.ImproveWorstPiece);
+            explanation = "This move improves coordination without drifting from theory.";
+        }
+
+        if (normalized.Contains("+", StringComparison.Ordinal) || normalized.Contains("x", StringComparison.Ordinal))
+        {
+            tags.Add(OpeningMoveIdeaTag.TacticalResource);
+        }
+
+        if (isMainMove)
+        {
+            tags.Add(OpeningMoveIdeaTag.MainTheoreticalMove);
+            explanation = $"{explanation} It is also the main theoretical move here.";
+        }
+
+        return new OpeningMoveIdea(normalized, tags.Distinct().ToList(), explanation);
     }
 
     private static void EnsureColumnExists(SqliteDatabase database, string tableName, string columnName, string definition)

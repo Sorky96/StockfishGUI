@@ -338,7 +338,7 @@ public sealed class OpeningPgnImportService
         List<string> sanMoves = SanNotation.ParsePgnMoves(pgn, maxPlies);
         IReadOnlyList<OpeningImportPly> plies = parser.Parse(sanMoves, maxFullMoves);
         OpeningGameMetadata metadata = OpeningPgnMetadataParser.Parse(pgn);
-        string gameFingerprint = GameFingerprint.Compute(pgn);
+        string gameFingerprint = OpeningGameFingerprint.Compute(pgn);
         ImportedGame? importedGame = null;
 
         if (persistImportedGames || retainParsedGames)

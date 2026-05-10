@@ -48,7 +48,7 @@ public sealed class OpeningTreeBuilder
         ArgumentNullException.ThrowIfNull(pgnText);
         ArgumentNullException.ThrowIfNull(plies);
 
-        string gameFingerprint = GameFingerprint.Compute(pgnText);
+        string gameFingerprint = OpeningGameFingerprint.Compute(pgnText);
         AddParsedGame(gameFingerprint, plies, metadata);
     }
 

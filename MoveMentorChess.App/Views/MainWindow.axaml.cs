@@ -248,6 +248,18 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OpeningTrainerButton_Click(object? sender, RoutedEventArgs e)
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        if (store is null)
+        {
+            return;
+        }
+
+        OpeningTrainerWindow dialog = new(new OpeningTrainerWindowViewModel(store));
+        await dialog.ShowDialog(this);
+    }
+
     private async Task<LegalMoveInfo?> ShowPromotionDialogAsync(IReadOnlyList<LegalMoveInfo> moves)
     {
         PromotionWindow dialog = new(moves);

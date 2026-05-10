@@ -56,10 +56,22 @@ public interface IOpeningTheoryStore
         string positionKey,
         int limit = 10,
         bool playableOnly = false);
+    IReadOnlyList<OpeningLineCatalogItem> ListOpeningLines(string? filterText = null, RepertoireSide? repertoireSide = null, int limit = 100) => [];
+    bool TryGetOpeningOverview(
+        OpeningLineKey lineKey,
+        RepertoireSide repertoireSide,
+        int maxDepth,
+        out OpeningTrainerOverview? overview)
+    {
+        overview = null;
+        return false;
+    }
 }
 
 public interface IOpeningTrainingHistoryStore
 {
     void SaveOpeningTrainingSessionResult(OpeningTrainingSessionResult result);
     IReadOnlyList<OpeningTrainingSessionResult> ListOpeningTrainingSessionResults(string? playerKey = null, int limit = 200);
+    void SaveOpeningReviewItems(string playerKey, IReadOnlyList<OpeningReviewItem> items) { }
+    IReadOnlyList<OpeningReviewItem> ListOpeningReviewItems(string? playerKey = null, int limit = 1000) => [];
 }

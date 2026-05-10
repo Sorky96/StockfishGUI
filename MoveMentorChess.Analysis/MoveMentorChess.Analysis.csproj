@@ -7,10 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MoveMentorChess.Domain\MoveMentorChess.Domain.csproj" />
+    <ProjectReference Include="..\MoveMentorChess.Persistence\MoveMentorChess.Persistence.csproj" />
     <ProjectReference Include="..\MoveMentorChess.Engine\MoveMentorChess.Engine.csproj" />
     <ProjectReference Include="..\MoveMentorChess.Opening\MoveMentorChess.Opening.csproj" />
-    <ProjectReference Include="..\MoveMentorChess.Persistence\MoveMentorChess.Persistence.csproj" />
   </ItemGroup>
 
 </Project>

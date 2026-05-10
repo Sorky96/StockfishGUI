@@ -6,6 +6,15 @@ public static class OpeningPositionKeyBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fen);
 
+        return BuildKey(fen).Value;
+    }
+
+    public static OpeningPositionKey BuildKey(string fen) => new(NormalizeFen(fen));
+
+    public static string NormalizeFen(string fen)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fen);
+
         string[] parts = fen.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 4)
         {

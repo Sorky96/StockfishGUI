@@ -7,4 +7,6 @@ public sealed record OpeningTrainingMoveOption(
     bool IsPreferred,
     string? Note = null,
     OpeningLineRecallReferenceKind? ReferenceKind = null,
-    OpeningTrainingMoveSourceKind SourceKind = OpeningTrainingMoveSourceKind.UserGame);
+    OpeningTrainingMoveSourceKind SourceKind = OpeningTrainingMoveSourceKind.UserGame,
+    OpeningMoveIdea? Idea = null,
+    OpeningPositionKey? ToPositionKey = null);

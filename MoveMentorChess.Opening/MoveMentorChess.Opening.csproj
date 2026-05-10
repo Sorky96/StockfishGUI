@@ -8,7 +8,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MoveMentorChess.Domain\MoveMentorChess.Domain.csproj" />
-    <ProjectReference Include="..\MoveMentorChess.Persistence\MoveMentorChess.Persistence.csproj" />
   </ItemGroup>
 
 </Project>

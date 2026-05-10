@@ -1,0 +1,258 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:MoveMentorChess.App.ViewModels"
+        xmlns:controls="using:MoveMentorChess.App.Controls"
+        xmlns:domain="using:MoveMentorChess.Domain"
+        x:Class="MoveMentorChess.App.Views.OpeningTrainerWindow"
+        x:DataType="vm:OpeningTrainerWindowViewModel"
+        Width="1380"
+        Height="900"
+        MinWidth="1180"
+        MinHeight="760"
+        Background="{DynamicResource ChromeBrush}"
+        Title="Opening Trainer"
+        mc:Ignorable="d">
+  <Grid Margin="12" RowDefinitions="Auto,12,*">
+    <Border Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="16">
+      <StackPanel Spacing="10">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="4">
+            <TextBlock Foreground="White" FontSize="24" FontWeight="Bold" Text="Opening Trainer" />
+            <TextBlock Foreground="#D7E2EA" FontSize="16" Text="{Binding StageTitle}" />
+            <TextBlock Foreground="#9EB5C5" Text="{Binding StageDescription}" TextWrapping="Wrap" />
+          </StackPanel>
+
+          <Border Grid.Column="1" Background="{DynamicResource ChromeBrush}" CornerRadius="14" Padding="14,10" MinWidth="210">
+            <StackPanel Spacing="6">
+              <TextBlock Foreground="#D7E2EA" HorizontalAlignment="Center" Text="Flow Progress" />
+              <ProgressBar Minimum="0" Maximum="100" Value="{Binding StageProgressPercent}" Height="10" />
+              <TextBlock Foreground="White" HorizontalAlignment="Center" Text="{Binding StageTitle}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="2">
+      <Grid IsVisible="{Binding IsSelectionPageVisible}" ColumnDefinitions="340,12,*">
+        <Border Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="14">
+          <StackPanel Spacing="10">
+            <TextBlock Foreground="White" FontSize="20" FontWeight="SemiBold" Text="1. Select Opening" />
+            <TextBlock Foreground="#9EB5C5" Text="Choose the repertoire side, strictness, and line you want to study." TextWrapping="Wrap" />
+            <TextBox Watermark="Filter openings or ECO" Text="{Binding FilterText}" />
+            <TextBox Watermark="Player key for coverage/history (optional)" Text="{Binding PlayerKey}" />
+            <ComboBox ItemsSource="{Binding AvailableSides}" SelectedItem="{Binding SelectedSide}" />
+            <ComboBox ItemsSource="{Binding AvailableStrictnessOptions}" SelectedItem="{Binding SelectedStrictness}" />
+            <Button Command="{Binding RefreshCommand}" Content="REFRESH OPENINGS" />
+            <Button Command="{Binding GoToOverviewCommand}" Content="CONTINUE TO OVERVIEW" />
+
+            <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="14">
+              <ListBox ItemsSource="{Binding OpeningItems}" SelectedItem="{Binding SelectedOpening}" Background="{DynamicResource ChromeBrush}" BorderThickness="0">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="domain:OpeningLineCatalogItem">
+                    <StackPanel Margin="8,6" Spacing="2">
+                      <TextBlock Foreground="#F5FAFD" FontWeight="SemiBold" Text="{Binding DisplayName}" TextWrapping="Wrap" />
+                      <TextBlock Foreground="#9EB5C5" FontSize="12" Text="{Binding RepertoireSide}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Column="2" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="18">
+          <StackPanel Spacing="16">
+            <TextBlock Foreground="White" FontSize="22" FontWeight="SemiBold" Text="{Binding SelectedOpeningName}" TextWrapping="Wrap" />
+            <TextBlock Foreground="#9EB5C5" FontSize="15" Text="{Binding SelectedOpeningSideText}" />
+
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
+              <Border Margin="0,0,6,6" Background="{DynamicResource ChromeBrush}" CornerRadius="16" Padding="14">
+                <StackPanel Spacing="6">
+                  <TextBlock Foreground="#9EB5C5" Text="Coverage Snapshot" />
+                  <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="{Binding CoverageText}" TextWrapping="Wrap" />
+                  <TextBlock Foreground="#D7E2EA" Text="{Binding CoverageExplanation}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+
+              <Border Grid.Column="1" Margin="6,0,0,6" Background="{DynamicResource ChromeBrush}" CornerRadius="16" Padding="14">
+                <StackPanel Spacing="6">
+                  <TextBlock Foreground="#9EB5C5" Text="Opponent Prep" />
+                  <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="Most common replies" />
+                  <TextBlock Foreground="#D7E2EA" Text="{Binding OpponentSummary}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+
+              <Border Grid.Row="1" Grid.ColumnSpan="2" Margin="0,6,0,0" Background="{DynamicResource ChromeBrush}" CornerRadius="16" Padding="14">
+                <StackPanel Spacing="8">
+                  <TextBlock Foreground="#9EB5C5" Text="Selected Opening Preview" />
+                  <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="{Binding SummaryText}" TextWrapping="Wrap" />
+                  <TextBlock Foreground="#D7E2EA" Text="Continue to the overview page to inspect the main line, branches, and weak spots before you start the guided study." TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+            </Grid>
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <Grid IsVisible="{Binding IsOverviewPageVisible}" ColumnDefinitions="430,12,*">
+        <Border Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="14">
+          <StackPanel Spacing="10">
+            <TextBlock Foreground="White" FontSize="20" FontWeight="SemiBold" Text="2. Opening Overview" />
+            <controls:ChessBoardView Width="396"
+                                     Height="396"
+                                     Fen="{Binding PreviewFen}"
+                                     Arrows="{Binding PreviewArrows}"
+                                     IsHitTestVisible="False" />
+            <Border Background="{DynamicResource ChromeBrush}" CornerRadius="14" Padding="12">
+              <StackPanel Spacing="6">
+                <TextBlock Foreground="White" FontWeight="SemiBold" Text="{Binding SummaryText}" TextWrapping="Wrap" />
+                <TextBlock Foreground="#D7E2EA" Text="{Binding OpponentSummary}" TextWrapping="Wrap" />
+                <TextBlock Foreground="#9ED7A6" Text="{Binding CoverageExplanation}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+            <Grid ColumnDefinitions="*,*">
+              <Button Margin="0,0,5,0" Command="{Binding GoToSelectionCommand}" Content="BACK TO SELECTION" />
+              <Button Grid.Column="1" Margin="5,0,0,0" Command="{Binding StartGuidedStudyCommand}" Content="START GUIDED STUDY" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Grid Grid.Column="2" RowDefinitions="Auto,*,*">
+          <Grid ColumnDefinitions="*,*" Margin="0,0,0,12">
+            <Border Margin="0,0,6,0" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="14">
+              <StackPanel Spacing="6">
+                <TextBlock Foreground="#9EB5C5" Text="Coverage" />
+                <TextBlock Foreground="White" FontSize="20" FontWeight="SemiBold" Text="{Binding CoverageText}" TextWrapping="Wrap" />
+                <TextBlock Foreground="#D7E2EA" Text="{Binding CoverageExplanation}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" Margin="6,0,0,0" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="14">
+              <StackPanel Spacing="6">
+                <TextBlock Foreground="#9EB5C5" Text="Why These Moves Matter" />
+                <TextBlock Foreground="White" FontSize="20" FontWeight="SemiBold" Text="Book ideas and practical replies" />
+                <TextBlock Foreground="#D7E2EA" Text="{Binding OpponentSummary}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </Grid>
+
+          <Grid Grid.Row="1" ColumnDefinitions="*,*" Margin="0,0,0,12">
+            <Border Margin="0,0,6,0" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="12">
+              <StackPanel Spacing="8">
+                <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Main Line" />
+                <ListBox ItemsSource="{Binding MainLineItems}" Background="{DynamicResource ChromeBrush}" BorderThickness="0" />
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" Margin="6,0,0,0" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="12">
+              <StackPanel Spacing="8">
+                <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Opponent Branches" />
+                <ListBox ItemsSource="{Binding BranchItems}" Background="{DynamicResource ChromeBrush}" BorderThickness="0" />
+              </StackPanel>
+            </Border>
+          </Grid>
+
+          <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="12">
+            <StackPanel Spacing="8">
+              <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Weak Positions" />
+              <TextBlock Foreground="#9EB5C5" IsVisible="{Binding ShowWeakPositionsPlaceholder}" Text="{Binding WeakPositionsPlaceholder}" TextWrapping="Wrap" />
+              <ListBox ItemsSource="{Binding WeakPositionItems}" Background="{DynamicResource ChromeBrush}" BorderThickness="0" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Grid>
+
+      <Grid IsVisible="{Binding IsStudyPageVisible}" ColumnDefinitions="430,12,*">
+        <Border Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="14">
+          <StackPanel Spacing="10">
+            <TextBlock Foreground="White" FontSize="20" FontWeight="SemiBold" Text="3. Guided Study" />
+            <ProgressBar Minimum="0" Maximum="100" Value="{Binding StudyProgressPercent}" Height="10" />
+            <TextBlock Foreground="#D7E2EA" Text="{Binding StudyProgressText}" />
+            <controls:ChessBoardView Width="396"
+                                     Height="396"
+                                     Fen="{Binding PreviewFen}"
+                                     SelectedSquare="{Binding StudySelectedSquare}"
+                                     PreviewTargetSquare="{Binding StudyPreviewTargetSquare}"
+                                     AvailableMoves="{Binding StudyAvailableMoveSquares}"
+                                     Arrows="{Binding PreviewArrows}"
+                                     SquarePressed="OnStudyBoardSquarePressed" />
+            <Border Background="{DynamicResource ChromeBrush}" CornerRadius="14" Padding="12">
+              <StackPanel Spacing="6">
+                <TextBlock Foreground="White" FontWeight="SemiBold" Text="{Binding CurrentPrompt}" TextWrapping="Wrap" />
+                <TextBlock Foreground="#9ED7A6" Text="{Binding CurrentWhy}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto">
+          <Border Margin="0,0,0,12" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="14">
+            <StackPanel Spacing="10">
+              <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Board Input" />
+              <TextBlock Foreground="#D7E2EA" Text="{Binding StudyBoardHint}" TextWrapping="Wrap" />
+              <TextBlock Foreground="#9EB5C5" Text="{Binding StudyInputModeText}" TextWrapping="Wrap" />
+              <Border Background="#14222D" CornerRadius="12" Padding="12">
+                <TextBlock Foreground="#F5D97B" Text="{Binding ResultText}" TextWrapping="Wrap" />
+              </Border>
+              <Grid ColumnDefinitions="*,Auto">
+                <Button Margin="0,0,8,0" Command="{Binding PreviousStepCommand}" Content="PREV STEP" />
+                <Button Grid.Column="1" Command="{Binding RestartStudyCommand}" Content="RESTART" />
+              </Grid>
+              <TextBlock Foreground="#9EB5C5" Text="Moves are submitted directly from the board. The trainer can accept the main book move and additional book alternatives when the current strictness allows them." TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Grid Grid.Row="1" ColumnDefinitions="*,*" Margin="0,0,0,12">
+            <Border Margin="0,0,6,0" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="12">
+              <StackPanel Spacing="8">
+                <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Main Line Reference" />
+                <ListBox ItemsSource="{Binding MainLineItems}" Background="{DynamicResource ChromeBrush}" BorderThickness="0" />
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" Margin="6,0,0,0" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="12">
+              <StackPanel Spacing="8">
+                <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Common Opponent Replies" />
+                <ListBox ItemsSource="{Binding BranchItems}" Background="{DynamicResource ChromeBrush}" BorderThickness="0" />
+              </StackPanel>
+            </Border>
+          </Grid>
+
+          <Grid Grid.Row="2" ColumnDefinitions="*,*">
+            <Button Margin="0,0,6,0" Command="{Binding GoToOverviewCommand}" Content="BACK TO OVERVIEW" />
+            <Button Grid.Column="1" Margin="6,0,0,0" Command="{Binding RestartStudyCommand}" Content="RESTART THIS STUDY" />
+          </Grid>
+        </Grid>
+      </Grid>
+
+      <Grid IsVisible="{Binding IsResultsPageVisible}" ColumnDefinitions="*,*">
+        <Border Margin="0,0,6,0" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="16">
+          <StackPanel Spacing="12">
+            <TextBlock Foreground="White" FontSize="22" FontWeight="SemiBold" Text="4. Results" />
+            <TextBlock Foreground="#D7E2EA" FontSize="16" Text="{Binding ResultHeadline}" TextWrapping="Wrap" />
+            <TextBlock Foreground="White" FontSize="18" Text="{Binding ResultsSummaryText}" TextWrapping="Wrap" />
+            <TextBlock Foreground="#9ED7A6" Text="{Binding TranspositionSummaryText}" TextWrapping="Wrap" />
+            <Border Background="{DynamicResource ChromeBrush}" CornerRadius="14" Padding="12">
+              <TextBlock Foreground="#D7E2EA" Text="{Binding ResultRecommendation}" TextWrapping="Wrap" />
+            </Border>
+            <Grid ColumnDefinitions="*,*">
+              <Button Margin="0,0,6,0" Command="{Binding GoToOverviewCommand}" Content="BACK TO OVERVIEW" />
+              <Button Grid.Column="1" Margin="6,0,0,0" Command="{Binding RestartStudyCommand}" Content="TRAIN THIS LINE AGAIN" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Column="1" Margin="6,0,0,0" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="16">
+          <StackPanel Spacing="8">
+            <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="Attempt Log" />
+            <TextBlock Foreground="#9EB5C5" Text="Latest feedback from the guided session." />
+            <ListBox ItemsSource="{Binding ResultItems}" Background="{DynamicResource ChromeBrush}" BorderThickness="0" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>

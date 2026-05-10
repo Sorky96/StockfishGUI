@@ -1,4 +1,4 @@
-namespace MoveMentorChess.Opening;
+namespace MoveMentorChess.Training;
 
 public static class OpeningTheorySourceResolver
 {

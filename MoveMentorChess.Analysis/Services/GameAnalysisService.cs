@@ -102,7 +102,7 @@ public sealed class GameAnalysisService
 
             MistakeTag? tag = mistakeClassifier.Classify(
                 ply,
-                GameFingerprint.Compute(game.PgnText),
+                AnalysisGameFingerprint.Compute(game.PgnText),
                 analyzedSide,
                 quality,
                 centipawnLoss,
@@ -116,7 +116,7 @@ public sealed class GameAnalysisService
                 bestLine?.MoveUci,
                 heuristicContext,
                 playerProfile);
-            string gameFingerprint = GameFingerprint.Compute(game.PgnText);
+        string gameFingerprint = AnalysisGameFingerprint.Compute(game.PgnText);
             AdviceGenerationContext adviceContext = new(
                 "game-analysis-service",
                 gameFingerprint,

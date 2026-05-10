@@ -13,7 +13,7 @@ public sealed class OpeningTheoryQueryService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fen);
 
-        return store.TryGetOpeningPositionByKey(OpeningPositionKeyBuilder.Build(fen), out position);
+        return store.TryGetOpeningPositionByKey(OpeningPositionKeyBuilder.BuildKey(fen).Value, out position);
     }
 
     public bool TryGetPositionByKey(string positionKey, out OpeningTheoryPosition? position)
@@ -27,7 +27,7 @@ public sealed class OpeningTheoryQueryService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fen);
 
-        return GetTopMovesForPositionKey(OpeningPositionKeyBuilder.Build(fen), limit, playableOnly);
+        return GetTopMovesForPositionKey(OpeningPositionKeyBuilder.BuildKey(fen).Value, limit, playableOnly);
     }
 
     public IReadOnlyList<OpeningTheoryMove> GetTopMovesForPositionKey(
@@ -38,6 +38,28 @@ public sealed class OpeningTheoryQueryService
         ArgumentException.ThrowIfNullOrWhiteSpace(positionKey);
 
         return store.GetOpeningMovesByPositionKey(positionKey, limit, playableOnly);
+    }
+
+    public IReadOnlyList<OpeningLineCatalogItem> ListOpeningLines(
+        string? filterText = null,
+        RepertoireSide? repertoireSide = null,
+        int limit = 100)
+    {
+        return store.ListOpeningLines(filterText, repertoireSide, limit);
+    }
+
+    public bool TryGetOpeningOverview(
+        OpeningLineKey lineKey,
+        RepertoireSide repertoireSide,
+        int maxDepth,
+        out OpeningTrainerOverview? overview)
+    {
+        return store.TryGetOpeningOverview(lineKey, repertoireSide, maxDepth, out overview);
+    }
+
+    public CanonicalLineResolutionResult ResolveCanonicalLine(string fen)
+    {
+        return new CanonicalLineResolver(this).Resolve(fen);
     }
 
     public OpeningTheoryMove? GetMainMoveForFen(string fen)
