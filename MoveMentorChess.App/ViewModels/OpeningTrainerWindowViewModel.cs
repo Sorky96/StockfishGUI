@@ -62,6 +62,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     private string resultText = string.Empty;
     private string resultHeadline = "Finish a guided study session to see results.";
     private string resultRecommendation = "Your next review recommendations will appear here.";
+    private bool isAdvancedOptionsExpanded;
 
     public OpeningTrainerWindowViewModel()
         : this(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable."))
@@ -210,6 +211,39 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     public string TodayRecommendationReason => TodayRecommendation?.Reason ?? "The trainer needs at least one available opening line.";
 
     public string TodayRecommendationAction => TodayRecommendation?.RecommendedAction ?? "Start guided study";
+
+    public string TodayLessonOpening => TodayRecommendation?.OpeningLine.DisplayName ?? "Import openings to get today's lesson";
+
+    public string TodayLessonSideText => TodayRecommendation is null
+        ? "No active theory"
+        : TodayRecommendation.OpeningLine.RepertoireSide switch
+        {
+            RepertoireSide.White => "White repertoire",
+            RepertoireSide.Black => "Black repertoire",
+            _ => "Both sides"
+        };
+
+    public string TodayLessonDurationText => TodayRecommendation is null
+        ? "Duration appears after import"
+        : $"About {TodayRecommendation.EstimatedDurationMinutes} min";
+
+    public string TodayLessonMoveCountText => TodayRecommendation is null
+        ? "No positions to train"
+        : TodayRecommendation.OpeningLine.BookBranchCount > 0
+            ? $"{TodayRecommendation.OpeningLine.BookBranchCount} positions / branches"
+            : $"{Math.Max(1, TodayRecommendation.OpeningLine.BookGameCount)} theory games";
+
+    public string TodayLessonReason => TodayRecommendation?.Reason ?? "Import opening theory to get today's lesson.";
+
+    public string TodayLessonButtonText => HasTodayLesson ? "Start Training" : "No Lesson Available";
+
+    public bool HasTodayLesson => TodayRecommendation is not null;
+
+    public bool IsAdvancedOptionsExpanded
+    {
+        get => isAdvancedOptionsExpanded;
+        set => SetProperty(ref isAdvancedOptionsExpanded, value);
+    }
 
     public PlayerOpeningPlan? PlayerOpeningPlan
     {
@@ -543,6 +577,13 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(TodayRecommendationMeta));
         OnPropertyChanged(nameof(TodayRecommendationReason));
         OnPropertyChanged(nameof(TodayRecommendationAction));
+        OnPropertyChanged(nameof(TodayLessonOpening));
+        OnPropertyChanged(nameof(TodayLessonSideText));
+        OnPropertyChanged(nameof(TodayLessonDurationText));
+        OnPropertyChanged(nameof(TodayLessonMoveCountText));
+        OnPropertyChanged(nameof(TodayLessonReason));
+        OnPropertyChanged(nameof(TodayLessonButtonText));
+        OnPropertyChanged(nameof(HasTodayLesson));
         OnPropertyChanged(nameof(PlayerOpeningPlanTitle));
         OnPropertyChanged(nameof(PlayerOpeningPlanSummary));
         OnPropertyChanged(nameof(PlayerOpeningProgressText));

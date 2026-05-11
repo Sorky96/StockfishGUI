@@ -5,6 +5,8 @@
         Height="760"
         MinWidth="980"
         MinHeight="640"
+        WindowState="FullScreen"
+        SystemDecorations="None"
         Title="Saved Analyses"
         Background="{DynamicResource ChromeBrush}">
   <Grid Margin="18" RowDefinitions="Auto,*">

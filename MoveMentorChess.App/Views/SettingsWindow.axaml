@@ -5,14 +5,19 @@
         Height="620"
         MinWidth="460"
         MinHeight="560"
+        WindowState="FullScreen"
+        SystemDecorations="None"
         Title="Settings"
         Background="{DynamicResource ChromeBrush}">
   <Grid RowDefinitions="*,Auto" Margin="18">
     <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
       <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="16">
-          <StackPanel Spacing="10">
+          <Grid ColumnDefinitions="*,Auto">
             <TextBlock FontSize="24" FontWeight="Bold" Text="Settings" />
+            <Button Grid.Column="1" Click="CancelButton_Click" Content="Close" />
+          </Grid>
+          <StackPanel Spacing="10">
             <TextBlock Foreground="#D7E2EA"
                        TextWrapping="Wrap"
                        Text="Choose how MoveMentor uses the local model and Stockfish on this machine." />

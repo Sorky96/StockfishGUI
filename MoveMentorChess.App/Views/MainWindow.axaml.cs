@@ -260,6 +260,11 @@ public partial class MainWindow : Window
         await dialog.ShowDialog(this);
     }
 
+    private void CloseButton_Click(object? sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
     private async Task<LegalMoveInfo?> ShowPromotionDialogAsync(IReadOnlyList<LegalMoveInfo> moves)
     {
         PromotionWindow dialog = new(moves);

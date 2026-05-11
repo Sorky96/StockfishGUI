@@ -6,6 +6,8 @@
         Height="760"
         MinWidth="980"
         MinHeight="640"
+        WindowState="FullScreen"
+        SystemDecorations="None"
         Title="Saved Games"
         Background="{DynamicResource ChromeBrush}">
   <Grid RowDefinitions="Auto,*" Margin="18">
@@ -22,7 +24,7 @@
                  TextChanged="FilterTextBox_OnTextChanged" />
         <Button Content="Load Selected" Click="LoadSelectedButton_Click" />
         <Button Content="Delete Selected" Click="DeleteSelectedButton_Click" />
-        <Button Content="Cancel" Click="CancelButton_Click" />
+        <Button Content="Close" Click="CancelButton_Click" />
       </StackPanel>
     </Border>
 

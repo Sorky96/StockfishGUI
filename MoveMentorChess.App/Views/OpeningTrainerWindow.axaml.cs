@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using MoveMentorChess.App.Controls;
 using MoveMentorChess.App.ViewModels;
 
@@ -24,5 +25,10 @@ public partial class OpeningTrainerWindow : Window
         {
             viewModel.HandleStudyBoardSquarePressed(e.Square);
         }
+    }
+
+    private void CloseButton_Click(object? sender, RoutedEventArgs e)
+    {
+        Close();
     }
 }

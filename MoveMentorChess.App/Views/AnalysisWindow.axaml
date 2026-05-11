@@ -5,10 +5,12 @@
         Height="760"
         MinWidth="920"
         MinHeight="620"
+        WindowState="FullScreen"
+        SystemDecorations="None"
         Title="Imported Game Analysis"
         Background="{DynamicResource ChromeBrush}">
   <Grid Margin="18" RowDefinitions="Auto,Auto,*">
-    <Grid ColumnDefinitions="220,180,*,170,150">
+    <Grid ColumnDefinitions="220,180,*,170,150,100">
       <ComboBox x:Name="SideComboBox" />
       <ComboBox x:Name="QualityFilterComboBox" Grid.Column="1" Margin="12,0,0,0" />
       <TextBlock x:Name="SummaryTextBlock"
@@ -27,6 +29,10 @@
               Margin="12,0,0,0"
               Click="ShowOnBoardButton_Click"
               Content="Show On Board" />
+      <Button Grid.Column="5"
+              Margin="12,0,0,0"
+              Click="CloseButton_Click"
+              Content="Close" />
     </Grid>
 
     <Grid Grid.Row="1" Margin="0,12,0,0" ColumnDefinitions="*,170">

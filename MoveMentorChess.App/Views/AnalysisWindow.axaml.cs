@@ -127,6 +127,11 @@ public partial class AnalysisWindow : Window
         }
     }
 
+    private void CloseButton_Click(object? sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
     private async void AnalyzeButton_Click(object? sender, RoutedEventArgs e)
     {
         if (SideComboBox.SelectedItem is not SideOption selectedSide)

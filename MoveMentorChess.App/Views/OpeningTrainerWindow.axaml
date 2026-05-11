@@ -11,13 +11,15 @@
         Height="900"
         MinWidth="1180"
         MinHeight="760"
+        WindowState="FullScreen"
+        SystemDecorations="None"
         Background="{DynamicResource ChromeBrush}"
         Title="Opening Trainer"
         mc:Ignorable="d">
   <Grid Margin="12" RowDefinitions="Auto,12,*">
     <Border Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="16">
       <StackPanel Spacing="10">
-        <Grid ColumnDefinitions="*,Auto">
+        <Grid ColumnDefinitions="*,Auto,Auto">
           <StackPanel Spacing="4">
             <TextBlock Foreground="White" FontSize="24" FontWeight="Bold" Text="Opening Trainer" />
             <TextBlock Foreground="#D7E2EA" FontSize="16" Text="{Binding StageTitle}" />
@@ -31,74 +33,55 @@
               <TextBlock Foreground="White" HorizontalAlignment="Center" Text="{Binding StageTitle}" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
+          <Button Grid.Column="2"
+                  Margin="12,0,0,0"
+                  VerticalAlignment="Top"
+                  MinWidth="96"
+                  Click="CloseButton_Click"
+                  Content="Close" />
         </Grid>
       </StackPanel>
     </Border>
 
     <Grid Grid.Row="2">
-      <Grid IsVisible="{Binding IsSelectionPageVisible}" ColumnDefinitions="340,12,*">
-        <Border Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="14">
-          <StackPanel Spacing="10">
-            <TextBlock Foreground="White" FontSize="20" FontWeight="SemiBold" Text="Browse All Openings" />
-            <TextBlock Foreground="#9EB5C5" Text="Use this when you want a specific line instead of today's recommendation." TextWrapping="Wrap" />
-            <TextBox Watermark="Filter openings or ECO" Text="{Binding FilterText}" />
-            <TextBox Watermark="Player key for coverage/history (optional)" Text="{Binding PlayerKey}" />
-            <ComboBox ItemsSource="{Binding AvailableSides}" SelectedItem="{Binding SelectedSide}" />
-            <ComboBox ItemsSource="{Binding AvailableStrictnessOptions}" SelectedItem="{Binding SelectedStrictness}" />
-            <Button Command="{Binding RefreshCommand}" Content="REFRESH OPENINGS" />
-            <Button Command="{Binding GoToOverviewCommand}" Content="CONTINUE TO OVERVIEW" />
-
-            <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="14" Padding="12">
-              <StackPanel Spacing="8">
-                <TextBlock Foreground="White" FontWeight="SemiBold" Text="Special Modes" />
-                <ComboBox ItemsSource="{Binding SpecialTrainingModes}" SelectedItem="{Binding SelectedSpecialMode}">
-                  <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="domain:SpecialTrainingModeDefinition">
-                      <StackPanel Spacing="2">
-                        <TextBlock Foreground="#F5FAFD" FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
-                        <TextBlock Foreground="#9EB5C5" FontSize="12" Text="{Binding TimeLimitMinutes}" />
-                      </StackPanel>
-                    </DataTemplate>
-                  </ComboBox.ItemTemplate>
-                </ComboBox>
-                <TextBlock Foreground="#9EB5C5" Text="{Binding SelectedSpecialModeDescription}" TextWrapping="Wrap" />
-                <Button Command="{Binding StartSpecialModeCommand}" Content="{Binding SelectedSpecialModeButtonText}" />
-              </StackPanel>
-            </Border>
-
-            <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="14">
-              <ListBox ItemsSource="{Binding OpeningItems}" SelectedItem="{Binding SelectedOpening}" Background="{DynamicResource ChromeBrush}" BorderThickness="0">
-                <ListBox.ItemTemplate>
-                  <DataTemplate x:DataType="domain:OpeningLineCatalogItem">
-                    <StackPanel Margin="8,6" Spacing="2">
-                      <TextBlock Foreground="#F5FAFD" FontWeight="SemiBold" Text="{Binding DisplayName}" TextWrapping="Wrap" />
-                      <TextBlock Foreground="#9EB5C5" FontSize="12" Text="{Binding RepertoireSide}" />
-                    </StackPanel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-            </Border>
-          </StackPanel>
+      <ScrollViewer IsVisible="{Binding IsSelectionPageVisible}">
+        <StackPanel Spacing="12">
+        <Border Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="22">
+          <Grid ColumnDefinitions="*,240" RowDefinitions="Auto,Auto,Auto,Auto" MaxWidth="1320" HorizontalAlignment="Stretch">
+            <TextBlock Foreground="#9ED7A6" FontSize="15" FontWeight="SemiBold" Text="Today's Lesson" />
+            <TextBlock Grid.Row="1" Foreground="White" FontSize="32" FontWeight="Bold" Text="{Binding TodayLessonOpening}" TextWrapping="Wrap" />
+            <WrapPanel Grid.Row="2" Margin="0,14,0,0">
+              <Border Background="{DynamicResource ChromeBrush}" CornerRadius="10" Padding="12,8" Margin="0,0,8,0">
+                <TextBlock Foreground="#D7E2EA" Text="{Binding TodayLessonSideText}" TextWrapping="Wrap" />
+              </Border>
+              <Border Background="{DynamicResource ChromeBrush}" CornerRadius="10" Padding="12,8" Margin="0,0,8,0">
+                <TextBlock Foreground="#D7E2EA" Text="{Binding TodayLessonDurationText}" TextWrapping="Wrap" />
+              </Border>
+              <Border Background="{DynamicResource ChromeBrush}" CornerRadius="10" Padding="12,8">
+                <TextBlock Foreground="#D7E2EA" Text="{Binding TodayLessonMoveCountText}" TextWrapping="Wrap" />
+              </Border>
+            </WrapPanel>
+            <TextBlock Grid.Row="3" Foreground="#9EB5C5" Margin="0,16,28,0" FontSize="15" Text="{Binding TodayLessonReason}" TextWrapping="Wrap" />
+            <Button Grid.Column="1"
+                    Grid.RowSpan="4"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    MinHeight="54"
+                    Command="{Binding StartRecommendedStudyCommand}"
+                    Content="{Binding TodayLessonButtonText}"
+                    IsEnabled="{Binding HasTodayLesson}" />
+          </Grid>
         </Border>
 
-        <Border Grid.Column="2" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="18">
+        <Border Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="18">
           <StackPanel Spacing="16">
-            <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="16" Padding="18">
-              <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
-                <TextBlock Foreground="#9ED7A6" FontSize="14" FontWeight="SemiBold" Text="Today's Recommendation" />
-                <TextBlock Grid.Row="1" Foreground="White" FontSize="26" FontWeight="Bold" Text="{Binding TodayRecommendationOpening}" TextWrapping="Wrap" />
-                <TextBlock Grid.Row="2" Foreground="#D7E2EA" FontSize="15" Text="{Binding TodayRecommendationMeta}" TextWrapping="Wrap" />
-                <TextBlock Grid.Row="3" Foreground="#9EB5C5" Margin="0,8,18,0" Text="{Binding TodayRecommendationReason}" TextWrapping="Wrap" />
-                <Button Grid.Column="1" Grid.RowSpan="4" VerticalAlignment="Center" MinWidth="190" Command="{Binding StartRecommendedStudyCommand}" Content="START TODAY'S STUDY" />
-              </Grid>
-            </Border>
-
             <Grid ColumnDefinitions="*,Auto">
               <StackPanel Spacing="4">
                 <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="{Binding SelectedOpeningName}" TextWrapping="Wrap" />
                 <TextBlock Foreground="#9EB5C5" FontSize="14" Text="{Binding SelectedOpeningSideText}" />
               </StackPanel>
-              <Button Grid.Column="1" VerticalAlignment="Center" Command="{Binding GoToOverviewCommand}" Content="VIEW OVERVIEW" />
+              <Button Grid.Column="1" VerticalAlignment="Center" Command="{Binding GoToOverviewCommand}" Content="View Opening Plan" />
             </Grid>
 
             <Border Background="{DynamicResource ChromeBrush}" CornerRadius="16" Padding="14">
@@ -177,9 +160,60 @@
                 </StackPanel>
               </Border>
             </Grid>
+
+            <Expander Header="Advanced" IsExpanded="{Binding IsAdvancedOptionsExpanded}">
+              <Grid ColumnDefinitions="300,12,*,12,300" Margin="0,8,0,0" MinHeight="260" MaxHeight="320">
+                <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="14" Padding="12">
+                  <StackPanel Spacing="8">
+                    <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="Opening Catalog" />
+                    <TextBlock Foreground="#9EB5C5" Text="Choose a specific line when you want to train outside today's lesson." TextWrapping="Wrap" />
+                    <TextBox Watermark="Filter openings or ECO" Text="{Binding FilterText}" />
+                    <TextBox Watermark="Player key for coverage/history (optional)" Text="{Binding PlayerKey}" />
+                    <ComboBox ItemsSource="{Binding AvailableSides}" SelectedItem="{Binding SelectedSide}" />
+                    <ComboBox ItemsSource="{Binding AvailableStrictnessOptions}" SelectedItem="{Binding SelectedStrictness}" />
+                    <Grid ColumnDefinitions="*,*">
+                      <Button Margin="0,0,5,0" Command="{Binding RefreshCommand}" Content="REFRESH" />
+                      <Button Grid.Column="1" Margin="5,0,0,0" Command="{Binding GoToOverviewCommand}" Content="OPEN PLAN" />
+                    </Grid>
+                  </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="14">
+                  <ListBox ItemsSource="{Binding OpeningItems}" SelectedItem="{Binding SelectedOpening}" Background="{DynamicResource ChromeBrush}" BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="domain:OpeningLineCatalogItem">
+                        <StackPanel Margin="8,6" Spacing="2">
+                          <TextBlock Foreground="#F5FAFD" FontWeight="SemiBold" Text="{Binding DisplayName}" TextWrapping="Wrap" />
+                          <TextBlock Foreground="#9EB5C5" FontSize="12" Text="{Binding RepertoireSide}" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </Border>
+
+                <Border Grid.Column="4" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="14" Padding="12">
+                  <Grid RowDefinitions="Auto,Auto,*,Auto">
+                    <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="Special Modes" />
+                    <ComboBox Grid.Row="1" Margin="0,10,0,0" ItemsSource="{Binding SpecialTrainingModes}" SelectedItem="{Binding SelectedSpecialMode}">
+                      <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="domain:SpecialTrainingModeDefinition">
+                          <StackPanel Spacing="2">
+                            <TextBlock Foreground="#F5FAFD" FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                            <TextBlock Foreground="#9EB5C5" FontSize="12" Text="{Binding TimeLimitMinutes}" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock Grid.Row="2" Margin="0,10,0,0" Foreground="#9EB5C5" Text="{Binding SelectedSpecialModeDescription}" TextWrapping="Wrap" />
+                    <Button Grid.Row="3" Command="{Binding StartSpecialModeCommand}" Content="{Binding SelectedSpecialModeButtonText}" />
+                  </Grid>
+                </Border>
+              </Grid>
+            </Expander>
           </StackPanel>
         </Border>
-      </Grid>
+        </StackPanel>
+      </ScrollViewer>
 
       <Grid IsVisible="{Binding IsOverviewPageVisible}" ColumnDefinitions="430,12,*">
         <Border Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="14">

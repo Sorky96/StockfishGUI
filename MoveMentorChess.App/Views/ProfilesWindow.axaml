@@ -7,6 +7,8 @@
         Height="820"
         MinWidth="980"
         MinHeight="680"
+        WindowState="FullScreen"
+        SystemDecorations="None"
         Title="Player Profiles"
         Background="{DynamicResource ChromeBrush}">
   <Grid RowDefinitions="Auto,*" Margin="18">
