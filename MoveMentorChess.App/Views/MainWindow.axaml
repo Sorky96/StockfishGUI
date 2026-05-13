@@ -65,7 +65,7 @@
                   Click="AnalyzeImportedButton_Click"
                   Content="ANALYZE IMPORTED"
                   IsEnabled="{Binding CanOpenImportedAnalysis}" />
-          <Button Grid.Row="2" Grid.Column="1" Height="36" Margin="6,8,0,0" HorizontalAlignment="Stretch" Click="ProfilesButton_Click" Content="PROFILES" />
+          <Button Grid.Row="2" Grid.Column="1" Height="36" Margin="6,8,0,0" HorizontalAlignment="Stretch" Click="ProfilesButton_Click" Content="PLAYER COACH" />
 
           <Button Grid.Row="3"
                   Grid.Column="0"

@@ -9,25 +9,25 @@
         MinHeight="680"
         WindowState="FullScreen"
         SystemDecorations="None"
-        Title="Player Profiles"
+        Title="Player Coach"
         Background="{DynamicResource ChromeBrush}">
   <Grid RowDefinitions="Auto,*" Margin="18">
     <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
       <StackPanel Orientation="Horizontal" Spacing="12">
-        <TextBlock VerticalAlignment="Center" FontSize="24" FontWeight="Bold" Text="Player Profiles" />
+        <TextBlock VerticalAlignment="Center" FontSize="24" FontWeight="Bold" Text="Player Coach" />
         <TextBox x:Name="FilterTextBox"
                  Width="320"
                  VerticalAlignment="Center"
-                 Watermark="Filter by analyzed player..."
+                 Watermark="Search analyzed players..."
                  TextChanged="FilterTextBox_OnTextChanged" />
-        <Button Content="Close" Click="CloseButton_Click" />
+        <Button Content="Back to board" Click="CloseButton_Click" />
       </StackPanel>
     </Border>
 
     <Grid Grid.Row="1" ColumnDefinitions="340,*" Margin="0,14,0,0">
       <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
         <StackPanel Spacing="10">
-          <TextBlock FontSize="18" FontWeight="SemiBold" Text="Players" />
+          <TextBlock FontSize="18" FontWeight="SemiBold" Text="Analyzed players" />
           <ListBox x:Name="ProfilesListBox"
                    Background="Transparent"
                    SelectionChanged="ProfilesListBox_OnSelectionChanged">

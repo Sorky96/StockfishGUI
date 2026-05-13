@@ -63,6 +63,11 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     private string currentHintLevel = "No hint used";
     private string moveInput = string.Empty;
     private string resultText = string.Empty;
+    private string studyFeedbackText = string.Empty;
+    private IBrush studyFeedbackBrush = Brushes.Transparent;
+    private IBrush studyFeedbackBorderBrush = Brushes.Transparent;
+    private double studyFeedbackOpacity;
+    private long studyFeedbackVersion;
     private string resultHeadline = "Finish practice to see your review plan.";
     private string resultRecommendation = "Your next review suggestion will appear here.";
     private bool isStudyReferenceVisible;
@@ -482,6 +487,30 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     {
         get => resultText;
         private set => SetProperty(ref resultText, value);
+    }
+
+    public string StudyFeedbackText
+    {
+        get => studyFeedbackText;
+        private set => SetProperty(ref studyFeedbackText, value);
+    }
+
+    public IBrush StudyFeedbackBrush
+    {
+        get => studyFeedbackBrush;
+        private set => SetProperty(ref studyFeedbackBrush, value);
+    }
+
+    public IBrush StudyFeedbackBorderBrush
+    {
+        get => studyFeedbackBorderBrush;
+        private set => SetProperty(ref studyFeedbackBorderBrush, value);
+    }
+
+    public double StudyFeedbackOpacity
+    {
+        get => studyFeedbackOpacity;
+        private set => SetProperty(ref studyFeedbackOpacity, value);
     }
 
     public string ResultHeadline
@@ -1105,6 +1134,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
             ? "TransposedToKnownPosition"
             : result.Score.ToString();
         ResultText = $"{statusText}: {result.ShortExplanation}";
+        TriggerStudyFeedback(result);
         CurrentWhy = result.RecoverySuggestion
             ?? result.WhyThisMove?.ShortExplanation
             ?? position.BetterMoveReason
@@ -1246,6 +1276,40 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         }
 
         RaiseStudyNavigationStateChanged();
+    }
+
+    private async void TriggerStudyFeedback(OpeningTrainingAttemptResult result)
+    {
+        long version = ++studyFeedbackVersion;
+        (string Text, Color Fill, Color Border) feedback = result.Score switch
+        {
+            OpeningTrainingScore.Correct => ("Good move", Color.Parse("#5BE37A"), Color.Parse("#9EF5AE")),
+            OpeningTrainingScore.Wrong => ("Needs review", Color.Parse("#EF5F5F"), Color.Parse("#FF9C9C")),
+            _ => result.Status == OpeningTrainingAttemptStatus.TransposedToKnownPosition
+                ? ("Known transposition", Color.Parse("#F2C94C"), Color.Parse("#FFE28A"))
+                : ("Useful alternative", Color.Parse("#F2C94C"), Color.Parse("#FFE28A"))
+        };
+
+        StudyFeedbackText = feedback.Text;
+        StudyFeedbackBrush = new SolidColorBrush(Color.FromArgb(210, feedback.Fill.R, feedback.Fill.G, feedback.Fill.B));
+        StudyFeedbackBorderBrush = new SolidColorBrush(feedback.Border);
+        StudyFeedbackOpacity = 0.88;
+
+        await Task.Delay(180);
+        if (version != studyFeedbackVersion)
+        {
+            return;
+        }
+
+        StudyFeedbackOpacity = 0.36;
+
+        await Task.Delay(420);
+        if (version != studyFeedbackVersion)
+        {
+            return;
+        }
+
+        StudyFeedbackOpacity = 0;
     }
 
     private void MovePrevious()

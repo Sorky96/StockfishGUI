@@ -45,7 +45,7 @@ public partial class AnalysisWindow : Window
 
     public AnalysisWindow(
         ImportedGame importedGame,
-        IEngineAnalyzer engineAnalyzer,
+        IEngineAnalyzer? engineAnalyzer,
         Func<MoveAnalysisResult, Task> navigateToMoveAsync,
         Action<GameAnalysisProgress>? analysisProgress,
         PlayerSide initialSide,
@@ -86,6 +86,7 @@ public partial class AnalysisWindow : Window
         QualityFilterComboBox.SelectedIndex = 0;
         SideComboBox.SelectionChanged += (_, _) => TryLoadCachedResultForSelectedSide();
         QualityFilterComboBox.SelectionChanged += (_, _) => ApplyFilter();
+        AnalyzeButton.IsEnabled = engineAnalyzer is not null;
         ShowOnBoardButton.IsEnabled = false;
         SetFeedbackButtonsEnabled(false);
         DetailsTextBlock.Text = "Run analysis to inspect highlighted mistakes.";
@@ -200,7 +201,7 @@ public partial class AnalysisWindow : Window
         }
         finally
         {
-            AnalyzeButton.IsEnabled = true;
+            AnalyzeButton.IsEnabled = engineAnalyzer is not null;
             TestAdviceButton.IsEnabled = true;
             SideComboBox.IsEnabled = true;
             QualityFilterComboBox.IsEnabled = true;

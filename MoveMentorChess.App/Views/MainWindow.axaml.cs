@@ -215,7 +215,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        SavedAnalysesWindow dialog = new(store, canOpenAnalysis: viewModel.HasAnalysisEngine());
+        SavedAnalysesWindow dialog = new(store, canOpenAnalysis: true);
         bool? result = await dialog.ShowDialog<bool?>(this);
         if (result != true || dialog.SelectedResult is null)
         {

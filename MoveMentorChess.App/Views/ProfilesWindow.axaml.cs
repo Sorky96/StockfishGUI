@@ -26,7 +26,6 @@ public partial class ProfilesWindow : Window
     private List<PlayerProfileSummaryItemViewModel> items = [];
     private string? currentProfilePlayerKey;
     private int profileRenderVersion;
-    private readonly Dictionary<string, IReadOnlyList<OpeningTrainingPosition>> branchAwarenessPositionsByEco = new(StringComparer.OrdinalIgnoreCase);
 
     public ProfilesWindow()
         : this(new PlayerProfileService(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable.")))
@@ -131,27 +130,22 @@ public partial class ProfilesWindow : Window
         ProfileDataAvailability totalAvailability = profileService.GetDataAvailability();
         if (availability.AnalyzedProfiles > 0)
         {
-            return "No analyzed players match the current filter.";
+            return "No matching analyzed player. Try another name or clear the search.";
         }
 
         if (!string.IsNullOrWhiteSpace(FilterTextBox.Text) && totalAvailability.AnalyzedProfiles > 0)
         {
-            return "No analyzed players match the current filter.";
+            return "No matching analyzed player. Try another name or clear the search.";
         }
 
-        if (totalAvailability.ImportedGames > 0 || totalAvailability.OpeningTreePositions > 0)
-        {
-            return "Imported opening data exists, but player profiles are built only from analyzed games. Load one of the saved games and run analysis first, then reopen Profiles.";
-        }
-
-        return "No analyzed players match the current filter.";
+        return "No player profile yet. Analyze at least one saved game, then come back here to see recurring mistakes, opening issues, and a weekly training plan.";
     }
 
     private void ShowStatus(string text)
     {
         DetailsPanel.Children.Clear();
         DetailsPanel.Children.Add(CreateSectionCard(
-            "Profile Details",
+            "Player Coach",
             [
                 CreateBodyText(text)
             ]));
@@ -164,28 +158,23 @@ public partial class ProfilesWindow : Window
     {
         DetailsPanel.Children.Clear();
         currentProfilePlayerKey = report.PlayerKey;
-        branchAwarenessPositionsByEco.Clear();
         StackPanel summaryPanel = BuildRowsPanel(BuildFormattedProfilePlaceholderRows());
         StackPanel weeklyPlanPanel = BuildRowsPanel(BuildWeeklyPlanRows(report, CreateTrainingPlanPlaceholder()));
 
         DetailsPanel.Children.Add(CreateHeroCard(report));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Summary", summaryPanel, isExpanded: true));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Coach summary", summaryPanel, isExpanded: true));
         DetailsPanel.Children.Add(CreateSnapshotCard(report));
         DetailsPanel.Children.Add(CreateMetricsCard(report));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Rating & form", BuildRatingAndFormRows(report), isExpanded: true));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Profile summary", BuildProfileSummaryRows(report), isExpanded: true));
-        DetailsPanel.Children.Add(CreateDetailedWindowsSection(report, openingReport));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Form and strength", BuildRatingAndFormRows(report), isExpanded: true));
         DetailsPanel.Children.Add(CreateCollapsibleSection("Opening weaknesses", BuildOpeningWeaknessRows(openingReport), isExpanded: true));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("What to fix first", BuildFixFirstRows(report), isExpanded: true));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("What to work on", BuildWorkOnRows(report), isExpanded: true));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Recent trend", BuildRecentTrendRows(report)));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Deep dive", BuildDeepDiveRows(report)));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Top mistake labels", BuildTopLabelRows(report)));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Costliest patterns", BuildCostliestRows(report)));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Trend", BuildTrendRows(report)));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Recommendations", BuildRecommendationRows(report)));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Fix first", BuildFixFirstRows(report), isExpanded: true));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Training focus", BuildWorkOnRows(report), isExpanded: true));
         DetailsPanel.Children.Add(CreateCollapsibleSection("Weekly plan", weeklyPlanPanel));
-        DetailsPanel.Children.Add(CreateCollapsibleSection("Examples", BuildExampleRows(report)));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Recent form", BuildRecentTrendRows(report)));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Why this matters", BuildDeepDiveRows(report)));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Recurring mistakes", BuildTopLabelRows(report)));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Costliest mistakes", BuildCostliestRows(report)));
+        DetailsPanel.Children.Add(CreateCollapsibleSection("Example positions", BuildExampleRows(report)));
 
         _ = RenderFormattedProfileAsync(report, renderVersion, summaryPanel, weeklyPlanPanel);
     }
@@ -194,7 +183,7 @@ public partial class ProfilesWindow : Window
     {
         DetailsPanel.Children.Clear();
         DetailsPanel.Children.Add(CreateSectionCard(
-            "Profile Details",
+            "Player Coach",
             [
                 CreateBodyText($"Loading {displayName}'s profile...", "#D7E2EA"),
                 CreateBodyText(TrainerPreparingSuggestionsText, "#9EB5C5")
@@ -368,7 +357,7 @@ public partial class ProfilesWindow : Window
     private IEnumerable<Control> BuildRatingAndFormRows(PlayerProfileReport report)
     {
         yield return CreateBodyText(report.RatingTrend.Summary, "#D7E2EA");
-        yield return CreateBodyText("Currently estimated with MoveMentor heuristic model. Future versions can calibrate this with a per-profile ML model as more games are analyzed.", "#9EB5C5");
+        yield return CreateBodyText("Current estimate. It will get more reliable as more games are analyzed for this player.", "#9EB5C5");
 
         if (report.RatingTrend.RatingPoints.Count == 0 && report.RatingTrend.StrengthPoints.Count == 0)
         {
@@ -462,14 +451,6 @@ public partial class ProfilesWindow : Window
         foreach (ProfileLabelStat item in report.TopMistakeLabels.Take(8))
         {
             yield return CreateBulletText($"{FormatMistakeLabel(item.Label)}: {FormatTimes(item.Count)}");
-        }
-    }
-
-    private IEnumerable<Control> BuildProfileSummaryRows(PlayerProfileReport report)
-    {
-        foreach (string line in BuildSummaryLines(report))
-        {
-            yield return CreateBulletText(line);
         }
     }
 
@@ -575,7 +556,7 @@ public partial class ProfilesWindow : Window
             && report.MonthlyTrend.Count == 0
             && report.QuarterlyTrend.Count == 0)
         {
-            yield return CreateBodyText("Deep dive becomes available once more analyzed patterns accumulate.");
+            yield return CreateBodyText("More detail becomes available once recurring patterns accumulate.");
             yield break;
         }
 
@@ -586,7 +567,7 @@ public partial class ProfilesWindow : Window
             yield return CreateBulletText($"{FormatMistakeLabel(item.Label)}: {FormatTimes(item.Count)} in highlighted mistakes");
         }
 
-        yield return CreateBodyText("Costliest patterns", "#9EB5C5");
+        yield return CreateBodyText("Costliest mistakes", "#9EB5C5");
         foreach (ProfileCostlyLabelStat item in report.CostliestMistakeLabels.Take(5))
         {
             yield return CreateBulletText($"{FormatMistakeLabel(item.Label)}: total CPL {item.TotalCentipawnLoss}, avg {item.AverageCentipawnLoss?.ToString() ?? "n/a"}");
@@ -665,65 +646,6 @@ public partial class ProfilesWindow : Window
         }
     }
 
-    private IEnumerable<Control> BuildTrendRows(PlayerProfileReport report)
-    {
-        yield return CreateBodyText($"{report.ProgressSignal.Direction}: {report.ProgressSignal.Summary}");
-
-        if (report.ProgressSignal.Recent is not null)
-        {
-            yield return CreateBulletText($"Recent: {FormatPeriod(report.ProgressSignal.Recent)}");
-        }
-
-        if (report.ProgressSignal.Previous is not null)
-        {
-            yield return CreateBulletText($"Previous: {FormatPeriod(report.ProgressSignal.Previous)}");
-        }
-
-        foreach (ProfileLabelTrend trend in report.LabelTrends.Take(5))
-        {
-            yield return CreateBulletText($"{trend.Label}: {trend.Direction}, recent {trend.RecentCount}, previous {trend.PreviousCount}");
-        }
-    }
-
-    private IEnumerable<Control> BuildRecommendationRows(PlayerProfileReport report)
-    {
-        if (report.Recommendations.Count == 0)
-        {
-            yield return CreateBodyText("No recommendations available.");
-            yield break;
-        }
-
-        foreach (TrainingRecommendation recommendation in report.Recommendations.Take(4))
-        {
-            Border innerCard = new()
-            {
-                Background = Brush.Parse("#203542"),
-                CornerRadius = new CornerRadius(12),
-                Padding = new Thickness(12),
-                Margin = new Thickness(0, 0, 0, 8)
-            };
-
-            StackPanel panel = new() { Spacing = 6 };
-            panel.Children.Add(new TextBlock
-            {
-                Text = recommendation.Title,
-                FontSize = 17,
-                FontWeight = FontWeight.SemiBold,
-                Foreground = Brushes.White,
-                TextWrapping = TextWrapping.Wrap
-            });
-            panel.Children.Add(CreateBodyText(recommendation.Description, "#D7E2EA"));
-
-            foreach (string item in recommendation.Checklist.Take(3))
-            {
-                panel.Children.Add(CreateBulletText(item));
-            }
-
-            innerCard.Child = panel;
-            yield return innerCard;
-        }
-    }
-
     private IEnumerable<Control> BuildWeeklyPlanRows(PlayerProfileReport report, TrainingPlanFormattedOutput? formattedPlan = null)
     {
         if (formattedPlan is null)
@@ -735,7 +657,7 @@ public partial class ProfilesWindow : Window
                 settings.NarrationStyle);
         }
 
-        yield return CreateInsightCard("Short weekly plan", "LLM-formatted plan", formattedPlan.ShortWeeklyPlan);
+        yield return CreateInsightCard("Short weekly plan", "Personalized plan", formattedPlan.ShortWeeklyPlan);
         yield return CreateInsightCard("Detailed weekly plan", "Expanded version", formattedPlan.DetailedWeeklyPlan);
         yield return CreateInsightCard("Why these priorities", "Priority rationale", formattedPlan.PriorityRationale);
         yield return CreateInsightCard("Tone adapted plan", "Training voice", formattedPlan.ToneAdaptedVersion);
@@ -859,8 +781,8 @@ public partial class ProfilesWindow : Window
             if (day.LaunchTrainingMode.HasValue && day.RelatedOpenings is { Count: > 0 })
             {
                 dayPanel.Children.Add(CreateSectionButton(
-                    $"Start {FormatOpeningTrainingMode(day.LaunchTrainingMode.Value).ToLowerInvariant()}",
-                    async () => await ShowOpeningTrainingWindowAsync(day)));
+                    "Practice this opening",
+                    async () => await OpenOpeningTrainerAsync(day.RelatedOpenings[0])));
             }
 
             dayCard.Child = dayPanel;
@@ -985,60 +907,6 @@ public partial class ProfilesWindow : Window
         }
     }
 
-    private Control CreateActionRow(PlayerProfileReport report, OpeningWeaknessReport? openingReport)
-    {
-        Border card = CreateCardBorder();
-        WrapPanel panel = new()
-        {
-            Orientation = Orientation.Horizontal,
-            ItemWidth = 220
-        };
-
-        if (openingReport is not null && openingReport.WeakOpenings.Count > 0)
-        {
-            panel.Children.Add(CreateSectionButton("Opening weaknesses", () => OpenSectionWindow("Opening weaknesses", BuildOpeningWeaknessRows(openingReport))));
-        }
-
-        panel.Children.Add(CreateSectionButton("What to work on", () => OpenSectionWindow("What to work on", BuildWorkOnRows(report))));
-        panel.Children.Add(CreateSectionButton("Deep dive", () => OpenSectionWindow("Deep dive", BuildDeepDiveRows(report))));
-        panel.Children.Add(CreateSectionButton("Training plan", () => OpenSectionWindow("Training plan", BuildWeeklyPlanRows(report))));
-
-        card.Child = panel;
-        return card;
-    }
-
-    private Control CreateDetailedWindowsSection(PlayerProfileReport report, OpeningWeaknessReport? openingReport)
-    {
-        return CreateCollapsibleSection(
-            "Detailed windows",
-            BuildDetailedWindowRows(report, openingReport),
-            isExpanded: true);
-    }
-
-    private IEnumerable<Control> BuildDetailedWindowRows(PlayerProfileReport report, OpeningWeaknessReport? openingReport)
-    {
-        yield return CreateBodyText("Open heavier sections in separate windows to keep the main profile view compact.", "#D7E2EA");
-        yield return CreateWindowDescriptionCard(
-            "Training plan",
-            "Full weekly plan with priorities, topic breakdown and daily sessions.",
-            () => OpenSectionWindow("Training plan", BuildWeeklyPlanRows(report)));
-        yield return CreateWindowDescriptionCard(
-            "What to work on",
-            "Recommendations with example positions for each work item.",
-            () => OpenSectionWindow("What to work on", BuildWorkOnRows(report)));
-        yield return CreateWindowDescriptionCard(
-            "Deep dive",
-            "Key mistakes, costly patterns and grouped example positions by motif.",
-            () => OpenSectionWindow("Deep dive", BuildDeepDiveRows(report)));
-        if (openingReport is not null)
-        {
-            yield return CreateWindowDescriptionCard(
-                "Opening weaknesses",
-                "Recurring opening mistakes, example games and better-move positions.",
-                () => OpenSectionWindow("Opening weaknesses", BuildOpeningWeaknessRows(openingReport)));
-        }
-    }
-
     private static Border CreateCardBorder()
     {
         return new Border
@@ -1068,32 +936,6 @@ public partial class ProfilesWindow : Window
         };
         button.Click += (_, _) => onClick();
         return button;
-    }
-
-    private static Control CreateWindowDescriptionCard(string title, string description, Action onClick)
-    {
-        Border card = new()
-        {
-            Background = Brush.Parse("#182B37"),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 0, 0, 8)
-        };
-
-        StackPanel panel = new() { Spacing = 6 };
-        panel.Children.Add(new TextBlock
-        {
-            Text = title,
-            FontSize = 17,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Brushes.White,
-            TextWrapping = TextWrapping.Wrap
-        });
-        panel.Children.Add(CreateBodyText(description, "#D7E2EA"));
-        panel.Children.Add(CreateSectionButton($"Open {title}", onClick));
-
-        card.Child = panel;
-        return card;
     }
 
     private static Control CreateMetricTile(string label, string value, double? width = null)
@@ -1303,45 +1145,9 @@ public partial class ProfilesWindow : Window
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 4, 0, 0)
         };
-        Button branchButton = new()
-        {
-            Content = "Open branch awareness",
-            IsEnabled = !string.IsNullOrWhiteSpace(currentProfilePlayerKey),
-            Margin = new Thickness(0, 0, 8, 0),
-            MinWidth = 220
-        };
-        branchButton.Click += async (_, _) =>
-        {
-            branchButton.IsEnabled = false;
-            try
-            {
-                IReadOnlyList<OpeningTrainingPosition> positions = GetBranchAwarenessPositionsForOpening(opening.Eco);
-                if (positions.Count == 0)
-                {
-                    OpenSectionWindow(
-                        "Branch awareness",
-                        [
-                            CreateBodyText($"{opening.OpeningDisplayName} | {opening.Eco}", "#D7E2EA"),
-                            CreateBodyText("No imported-theory branch entries are available yet for this opening at the positions highlighted by the profile.", "#D7E2EA")
-                        ]);
-                    return;
-                }
-
-                await ShowBranchAwarenessWindowAsync(opening, positions);
-            }
-            finally
-            {
-                if (!IsClosed())
-                {
-                    branchButton.IsEnabled = !string.IsNullOrWhiteSpace(currentProfilePlayerKey);
-                }
-            }
-        };
-        actions.Children.Add(branchButton);
-
         Button trainingButton = new()
         {
-            Content = "Start opening training",
+            Content = "Practice this opening",
             IsEnabled = !string.IsNullOrWhiteSpace(currentProfilePlayerKey),
             Margin = new Thickness(0, 0, 8, 0),
             MinWidth = 220
@@ -1351,7 +1157,7 @@ public partial class ProfilesWindow : Window
             trainingButton.IsEnabled = false;
             try
             {
-                await ShowOpeningTrainingWindowAsync(opening);
+                await OpenOpeningTrainerAsync(opening.Eco);
             }
             finally
             {
@@ -1362,374 +1168,42 @@ public partial class ProfilesWindow : Window
             }
         };
         actions.Children.Add(trainingButton);
-        actions.Children.Add(CreateBodyText(
-            "Branch awareness checks imported opening theory for the highlighted positions in this opening.",
-            "#9EB5C5"));
         panel.Children.Add(actions);
 
         card.Child = panel;
         return card;
     }
 
-    private async Task ShowOpeningTrainingWindowAsync(OpeningWeaknessEntry opening)
+    private async Task OpenOpeningTrainerAsync(string? openingFilter)
     {
-        if (string.IsNullOrWhiteSpace(currentProfilePlayerKey))
-        {
-            return;
-        }
-
-        OpeningTrainingSessionOptions options = new(
-            TargetOpenings: [opening.Eco],
-            MaxPositions: 12,
-            MaxPositionsPerSource: 6,
-            MaxContinuationMoves: 4);
-
-        if (!profileService.TryBuildOpeningTrainingSession(currentProfilePlayerKey, out OpeningTrainingSession? session, options)
-            || session is null
-            || session.Positions.Count == 0)
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        if (store is null)
         {
             OpenSectionWindow(
-                $"Opening training - {opening.OpeningDisplayName}",
+                "Opening Trainer",
                 [
-                    CreateBodyText("No imported-theory training positions are available yet for this opening.", "#D7E2EA")
+                    CreateBodyText("Opening Trainer is unavailable because the local analysis store is not ready.", "#D7E2EA")
                 ]);
             return;
         }
 
-        Window window = new()
+        OpeningTrainerWindowViewModel viewModel = new(store);
+        if (!string.IsNullOrWhiteSpace(currentProfilePlayerKey))
         {
-            Title = $"Opening training - {opening.OpeningDisplayName}",
-            Width = 1160,
-            Height = 840,
-            MinWidth = 900,
-            MinHeight = 620,
-            Background = Brush.Parse("#23313B")
-        };
-
-        StackPanel content = new()
-        {
-            Spacing = 12
-        };
-
-        content.Children.Add(CreateSectionCard(
-            "Opening training",
-            [
-                CreateBodyText($"{opening.OpeningDisplayName} | {FormatOpeningWeaknessCategory(opening.Category)}", "#D7E2EA"),
-                CreateBodyText("This session is filtered to the selected opening. Branches and book moves come from the imported opening database, while the profile weakness only decides which positions to review.", "#D7E2EA")
-            ]));
-
-        foreach (OpeningTrainingPosition position in session.Positions)
-        {
-            content.Children.Add(CreateOpeningTrainingPositionCard(position, window));
+            viewModel.AdvancedPlayerKey = currentProfilePlayerKey;
         }
 
-        window.Content = new Border
+        if (!string.IsNullOrWhiteSpace(openingFilter))
         {
-            Padding = new Thickness(18),
-            Child = new ScrollViewer
-            {
-                Content = content
-            }
-        };
+            viewModel.FilterText = openingFilter;
+            viewModel.RefreshCommand.Execute(null);
+        }
 
+        OpeningTrainerWindow window = new(viewModel)
+        {
+            Title = "Opening Trainer"
+        };
         await window.ShowDialog(this);
-    }
-
-    private async Task ShowOpeningTrainingWindowAsync(WeeklyTrainingDay day)
-    {
-        if (string.IsNullOrWhiteSpace(currentProfilePlayerKey)
-            || !day.LaunchTrainingMode.HasValue
-            || day.RelatedOpenings is not { Count: > 0 })
-        {
-            return;
-        }
-
-        IReadOnlyList<string> targetOpenings = day.RelatedOpenings
-            .Where(opening => !string.IsNullOrWhiteSpace(opening))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(3)
-            .ToList();
-        OpeningTrainingMode mode = day.LaunchTrainingMode.Value;
-        OpeningTrainingSessionOptions options = new(
-            Modes: [mode],
-            Sources: mode == OpeningTrainingMode.MistakeRepair
-                ? [OpeningTrainingSourceKind.FirstOpeningMistake, OpeningTrainingSourceKind.OpeningWeakness]
-                : [OpeningTrainingSourceKind.OpeningWeakness, OpeningTrainingSourceKind.ExampleGame],
-            MaxPositions: 10,
-            MaxPositionsPerSource: 5,
-            MaxContinuationMoves: 4,
-            TargetOpenings: targetOpenings);
-
-        if (!profileService.TryBuildOpeningTrainingSession(currentProfilePlayerKey, out OpeningTrainingSession? session, options)
-            || session is null
-            || session.Positions.Count == 0)
-        {
-            OpenSectionWindow(
-                $"Opening training - day {day.DayNumber}",
-                [
-                    CreateBodyText("No imported-theory training positions are available yet for this weekly-plan slot.", "#D7E2EA")
-                ]);
-            return;
-        }
-
-        Window window = new()
-        {
-            Title = $"Opening training - day {day.DayNumber}",
-            Width = 1160,
-            Height = 840,
-            MinWidth = 900,
-            MinHeight = 620,
-            Background = Brush.Parse("#23313B")
-        };
-
-        StackPanel content = new()
-        {
-            Spacing = 12
-        };
-
-        content.Children.Add(CreateSectionCard(
-            "Opening training from weekly plan",
-            [
-                CreateBodyText($"{FormatOpeningTrainingMode(mode)} | {string.Join(" / ", targetOpenings.Select(FormatOpening))}", "#D7E2EA"),
-                CreateBodyText("This session is launched from the deterministic weekly plan. The plan decides when opening work is needed; imported theory and analyzed games decide the actual positions.", "#D7E2EA")
-            ]));
-
-        foreach (OpeningTrainingPosition position in session.Positions)
-        {
-            content.Children.Add(CreateOpeningTrainingPositionCard(position, window));
-        }
-
-        window.Content = new Border
-        {
-            Padding = new Thickness(18),
-            Child = new ScrollViewer
-            {
-                Content = content
-            }
-        };
-
-        await window.ShowDialog(this);
-    }
-
-    private Control CreateOpeningTrainingPositionCard(OpeningTrainingPosition position, Window? ownerWindowToClose = null)
-    {
-        if (position.Mode == OpeningTrainingMode.BranchAwareness)
-        {
-            return CreateBranchAwarenessCard(position, ownerWindowToClose);
-        }
-
-        Border card = new()
-        {
-            Background = Brush.Parse("#182B37"),
-            CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(14),
-            Margin = new Thickness(0, 0, 0, 10)
-        };
-
-        Grid grid = new()
-        {
-            ColumnDefinitions = new ColumnDefinitions("120,*")
-        };
-
-        IReadOnlyList<BoardArrowViewModel> arrows = BuildPreviewArrows(
-            position.Fen,
-            (position.PlayedMove, Color.Parse("#F6C453")),
-            (GetPreferredTheoryMove(position), Color.Parse("#58D68D")));
-        Control boardHost = CreateBoardPreview(
-            position.Fen,
-            120,
-            arrows,
-            async () => await ShowBoardPreviewWindowAsync(
-                title: $"{FormatOpeningTrainingMode(position.Mode)} | {position.OpeningName}",
-                fen: position.Fen,
-                arrows: arrows,
-                detailLines: BuildTrainingPreviewDetailLines(position)));
-        grid.Children.Add(boardHost);
-
-        StackPanel panel = new()
-        {
-            Margin = new Thickness(14, 0, 0, 0),
-            Spacing = 6
-        };
-        Grid.SetColumn(panel, 1);
-
-        panel.Children.Add(new TextBlock
-        {
-            Text = $"{FormatOpeningTrainingMode(position.Mode)} | {position.Prompt}",
-            FontSize = 17,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Brushes.White,
-            TextWrapping = TextWrapping.Wrap
-        });
-        panel.Children.Add(CreateBodyText(position.Instruction, "#D7E2EA"));
-
-        if (!string.IsNullOrWhiteSpace(position.PlayedMove))
-        {
-            panel.Children.Add(CreateBodyText($"Your move: {position.PlayedMove}", "#9EB5C5"));
-        }
-
-        string? preferredTheoryMove = GetPreferredTheoryMove(position);
-        if (!string.IsNullOrWhiteSpace(preferredTheoryMove))
-        {
-            panel.Children.Add(CreateBodyText($"Best theory move: {preferredTheoryMove}", "#D7E2EA"));
-        }
-
-        IReadOnlyList<string> candidateMoves = GetImportedTheoryOptions(position)
-            .OrderByDescending(move => move.IsPreferred)
-            .ThenBy(move => move.DisplayText, StringComparer.OrdinalIgnoreCase)
-            .Take(5)
-            .Select(move => move.IsPreferred ? $"{move.DisplayText} (preferred)" : move.DisplayText)
-            .ToList();
-        if (candidateMoves.Count > 0)
-        {
-            panel.Children.Add(CreateBodyText($"Imported theory options: {string.Join(", ", candidateMoves)}", "#9EB5C5"));
-        }
-
-        if (position.Continuation.Count > 0)
-        {
-            panel.Children.Add(CreateBodyText($"Continuation: {string.Join(" -> ", position.Continuation.Select(move => move.San))}", "#9EB5C5"));
-        }
-
-        panel.Children.Add(CreateTrainingPositionActionButton(position, ownerWindowToClose));
-
-        grid.Children.Add(panel);
-        card.Child = grid;
-        return card;
-    }
-
-    private async Task ShowBranchAwarenessWindowAsync(OpeningWeaknessEntry opening, IReadOnlyList<OpeningTrainingPosition> positions)
-    {
-        Window window = new()
-        {
-            Title = $"Branch awareness - {opening.OpeningDisplayName}",
-            Width = 1120,
-            Height = 820,
-            MinWidth = 900,
-            MinHeight = 620,
-            Background = Brush.Parse("#23313B")
-        };
-
-        StackPanel content = new()
-        {
-            Spacing = 12
-        };
-
-        content.Children.Add(CreateSectionCard(
-            "Branch awareness",
-            [
-                CreateBodyText($"{opening.OpeningDisplayName} | {opening.Eco}", "#D7E2EA"),
-                CreateBodyText("The branches below come from the imported opening database for the highlighted profile positions in this opening.", "#D7E2EA")
-            ]));
-
-        foreach (OpeningTrainingPosition position in positions)
-        {
-            content.Children.Add(CreateBranchAwarenessCard(position, window));
-        }
-
-        window.Content = new Border
-        {
-            Padding = new Thickness(18),
-            Child = new ScrollViewer
-            {
-                Content = content
-            }
-        };
-
-        await window.ShowDialog(this);
-    }
-
-    private Control CreateBranchAwarenessCard(OpeningTrainingPosition position, Window? ownerWindowToClose = null)
-    {
-        Border card = new()
-        {
-            Background = Brush.Parse("#182B37"),
-            CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(14),
-            Margin = new Thickness(0, 0, 0, 10)
-        };
-
-        Grid grid = new()
-        {
-            ColumnDefinitions = new ColumnDefinitions("170,*")
-        };
-
-        Control boardHost = CreateBoardPreview(
-            position.Fen,
-            160,
-            Array.Empty<BoardArrowViewModel>(),
-            async () => await ShowBoardPreviewWindowAsync(
-                title: $"Branch Awareness | {position.OpeningName}",
-                fen: position.Fen,
-                arrows: Array.Empty<BoardArrowViewModel>(),
-                detailLines: BuildBranchPreviewDetailLines(position)));
-        grid.Children.Add(boardHost);
-
-        StackPanel panel = new()
-        {
-            Margin = new Thickness(16, 0, 0, 0),
-            Spacing = 6
-        };
-        Grid.SetColumn(panel, 1);
-
-        panel.Children.Add(new TextBlock
-        {
-            Text = $"{position.Prompt}",
-            FontSize = 17,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Brushes.White,
-            TextWrapping = TextWrapping.Wrap
-        });
-        panel.Children.Add(CreateBodyText(position.Instruction, "#D7E2EA"));
-        if (!string.IsNullOrWhiteSpace(position.BranchSelectionSummary))
-        {
-            panel.Children.Add(CreateBodyText(position.BranchSelectionSummary, "#9EB5C5"));
-        }
-
-        foreach (OpeningTrainingBranch branch in position.Branches ?? [])
-        {
-            Border branchCard = new()
-            {
-                Background = Brush.Parse("#203542"),
-                CornerRadius = new CornerRadius(12),
-                Padding = new Thickness(12),
-                Margin = new Thickness(0, 4, 0, 4)
-            };
-
-            StackPanel branchPanel = new() { Spacing = 5 };
-            branchPanel.Children.Add(new TextBlock
-            {
-                Text = $"Opponent reply: {branch.OpponentMove} | seen {branch.Frequency} time(s)",
-                FontSize = 15,
-                FontWeight = FontWeight.SemiBold,
-                Foreground = Brushes.White,
-                TextWrapping = TextWrapping.Wrap
-            });
-            branchPanel.Children.Add(CreateBodyText(branch.SourceSummary, "#D7E2EA"));
-            branchPanel.Children.Add(CreateBodyText(
-                branch.RecommendedResponse is null
-                    ? "Recommended reaction: no stable local response saved yet."
-                    : $"Recommended reaction: {branch.RecommendedResponse.DisplayText}",
-                "#D7E2EA"));
-
-            if (!string.IsNullOrWhiteSpace(branch.RecommendedResponse?.Note))
-            {
-                branchPanel.Children.Add(CreateBodyText(branch.RecommendedResponse.Note, "#9EB5C5"));
-            }
-
-            if (branch.Continuation.Count > 0)
-            {
-                string lineText = string.Join(" -> ", branch.Continuation.Select(move => move.San));
-                branchPanel.Children.Add(CreateBodyText($"Sample continuation: {lineText}", "#9EB5C5"));
-            }
-
-            branchCard.Child = branchPanel;
-            panel.Children.Add(branchCard);
-        }
-
-        panel.Children.Add(CreateTrainingPositionActionButton(position, ownerWindowToClose));
-        grid.Children.Add(panel);
-        card.Child = grid;
-        return card;
     }
 
     private Control CreateOpeningExampleCard(OpeningExampleGame example)
@@ -1906,111 +1380,6 @@ public partial class ProfilesWindow : Window
         await window.ShowDialog(this);
     }
 
-    private async Task NavigateToTrainingPositionAsync(OpeningTrainingPosition position, Window? ownerWindowToClose = null)
-    {
-        if (navigateToOpeningPositionAsync is null)
-        {
-            return;
-        }
-
-        OpeningMoveRecommendation recommendation = new(
-            position.Reference.GameFingerprint,
-            position.Reference.Side,
-            position.Eco,
-            position.Ply,
-            position.MoveNumber,
-            position.PlayedMove ?? "?",
-            GetPreferredTheoryMove(position) ?? position.BetterMove ?? "?",
-            position.ThemeLabel,
-            null,
-            position.Fen);
-
-        await navigateToOpeningPositionAsync(recommendation);
-        ownerWindowToClose?.Close();
-        Close();
-    }
-
-    private IReadOnlyList<OpeningTrainingPosition> GetBranchAwarenessPositionsForOpening(string eco)
-    {
-        if (string.IsNullOrWhiteSpace(currentProfilePlayerKey) || string.IsNullOrWhiteSpace(eco))
-        {
-            return [];
-        }
-
-        if (branchAwarenessPositionsByEco.TryGetValue(eco, out IReadOnlyList<OpeningTrainingPosition>? cached))
-        {
-            return cached;
-        }
-
-        OpeningTrainingSessionOptions options = new(
-            Modes: [OpeningTrainingMode.BranchAwareness],
-            Sources: [OpeningTrainingSourceKind.OpeningWeakness],
-            MaxPositions: 24,
-            MaxPositionsPerSource: 24,
-            MaxContinuationMoves: 4,
-            TargetOpenings: [eco]);
-
-        if (!profileService.TryBuildOpeningTrainingSession(currentProfilePlayerKey, out OpeningTrainingSession? session, options)
-            || session is null)
-        {
-            branchAwarenessPositionsByEco[eco] = [];
-            return [];
-        }
-
-        IReadOnlyList<OpeningTrainingPosition> positions = session.Positions
-            .Where(position => position.Mode == OpeningTrainingMode.BranchAwareness
-                && string.Equals(position.Eco, eco, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(position => position.Priority)
-            .ToList();
-        branchAwarenessPositionsByEco[eco] = positions;
-        return positions;
-    }
-
-    private static string? GetPreferredTheoryMove(OpeningTrainingPosition position)
-    {
-        return position.CandidateMoves
-            .FirstOrDefault(move => move.IsPreferred && move.ReferenceKind != OpeningLineRecallReferenceKind.HistoricalGame)?.DisplayText
-            ?? position.BetterMove;
-    }
-
-    private static IReadOnlyList<OpeningTrainingMoveOption> GetImportedTheoryOptions(OpeningTrainingPosition position)
-    {
-        return position.CandidateMoves
-            .Where(move => move.ReferenceKind != OpeningLineRecallReferenceKind.HistoricalGame)
-            .ToList();
-    }
-
-    private Button CreateTrainingPositionActionButton(OpeningTrainingPosition position, Window? ownerWindowToClose)
-    {
-        Button button = new()
-        {
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Content = "Open position",
-            IsEnabled = navigateToOpeningPositionAsync is not null
-        };
-        button.Click += async (_, _) =>
-        {
-            if (navigateToOpeningPositionAsync is null)
-            {
-                return;
-            }
-
-            button.IsEnabled = false;
-            try
-            {
-                await NavigateToTrainingPositionAsync(position, ownerWindowToClose);
-            }
-            finally
-            {
-                if (!IsClosed())
-                {
-                    button.IsEnabled = true;
-                }
-            }
-        };
-        return button;
-    }
-
     private static Control CreateBoardPreview(
         string fen,
         double size,
@@ -2121,59 +1490,6 @@ public partial class ProfilesWindow : Window
         };
 
         await window.ShowDialog(this);
-    }
-
-    private static IReadOnlyList<string> BuildTrainingPreviewDetailLines(OpeningTrainingPosition position)
-    {
-        List<string> lines = [];
-        lines.Add(position.Prompt);
-        lines.Add(position.Instruction);
-
-        if (!string.IsNullOrWhiteSpace(position.PlayedMove))
-        {
-            lines.Add($"Your move: {position.PlayedMove}");
-        }
-
-        string? preferredTheoryMove = GetPreferredTheoryMove(position);
-        if (!string.IsNullOrWhiteSpace(preferredTheoryMove))
-        {
-            lines.Add($"Best theory move: {preferredTheoryMove}");
-        }
-
-        if (position.Continuation.Count > 0)
-        {
-            lines.Add($"Line: {string.Join(" -> ", position.Continuation.Select(move => move.San))}");
-        }
-
-        return lines;
-    }
-
-    private static IReadOnlyList<string> BuildBranchPreviewDetailLines(OpeningTrainingPosition position)
-    {
-        List<string> lines = [];
-        lines.Add(position.Prompt);
-        lines.Add(position.Instruction);
-
-        if (!string.IsNullOrWhiteSpace(position.BranchSelectionSummary))
-        {
-            lines.Add(position.BranchSelectionSummary);
-        }
-
-        foreach (OpeningTrainingBranch branch in position.Branches ?? [])
-        {
-            lines.Add($"Opponent reply: {branch.OpponentMove} | seen {branch.Frequency} time(s)");
-            if (!string.IsNullOrWhiteSpace(branch.RecommendedResponse?.DisplayText))
-            {
-                lines.Add($"Best theory response: {branch.RecommendedResponse.DisplayText}");
-            }
-
-            if (branch.Continuation.Count > 0)
-            {
-                lines.Add($"Sample line: {string.Join(" -> ", branch.Continuation.Select(move => move.San))}");
-            }
-        }
-
-        return lines;
     }
 
     private static IReadOnlyList<string> BuildRecommendationPreviewDetailLines(OpeningMoveRecommendation recommendation)
@@ -2483,17 +1799,6 @@ public partial class ProfilesWindow : Window
         };
     }
 
-    private static string FormatOpeningTrainingMode(OpeningTrainingMode mode)
-    {
-        return mode switch
-        {
-            OpeningTrainingMode.LineRecall => "Line recall",
-            OpeningTrainingMode.MistakeRepair => "Mistake repair",
-            OpeningTrainingMode.BranchAwareness => "Branch awareness",
-            _ => mode.ToString()
-        };
-    }
-
     private static int GetBlockPurposeOrder(TrainingBlockPurpose purpose)
     {
         return purpose switch
@@ -2586,42 +1891,6 @@ public partial class ProfilesWindow : Window
             ProfileMistakeExampleRank.MostRepresentative => "Most representative",
             _ => rank.ToString()
         };
-    }
-
-    private static IReadOnlyList<string> BuildSummaryLines(PlayerProfileReport report)
-    {
-        List<string> lines = [];
-
-        if (report.TopMistakeLabels.Count > 0)
-        {
-            lines.Add($"Biggest problem: {FormatMistakeLabel(report.TopMistakeLabels[0].Label)} ({FormatTimes(report.TopMistakeLabels[0].Count)}).");
-        }
-
-        if (report.TopMistakeLabels.Count > 1)
-        {
-            lines.Add($"Second problem: {FormatMistakeLabel(report.TopMistakeLabels[1].Label)} ({FormatTimes(report.TopMistakeLabels[1].Count)}).");
-        }
-
-        if (report.TrainingPlan.Topics.Count > 0)
-        {
-            TrainingPlanTopic topic = report.TrainingPlan.Topics
-                .FirstOrDefault(item => item.Category == TrainingPlanTopicCategory.CoreWeakness)
-                ?? report.TrainingPlan.Topics[0];
-            lines.Add($"Training priority: {topic.Title} ({topic.FocusArea}).");
-        }
-
-        if (report.MistakesByPhase.Count > 0)
-        {
-            lines.Add($"Weakest phase: {FormatPhase(report.MistakesByPhase[0].Phase)} ({report.MistakesByPhase[0].Count} highlighted mistakes).");
-        }
-
-        if (report.MistakesByOpening.Count > 0)
-        {
-            lines.Add($"Most problematic opening: {FormatOpening(report.MistakesByOpening[0].Eco)} ({report.MistakesByOpening[0].Count} highlighted mistakes).");
-        }
-
-        lines.Add($"Recent trend: {FormatTrendHeadline(report.ProgressSignal.Direction)}.");
-        return lines;
     }
 
     private static string BuildSnapshotSummary(PlayerProfileReport report)

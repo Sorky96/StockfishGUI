@@ -652,9 +652,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return null;
         }
 
-        if (engine is null)
+        LoadCachedAnalysisResultsForCurrentGame(new EngineAnalysisOptions());
+
+        if (engine is null && cachedAnalysisResultsBySide.Count == 0)
         {
-            StatusMessage = "The analysis engine is unavailable.";
+            StatusMessage = "The analysis engine is unavailable, and no saved analysis was found for the imported game.";
             return null;
         }
 
