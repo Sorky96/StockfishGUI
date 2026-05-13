@@ -159,6 +159,7 @@ public sealed class OpeningTrainerWorkspaceService
             game.Reset();
         }
 
+        PlayerSide? studySide = ResolveStudySide(item.RepertoireSide);
         IReadOnlyList<OpeningTrainingPosition> targetedPositions = BuildTargetedPositions(item, overview, effectiveStrictness, specialMode, target);
         foreach (OpeningTrainingPosition targetedPosition in targetedPositions)
         {
@@ -218,44 +219,47 @@ public sealed class OpeningTrainerWorkspaceService
                     move.ToOpeningPositionKey))
                 .ToList();
 
-            OpeningTrainingPosition position = new(
-                $"guided:{item.LineKey.Value}:{lineMove.Ply}",
-                item.OpeningKey,
-                item.LineKey,
-                null,
-                new OpeningPositionKey(item.RootPositionKey.Value),
-                OpeningTrainingMode.LineRecall,
-                OpeningTrainingSourceKind.ExampleGame,
-                item.Eco,
-                item.DisplayName,
-                currentFen,
-                lineMove.Ply,
-                lineMove.MoveNumber,
-                lineMove.Side,
-                $"Play the book move for {item.DisplayName}.",
-                specialMode is null
-                    ? $"Strictness: {effectiveStrictness}. Use SAN or UCI."
-                    : $"{specialMode.Title}. Strictness: {effectiveStrictness}. Use SAN or UCI.",
-                Math.Max(1, overview.MainLine.Count - positions.Count),
-                item.RepertoireSide,
-                effectiveStrictness,
-                null,
-                null,
-                lineMove.San,
-                lineMove.Idea?.ShortExplanation,
-                BuildSessionTags(item.Eco, specialMode, target, targetedPositions.Count == 0 ? null : "target-fallback:false"),
-                candidateMoves,
-                [],
-                new OpeningTrainingReference(string.Empty, lineMove.Side, "Theory", null, null, "Guided study", lineMove.Ply, null),
-                item.LineKey.Value,
-                null,
-                null,
-                overview.Coverage,
-                overview.OpponentReplyProfile);
-            positions.Add(position with
+            if (ShouldPromptForSide(lineMove.Side, studySide))
             {
-                CoachHints = coachingService.BuildHints(position)
-            });
+                OpeningTrainingPosition position = new(
+                    $"guided:{item.LineKey.Value}:{lineMove.Ply}",
+                    item.OpeningKey,
+                    item.LineKey,
+                    null,
+                    lineMove.FromPositionKey,
+                    OpeningTrainingMode.LineRecall,
+                    OpeningTrainingSourceKind.ExampleGame,
+                    item.Eco,
+                    item.DisplayName,
+                    currentFen,
+                    lineMove.Ply,
+                    lineMove.MoveNumber,
+                    lineMove.Side,
+                    $"Play your {lineMove.Side} repertoire move for {item.DisplayName}.",
+                    specialMode is null
+                        ? $"Opponent moves are replayed automatically. Strictness: {effectiveStrictness}. Use SAN or UCI."
+                        : $"{specialMode.Title}. Opponent moves are replayed automatically. Strictness: {effectiveStrictness}. Use SAN or UCI.",
+                    Math.Max(1, overview.MainLine.Count - positions.Count),
+                    item.RepertoireSide,
+                    effectiveStrictness,
+                    null,
+                    null,
+                    lineMove.San,
+                    lineMove.Idea?.ShortExplanation,
+                    BuildSessionTags(item.Eco, specialMode, target, targetedPositions.Count == 0 ? null : "target-fallback:false"),
+                    candidateMoves,
+                    [],
+                    new OpeningTrainingReference(string.Empty, lineMove.Side, "Theory", null, null, "Guided study", lineMove.Ply, null),
+                    item.LineKey.Value,
+                    null,
+                    null,
+                    overview.Coverage,
+                    overview.OpponentReplyProfile);
+                positions.Add(position with
+                {
+                    CoachHints = coachingService.BuildHints(position)
+                });
+            }
 
             lineMoves.Add(new OpeningTrainingMove(
                 lineMove.Ply,
@@ -343,7 +347,8 @@ public sealed class OpeningTrainerWorkspaceService
         IReadOnlyList<OpeningTrainingPosition> continuation = BuildContinuationFromFen(
             completedPosition,
             result.ResolvedPosition,
-            remainingCount);
+            remainingCount,
+            session.RepertoireSide);
         if (continuation.Count == 0)
         {
             return session;
@@ -582,7 +587,8 @@ public sealed class OpeningTrainerWorkspaceService
     private IReadOnlyList<OpeningTrainingPosition> BuildContinuationFromFen(
         OpeningTrainingPosition template,
         OpeningPositionIdentity reachedPosition,
-        int maxPositions)
+        int maxPositions,
+        RepertoireSide repertoireSide)
     {
         List<OpeningTrainingPosition> positions = [];
         string currentFen = reachedPosition.Fen;
@@ -590,8 +596,10 @@ public sealed class OpeningTrainerWorkspaceService
         int currentPly = reachedPosition.Ply;
         int currentMoveNumber = reachedPosition.MoveNumber;
         PlayerSide sideToMove = reachedPosition.SideToMove;
+        PlayerSide? studySide = ResolveStudySide(repertoireSide);
+        int safetyLimit = Math.Max(maxPositions + 4, maxPositions * 4);
 
-        for (int index = 0; index < maxPositions; index++)
+        for (int index = 0; positions.Count < maxPositions && index < safetyLimit; index++)
         {
             IReadOnlyList<OpeningTheoryMove> theoryMoves = openingTheory?.GetTopMovesForFen(currentFen, 5) ?? [];
             if (theoryMoves.Count == 0)
@@ -613,50 +621,53 @@ public sealed class OpeningTrainerWorkspaceService
                     move.ToOpeningPositionKey))
                 .ToList();
 
-            OpeningTrainingPosition position = new(
-                $"continuation:{template.OpeningLineKey.Value}:{currentPositionKey.Value}:{index}",
-                template.OpeningKey,
-                template.OpeningLineKey,
-                template.OpeningBranchKey,
-                currentPositionKey,
-                OpeningTrainingMode.LineRecall,
-                template.SourceKind,
-                template.Eco,
-                template.OpeningName,
-                currentFen,
-                currentPly,
-                currentMoveNumber,
-                sideToMove,
-                $"Continue from the line you reached in {template.OpeningName}.",
-                "The continuation has been rebuilt from the move you actually played.",
-                Math.Max(1, maxPositions - index),
-                template.RepertoireSide,
-                template.Strictness,
-                template.ThemeLabel,
-                null,
-                preferred.MoveSan,
-                preferred.Idea?.ShortExplanation,
-                template.Tags.Concat(["branch-continuation"]).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                candidateMoves,
-                [],
-                new OpeningTrainingReference(
-                    template.Reference.GameFingerprint,
-                    sideToMove,
-                    template.Reference.OpponentName,
-                    template.Reference.DateText,
-                    template.Reference.Result,
-                    "Reached branch continuation",
-                    currentPly,
-                    template.Reference.MistakeLabel),
-                template.LineId,
-                null,
-                "Continuation chosen from the move you played.",
-                template.CoverageSummary,
-                template.OpponentReplyProfile);
-            positions.Add(position with
+            if (ShouldPromptForSide(sideToMove, studySide))
             {
-                CoachHints = coachingService.BuildHints(position)
-            });
+                OpeningTrainingPosition position = new(
+                    $"continuation:{template.OpeningLineKey.Value}:{currentPositionKey.Value}:{index}",
+                    template.OpeningKey,
+                    template.OpeningLineKey,
+                    template.OpeningBranchKey,
+                    currentPositionKey,
+                    OpeningTrainingMode.LineRecall,
+                    template.SourceKind,
+                    template.Eco,
+                    template.OpeningName,
+                    currentFen,
+                    currentPly,
+                    currentMoveNumber,
+                    sideToMove,
+                    $"Continue with your {sideToMove} repertoire move in {template.OpeningName}.",
+                    "The continuation has been rebuilt from the move you actually played; opponent moves are replayed automatically.",
+                    Math.Max(1, maxPositions - positions.Count),
+                    template.RepertoireSide,
+                    template.Strictness,
+                    template.ThemeLabel,
+                    null,
+                    preferred.MoveSan,
+                    preferred.Idea?.ShortExplanation,
+                    template.Tags.Concat(["branch-continuation"]).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                    candidateMoves,
+                    [],
+                    new OpeningTrainingReference(
+                        template.Reference.GameFingerprint,
+                        sideToMove,
+                        template.Reference.OpponentName,
+                        template.Reference.DateText,
+                        template.Reference.Result,
+                        "Reached branch continuation",
+                        currentPly,
+                        template.Reference.MistakeLabel),
+                    template.LineId,
+                    null,
+                    "Continuation chosen from the move you played.",
+                    template.CoverageSummary,
+                    template.OpponentReplyProfile);
+                positions.Add(position with
+                {
+                    CoachHints = coachingService.BuildHints(position)
+                });
+            }
 
             if (string.IsNullOrWhiteSpace(preferred.MoveUci))
             {
@@ -680,6 +691,19 @@ public sealed class OpeningTrainerWorkspaceService
 
         return positions;
     }
+
+    private static PlayerSide? ResolveStudySide(RepertoireSide repertoireSide)
+    {
+        return repertoireSide switch
+        {
+            RepertoireSide.White => PlayerSide.White,
+            RepertoireSide.Black => PlayerSide.Black,
+            _ => null
+        };
+    }
+
+    private static bool ShouldPromptForSide(PlayerSide sideToMove, PlayerSide? studySide)
+        => studySide is null || sideToMove == studySide.Value;
 
     private IReadOnlyList<OpeningTrainingPosition> BuildTargetedWeakPosition(
         OpeningTrainerOverview overview,

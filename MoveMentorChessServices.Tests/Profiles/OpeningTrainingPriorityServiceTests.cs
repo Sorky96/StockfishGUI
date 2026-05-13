@@ -155,6 +155,96 @@ public sealed class OpeningTrainingPriorityServiceTests
     }
 
     [Fact]
+    public void BuildGuidedStudySession_ReplaysOpponentMovesForWhiteRepertoire()
+    {
+        OpeningLineCatalogItem line = CreateLine();
+        ChessGame game = new();
+        string rootFen = game.GetFen();
+        OpeningPositionKey rootKey = OpeningPositionKeyBuilder.BuildKey(rootFen);
+        Assert.True(game.TryApplyUci("e2e4", out AppliedMoveInfo? e4, out _));
+        Assert.NotNull(e4);
+        Assert.True(game.TryApplyUci("c7c5", out AppliedMoveInfo? c5, out _));
+        Assert.NotNull(c5);
+        Assert.True(game.TryApplyUci("g1f3", out AppliedMoveInfo? nf3, out _));
+        Assert.NotNull(nf3);
+        OpeningPositionKey e4Key = OpeningPositionKeyBuilder.BuildKey(e4!.FenAfter);
+        OpeningPositionKey c5Key = OpeningPositionKeyBuilder.BuildKey(c5!.FenAfter);
+        OpeningPositionKey nf3Key = OpeningPositionKeyBuilder.BuildKey(nf3!.FenAfter);
+        line = line with
+        {
+            RootFen = rootFen,
+            RootPositionKey = rootKey,
+            RepertoireSide = RepertoireSide.White
+        };
+        OpeningTrainerOverview overview = CreateOverview(line, [], []) with
+        {
+            MainLine =
+            [
+                new OpeningLineMove(1, 1, PlayerSide.White, "e4", "e2e4", rootKey, e4Key, true),
+                new OpeningLineMove(2, 1, PlayerSide.Black, "c5", "c7c5", e4Key, c5Key, true),
+                new OpeningLineMove(3, 2, PlayerSide.White, "Nf3", "g1f3", c5Key, nf3Key, true)
+            ]
+        };
+        OpeningTrainerWorkspaceService workspace = new(new MinimalAnalysisStore(
+            new Dictionary<string, IReadOnlyList<OpeningTheoryMove>>(StringComparer.Ordinal)
+            {
+                [rootKey.Value] = [CreateTheoryMove("e4", "e2e4", e4.FenAfter, true)],
+                [e4Key.Value] = [CreateTheoryMove("c5", "c7c5", c5.FenAfter, true)],
+                [c5Key.Value] = [CreateTheoryMove("Nf3", "g1f3", nf3.FenAfter, true)]
+            }));
+
+        OpeningTrainingSession session = workspace.BuildGuidedStudySession(line, overview, "Alpha", OpeningTrainingStrictness.BookFlexible);
+
+        Assert.Equal(2, session.Positions.Count);
+        Assert.All(session.Positions, position => Assert.Equal(PlayerSide.White, position.SideToMove));
+        Assert.Equal(rootFen, session.Positions[0].Fen);
+        Assert.Equal(c5.FenAfter, session.Positions[1].Fen);
+        Assert.Equal("Nf3", session.Positions[1].BetterMove);
+    }
+
+    [Fact]
+    public void BuildGuidedStudySession_ReplaysOpponentMovesForBlackRepertoire()
+    {
+        OpeningLineCatalogItem line = CreateLine();
+        ChessGame game = new();
+        string rootFen = game.GetFen();
+        OpeningPositionKey rootKey = OpeningPositionKeyBuilder.BuildKey(rootFen);
+        Assert.True(game.TryApplyUci("e2e4", out AppliedMoveInfo? e4, out _));
+        Assert.NotNull(e4);
+        Assert.True(game.TryApplyUci("c7c5", out AppliedMoveInfo? c5, out _));
+        Assert.NotNull(c5);
+        OpeningPositionKey e4Key = OpeningPositionKeyBuilder.BuildKey(e4!.FenAfter);
+        OpeningPositionKey c5Key = OpeningPositionKeyBuilder.BuildKey(c5!.FenAfter);
+        line = line with
+        {
+            RootFen = rootFen,
+            RootPositionKey = rootKey,
+            RepertoireSide = RepertoireSide.Black
+        };
+        OpeningTrainerOverview overview = CreateOverview(line, [], []) with
+        {
+            MainLine =
+            [
+                new OpeningLineMove(1, 1, PlayerSide.White, "e4", "e2e4", rootKey, e4Key, true),
+                new OpeningLineMove(2, 1, PlayerSide.Black, "c5", "c7c5", e4Key, c5Key, true)
+            ]
+        };
+        OpeningTrainerWorkspaceService workspace = new(new MinimalAnalysisStore(
+            new Dictionary<string, IReadOnlyList<OpeningTheoryMove>>(StringComparer.Ordinal)
+            {
+                [rootKey.Value] = [CreateTheoryMove("e4", "e2e4", e4.FenAfter, true)],
+                [e4Key.Value] = [CreateTheoryMove("c5", "c7c5", c5.FenAfter, true)]
+            }));
+
+        OpeningTrainingSession session = workspace.BuildGuidedStudySession(line, overview, "Alpha", OpeningTrainingStrictness.BookFlexible);
+
+        OpeningTrainingPosition position = Assert.Single(session.Positions);
+        Assert.Equal(PlayerSide.Black, position.SideToMove);
+        Assert.Equal(e4.FenAfter, position.Fen);
+        Assert.Equal("c5", position.BetterMove);
+    }
+
+    [Fact]
     public void BuildGuidedStudySession_RebuildsContinuationAfterPlayableAlternative()
     {
         OpeningLineCatalogItem line = CreateLine();
@@ -167,12 +257,16 @@ public sealed class OpeningTrainingPriorityServiceTests
         Assert.NotNull(d4);
         OpeningTheoryMove e4Move = CreateTheoryMove("e4", "e2e4", e4!.FenAfter, true);
         OpeningTheoryMove d4Move = CreateTheoryMove("d4", "d2d4", d4!.FenAfter, false);
-        OpeningTheoryMove d5Move = CreateTheoryMove("d5", "d7d5", ApplyMove(d4.FenAfter, "d7d5"), true);
+        string d5Fen = ApplyMove(d4.FenAfter, "d7d5");
+        string c4Fen = ApplyMove(d5Fen, "c2c4");
+        OpeningTheoryMove d5Move = CreateTheoryMove("d5", "d7d5", d5Fen, true);
+        OpeningTheoryMove c4Move = CreateTheoryMove("c4", "c2c4", c4Fen, true);
         MinimalAnalysisStore store = new(
             new Dictionary<string, IReadOnlyList<OpeningTheoryMove>>(StringComparer.Ordinal)
             {
                 [OpeningPositionKeyBuilder.Build(rootFen)] = [e4Move, d4Move],
-                [OpeningPositionKeyBuilder.Build(d4.FenAfter)] = [d5Move]
+                [OpeningPositionKeyBuilder.Build(d4.FenAfter)] = [d5Move],
+                [OpeningPositionKeyBuilder.Build(d5Fen)] = [c4Move]
             });
         OpeningTrainerWorkspaceService workspace = new(store);
         OpeningTrainingPosition first = CreateWeakPosition(line, "line-1", 1) with
@@ -209,8 +303,9 @@ public sealed class OpeningTrainingPriorityServiceTests
         OpeningTrainingSession rebuilt = workspace.RebuildContinuationAfterAcceptedMove(session, 0, first, result);
 
         Assert.Equal(OpeningTrainingScore.Playable, result.Score);
-        Assert.Equal(d4.FenAfter, rebuilt.Positions[1].Fen);
-        Assert.Equal("d5", rebuilt.Positions[1].BetterMove);
+        Assert.Equal(d5Fen, rebuilt.Positions[1].Fen);
+        Assert.Equal(PlayerSide.White, rebuilt.Positions[1].SideToMove);
+        Assert.Equal("c4", rebuilt.Positions[1].BetterMove);
     }
 
     private static OpeningTrainerOverview CreateOverview(
