@@ -245,6 +245,61 @@ public sealed class OpeningTrainingPriorityServiceTests
     }
 
     [Fact]
+    public void BuildGuidedStudySession_MarksWhiteRepertoirePathMoveAsPreferred()
+    {
+        OpeningLineCatalogItem line = CreateLine();
+        ChessGame game = new();
+        string rootFen = game.GetFen();
+        OpeningPositionKey rootKey = OpeningPositionKeyBuilder.BuildKey(rootFen);
+        Assert.True(game.TryApplyUci("e2e4", out AppliedMoveInfo? e4, out _));
+        Assert.NotNull(e4);
+        ChessGame alternativeGame = new();
+        Assert.True(alternativeGame.TryApplyUci("c2c4", out AppliedMoveInfo? c4, out _));
+        Assert.NotNull(c4);
+        line = line with
+        {
+            Eco = "B22",
+            DisplayName = "Sicilian Defense: Alapin",
+            RootFen = rootFen,
+            RootPositionKey = rootKey,
+            RepertoireSide = RepertoireSide.White
+        };
+        OpeningTrainerOverview overview = CreateOverview(line, [], []) with
+        {
+            MainLine =
+            [
+                new OpeningLineMove(
+                    1,
+                    1,
+                    PlayerSide.White,
+                    "e4",
+                    "e2e4",
+                    rootKey,
+                    OpeningPositionKeyBuilder.BuildKey(e4!.FenAfter),
+                    true)
+            ]
+        };
+        OpeningTrainerWorkspaceService workspace = new(new MinimalAnalysisStore(
+            new Dictionary<string, IReadOnlyList<OpeningTheoryMove>>(StringComparer.Ordinal)
+            {
+                [rootKey.Value] =
+                [
+                    CreateTheoryMove("c4", "c2c4", c4!.FenAfter, false),
+                    CreateTheoryMove("e4", "e2e4", e4.FenAfter, false)
+                ]
+            }));
+
+        OpeningTrainingSession session = workspace.BuildGuidedStudySession(line, overview, "Alpha", OpeningTrainingStrictness.BookFlexible);
+
+        OpeningTrainingPosition position = Assert.Single(session.Positions);
+        OpeningTrainingMoveOption e4Option = Assert.Single(position.CandidateMoves, option => option.Uci == "e2e4");
+        OpeningTrainingMoveOption c4Option = Assert.Single(position.CandidateMoves, option => option.Uci == "c2c4");
+        Assert.True(e4Option.IsPreferred);
+        Assert.False(c4Option.IsPreferred);
+        Assert.Equal(OpeningTrainingScore.Correct, workspace.Evaluate(position, "e4").Score);
+    }
+
+    [Fact]
     public void BuildGuidedStudySession_RebuildsContinuationAfterPlayableAlternative()
     {
         OpeningLineCatalogItem line = CreateLine();

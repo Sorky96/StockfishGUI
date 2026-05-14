@@ -102,6 +102,40 @@ public sealed class OpeningTrainingRecommendationServiceTests
         Assert.Contains("due", recommendation.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Recommendation_IgnoresImmediateChoiceActions()
+    {
+        OpeningLineCatalogItem commonLine = CreateLine("C65", "Ruy Lopez", 6, 60);
+        OpeningLineCatalogItem immediateLine = CreateLine("B22", "Sicilian Defense: Alapin", 1, 1);
+        DateTime createdUtc = DateTime.UtcNow.AddMinutes(-5);
+        OpeningTrainingScheduledAction immediateAction = new(
+            "immediate-action",
+            "player",
+            "session-1",
+            TrainingNextActionKind.RepeatNow,
+            immediateLine.LineKey,
+            null,
+            null,
+            createdUtc,
+            createdUtc,
+            OpeningTrainingScheduledActionStatus.Pending,
+            null,
+            100,
+            "repeat-now");
+        OpeningTrainingRecommendationService service = new();
+
+        TrainingRecommendationCard? recommendation = service.Recommend(
+            "player",
+            [commonLine, immediateLine],
+            [],
+            [],
+            [immediateAction]);
+
+        Assert.NotNull(recommendation);
+        Assert.Equal(commonLine, recommendation!.OpeningLine);
+        Assert.NotEqual(TrainingRecommendationReasonCode.RevisitDue, recommendation.ReasonCode);
+    }
+
     private static OpeningLineCatalogItem CreateLine(string eco, string displayName, int branchCount, int gameCount)
     {
         return new OpeningLineCatalogItem(

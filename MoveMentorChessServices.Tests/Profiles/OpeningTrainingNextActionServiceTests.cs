@@ -25,6 +25,8 @@ public sealed class OpeningTrainingNextActionServiceTests
         Assert.Equal("Repeat this line now", actions[0].Title);
         Assert.Contains("Good session", actions[0].Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.RepairWeakBranches);
+        Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.PracticeMainLineOnly);
+        Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.StopForNow);
     }
 
     [Fact]
@@ -66,8 +68,10 @@ public sealed class OpeningTrainingNextActionServiceTests
 
         IReadOnlyList<TrainingNextAction> actions = service.BuildNextActions(summary);
 
-        Assert.Equal(TrainingNextActionKind.ReturnTomorrow, actions[0].Kind);
+        Assert.Equal(TrainingNextActionKind.BrowseAnotherOpening, actions[0].Kind);
+        Assert.Equal("Train another recommended opening", actions[0].Title);
         Assert.Contains("Clean session", actions[0].Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.StopForNow);
         Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.BrowseAnotherOpening);
     }
 
@@ -89,8 +93,31 @@ public sealed class OpeningTrainingNextActionServiceTests
         IReadOnlyList<TrainingNextAction> actions = service.BuildNextActions(summary);
 
         Assert.Equal(TrainingNextActionKind.RepeatAfterBreak, actions[0].Kind);
-        Assert.Contains("Good session", actions[0].Description, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("not automatic", actions[0].Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Best for making this line automatic", actions[0].Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("hints", actions[0].Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.PracticeMainLineOnly);
+        Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.StopForNow);
+    }
+
+    [Fact]
+    public void BuildNextActions_RecommendsMainLineOnlyWhenAlternativesAppearWithoutHints()
+    {
+        OpeningTrainingNextActionService service = new();
+        TrainingSessionOutcomeSummary summary = new(
+            "Almost stable",
+            8,
+            8,
+            5,
+            3,
+            0,
+            0,
+            100,
+            100);
+
+        IReadOnlyList<TrainingNextAction> actions = service.BuildNextActions(summary);
+
+        Assert.Equal(TrainingNextActionKind.PracticeMainLineOnly, actions[0].Kind);
+        Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.RepeatAfterBreak);
     }
 
     [Fact]
@@ -122,6 +149,47 @@ public sealed class OpeningTrainingNextActionServiceTests
         Assert.Equal(OpeningTrainingScheduledActionStatus.Pending, action.Status);
         Assert.Equal("repeat-after-break", action.SourceActionId);
         Assert.Equal(new OpeningLineKey("C20:main"), action.LineKey);
+    }
+
+    [Fact]
+    public void BuildScheduledActions_IgnoresImmediateChoices()
+    {
+        OpeningTrainingNextActionService service = new();
+        DateTime createdUtc = DateTime.Parse("2026-05-01T10:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal);
+        OpeningTrainingSessionResult session = CreateSessionResult(createdUtc);
+
+        IReadOnlyList<OpeningTrainingScheduledAction> actions = service.BuildScheduledActions(
+            "Alpha",
+            session,
+            [
+                new TrainingNextAction(
+                    "repeat-now",
+                    TrainingNextActionKind.RepeatNow,
+                    "Repeat this line now",
+                    "Repeat immediately.",
+                    "Repeat now",
+                    100),
+                new TrainingNextAction(
+                    "practice-main-line-only",
+                    TrainingNextActionKind.PracticeMainLineOnly,
+                    "Practice main line only",
+                    "Practice immediately.",
+                    "Practice main line",
+                    90),
+                new TrainingNextAction(
+                    "repeat-after-break",
+                    TrainingNextActionKind.RepeatAfterBreak,
+                    "Repeat after 10 min",
+                    "Repeat later.",
+                    "Repeat later",
+                    80,
+                    10)
+            ],
+            createdUtc);
+
+        OpeningTrainingScheduledAction action = Assert.Single(actions);
+        Assert.Equal(TrainingNextActionKind.RepeatAfterBreak, action.Kind);
+        Assert.Equal("repeat-after-break", action.SourceActionId);
     }
 
     private static OpeningTrainingSessionResult CreateSessionResult(DateTime completedUtc)

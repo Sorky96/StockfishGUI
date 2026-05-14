@@ -21,46 +21,83 @@ public sealed class OpeningTrainingNextActionService
             actions.Add(new TrainingNextAction(
                 "repair-weak-branches",
                 TrainingNextActionKind.RepairWeakBranches,
-                "Open priorities",
-                "Use this later if you want to inspect the broader weak-branch list.",
+                "Train weak branches",
+                "Repair concrete deviations or opponent replies from this opening.",
                 "Open priorities",
                 90));
+            actions.Add(CreatePracticeMainLineOnly(80));
+            actions.Add(CreateReviewWithHintsAllowed(70));
+            actions.Add(CreateStopForNow(50));
         }
         else if (summary.PlayableCount > 0 || summary.HintCount > 0)
         {
+            bool mainLineDrift = summary.PlayableCount > 0 && summary.CorrectCount < summary.CompletedCount;
+            if (mainLineDrift && summary.HintCount == 0)
+            {
+                actions.Add(CreatePracticeMainLineOnly(95));
+                actions.Add(new TrainingNextAction(
+                    "repeat-after-break",
+                    TrainingNextActionKind.RepeatAfterBreak,
+                    "Repeat after 10 min",
+                    "Best for making this line automatic after useful alternatives appeared.",
+                    "Repeat after 10 min",
+                    90,
+                    10));
+            }
+            else
+            {
+                actions.Add(new TrainingNextAction(
+                    "repeat-after-break",
+                    TrainingNextActionKind.RepeatAfterBreak,
+                    "Repeat after 10 min",
+                    "Best for making this line automatic after hints or useful alternatives appeared.",
+                    "Repeat after 10 min",
+                    95,
+                    10));
+                actions.Add(CreatePracticeMainLineOnly(85));
+            }
+            actions.Add(CreateReviewWithHintsAllowed(75));
             actions.Add(new TrainingNextAction(
-                "repeat-after-break",
-                TrainingNextActionKind.RepeatAfterBreak,
-                "Repeat after a short break",
-                "Good session. The line is close, but hints or playable alternatives show it is not automatic yet.",
-                "Repeat after break",
-                90,
-                10));
+                "train-another-opening",
+                TrainingNextActionKind.BrowseAnotherOpening,
+                "Train another recommended opening",
+                "Let the system choose the next useful opening from your backlog.",
+                "Train another opening",
+                65));
             actions.Add(new TrainingNextAction(
                 "browse-another-opening",
                 TrainingNextActionKind.BrowseAnotherOpening,
-                "Train another opening",
-                "Use the recommendation list if you want a fresh line instead of another repetition.",
                 "Browse openings",
-                60));
+                "Choose a line yourself when you want exploration instead of the recommended next step.",
+                "Browse openings",
+                55));
+            actions.Add(CreateStopForNow(50));
         }
         else
         {
             actions.Add(new TrainingNextAction(
+                "train-another-opening",
+                TrainingNextActionKind.BrowseAnotherOpening,
+                "Train another recommended opening",
+                "Clean session. Let the system choose the next useful opening from your backlog.",
+                "Train another opening",
+                90));
+            actions.Add(CreateStopForNow(85));
+            actions.Add(new TrainingNextAction(
                 "return-tomorrow",
                 TrainingNextActionKind.ReturnTomorrow,
                 "Return tomorrow",
-                "Clean session. Let spacing do its work and revisit the line tomorrow.",
+                "Let spacing do its work and revisit this line tomorrow.",
                 "Back to selection",
-                80,
+                75,
                 1440));
             actions.Add(new TrainingNextAction(
                 "browse-another-opening",
                 TrainingNextActionKind.BrowseAnotherOpening,
-                "Move to another branch",
-                "Keep momentum by choosing another recommended opening or branch.",
                 "Browse openings",
-                70));
+                "Choose a different line manually.",
+                "Browse openings",
+                60));
         }
 
         return actions
@@ -80,6 +117,33 @@ public sealed class OpeningTrainingNextActionService
             ? "Good session overall. One quick repeat will lock in the weak move while it is fresh."
             : "Good session overall. A quick repeat will lock in the weak moves while they are fresh.";
     }
+
+    private static TrainingNextAction CreatePracticeMainLineOnly(int priority)
+        => new(
+            "practice-main-line-only",
+            TrainingNextActionKind.PracticeMainLineOnly,
+            "Practice main line only",
+            "Use this when you want to quickly lock in the exact repertoire move order.",
+            "Practice main line only",
+            priority);
+
+    private static TrainingNextAction CreateReviewWithHintsAllowed(int priority)
+        => new(
+            "review-with-hints",
+            TrainingNextActionKind.ReviewWithHintsAllowed,
+            "Review with hints allowed",
+            "A lower-pressure repeat for cautious review without pure memory pressure.",
+            "Review with hints",
+            priority);
+
+    private static TrainingNextAction CreateStopForNow(int priority)
+        => new(
+            "stop-for-now",
+            TrainingNextActionKind.StopForNow,
+            "Stop for now",
+            "It is OK to finish here. Spacing and rest are part of learning.",
+            "Stop for now",
+            priority);
 
     public IReadOnlyList<OpeningTrainingScheduledAction> BuildScheduledActions(
         string playerKey,
@@ -105,11 +169,7 @@ public sealed class OpeningTrainingNextActionService
             ?? sessionResult.ReviewItems?.Select(item => (OpeningPositionKey?)item.PositionKey).FirstOrDefault(key => key.HasValue);
 
         return nextActions
-            .Where(action => action.DelayMinutes > 0
-                || action.Kind is TrainingNextActionKind.RepeatNow
-                    or TrainingNextActionKind.RepeatAfterBreak
-                    or TrainingNextActionKind.ReturnTomorrow
-                    or TrainingNextActionKind.RepairWeakBranches)
+            .Where(action => action.DelayMinutes > 0)
             .Select(action => new OpeningTrainingScheduledAction(
                 BuildScheduledActionId(sessionResult.SessionId, action.Id),
                 normalizedPlayerKey,

@@ -283,6 +283,7 @@
                                      Height="396"
                                      Fen="{Binding PreviewFen}"
                                      Arrows="{Binding PreviewArrows}"
+                                     RotateBoard="{Binding IsBoardRotated}"
                                      IsHitTestVisible="False" />
             <Border Background="{DynamicResource ChromeBrush}" CornerRadius="14" Padding="12">
               <StackPanel Spacing="6">
@@ -422,6 +423,7 @@
                 <controls:ChessBoardView Width="580"
                                          Height="580"
                                          Fen="{Binding PreviewFen}"
+                                         RotateBoard="{Binding IsBoardRotated}"
                                          SelectedSquare="{Binding StudySelectedSquare}"
                                          PreviewTargetSquare="{Binding StudyPreviewTargetSquare}"
                                          AvailableMoves="{Binding StudyAvailableMoveSquares}"
@@ -635,13 +637,14 @@
 
         <Border Grid.Column="1" Margin="6,0,0,0" Background="{DynamicResource PanelBrush}" CornerRadius="20" Padding="16">
           <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
-            <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="What To Do Next" />
+            <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="Choose Your Next Training Plan" />
             <TextBlock Grid.Row="1" Foreground="#9EB5C5" Text="{Binding NextActionsPlaceholder}" TextWrapping="Wrap" />
             <Border Grid.Row="2" IsVisible="{Binding HasPrimaryNextAction}" Margin="0,10,0,12" Background="{DynamicResource ChromeBrush}" CornerRadius="12" Padding="14">
               <StackPanel Spacing="8">
+                <TextBlock Foreground="#9ED7A6" FontWeight="SemiBold" Text="Recommended next" />
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="{Binding PrimaryNextAction.Title}" TextWrapping="Wrap" />
-                  <TextBlock Grid.Column="1" Foreground="#9ED7A6" FontWeight="SemiBold" Text="{Binding PrimaryNextAction.TimingText}" />
+                  <TextBlock Grid.Column="1" Foreground="#9ED7A6" FontWeight="SemiBold" Text="recommended" />
                 </Grid>
                 <TextBlock Foreground="#D7E2EA" Text="{Binding PrimaryNextAction.Reason}" TextWrapping="Wrap" />
                 <Button MinHeight="48"
@@ -653,7 +656,7 @@
               </StackPanel>
             </Border>
             <StackPanel Grid.Row="3" IsVisible="{Binding HasSecondaryNextActions}" Spacing="8" Margin="0,0,0,12">
-              <TextBlock Foreground="#9EB5C5" Text="Secondary option" />
+              <TextBlock Foreground="#9EB5C5" Text="Other useful choices" />
               <ListBox ItemsSource="{Binding SecondaryNextActionCards}"
                        SelectedItem="{Binding SelectedSecondaryNextAction}"
                        Background="Transparent"

@@ -154,7 +154,8 @@ public sealed class OpeningTrainerWorkspaceService
         string normalizedPlayerKey = string.IsNullOrWhiteSpace(playerKey) ? "theory" : playerKey.Trim().ToLowerInvariant();
         string displayName = string.IsNullOrWhiteSpace(playerKey) ? "Theory study" : playerKey.Trim();
         ChessGame game = new();
-        if (!game.TryLoadFen(item.RootFen, out _))
+        string startFen = ResolveLineStartFen(overview, item.RootFen);
+        if (!game.TryLoadFen(startFen, out _))
         {
             game.Reset();
         }
@@ -204,19 +205,23 @@ public sealed class OpeningTrainerWorkspaceService
                 break;
             }
 
-            string currentFen = game.GetFen();
-            IReadOnlyList<OpeningTheoryMove> theoryMoves = openingTheory?.GetTopMovesForFen(currentFen, 5) ?? [];
+            string currentFen = AlignGameToLinePosition(game, lineMove.FromPositionKey);
+            IReadOnlyList<OpeningTheoryMove> theoryMoves = openingTheory?.GetTopMovesForPositionKey(lineMove.FromPositionKey.Value, 5) ?? [];
             IReadOnlyList<OpeningTrainingMoveOption> candidateMoves = theoryMoves
-                .Select((move, index) => new OpeningTrainingMoveOption(
-                    move.MoveSan,
-                    move.MoveUci,
-                    index == 0 ? OpeningTrainingMoveRole.Expected : OpeningTrainingMoveRole.Alternative,
-                    string.Equals(move.MoveUci, lineMove.Uci, StringComparison.OrdinalIgnoreCase),
-                    index == 0 ? "Main move from local opening book." : "Playable side move from local opening book.",
-                    index == 0 ? OpeningLineRecallReferenceKind.ReferenceLine : OpeningLineRecallReferenceKind.BetterMove,
-                    OpeningTrainingMoveSourceKind.OpeningBook,
-                    move.Idea,
-                    move.ToOpeningPositionKey))
+                .Select((move, index) =>
+                {
+                    bool isLineMove = IsLineMove(move, lineMove);
+                    return new OpeningTrainingMoveOption(
+                        move.MoveSan,
+                        move.MoveUci,
+                        isLineMove ? OpeningTrainingMoveRole.Expected : OpeningTrainingMoveRole.Alternative,
+                        isLineMove,
+                        isLineMove ? "Main repertoire move from local opening book." : "Playable side move from local opening book.",
+                        isLineMove ? OpeningLineRecallReferenceKind.ReferenceLine : OpeningLineRecallReferenceKind.BetterMove,
+                        OpeningTrainingMoveSourceKind.OpeningBook,
+                        move.Idea,
+                        move.ToOpeningPositionKey);
+                })
                 .ToList();
 
             if (ShouldPromptForSide(lineMove.Side, studySide))
@@ -704,6 +709,48 @@ public sealed class OpeningTrainerWorkspaceService
 
     private static bool ShouldPromptForSide(PlayerSide sideToMove, PlayerSide? studySide)
         => studySide is null || sideToMove == studySide.Value;
+
+    private string ResolveLineStartFen(OpeningTrainerOverview overview, string fallbackFen)
+    {
+        OpeningPositionKey? firstPositionKey = overview.MainLine.FirstOrDefault()?.FromPositionKey;
+        if (firstPositionKey is not null
+            && openingTheory?.TryGetPositionByKey(firstPositionKey.Value.Value, out OpeningTheoryPosition? position) == true
+            && position is not null)
+        {
+            return position.Fen;
+        }
+
+        return fallbackFen;
+    }
+
+    private string AlignGameToLinePosition(ChessGame game, OpeningPositionKey positionKey)
+    {
+        string currentFen = game.GetFen();
+        if (OpeningPositionKeyBuilder.BuildKey(currentFen).Equals(positionKey))
+        {
+            return currentFen;
+        }
+
+        if (openingTheory?.TryGetPositionByKey(positionKey.Value, out OpeningTheoryPosition? position) == true
+            && position is not null
+            && game.TryLoadFen(position.Fen, out _))
+        {
+            return position.Fen;
+        }
+
+        return currentFen;
+    }
+
+    private static bool IsLineMove(OpeningTheoryMove move, OpeningLineMove lineMove)
+        => (!string.IsNullOrWhiteSpace(move.MoveUci)
+                && !string.IsNullOrWhiteSpace(lineMove.Uci)
+                && string.Equals(move.MoveUci, lineMove.Uci, StringComparison.OrdinalIgnoreCase))
+            || string.Equals(NormalizeMoveText(move.MoveSan), NormalizeMoveText(lineMove.San), StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeMoveText(string? moveText)
+        => string.IsNullOrWhiteSpace(moveText)
+            ? string.Empty
+            : moveText.Trim().TrimEnd('+', '#', '!', '?');
 
     private IReadOnlyList<OpeningTrainingPosition> BuildTargetedWeakPosition(
         OpeningTrainerOverview overview,

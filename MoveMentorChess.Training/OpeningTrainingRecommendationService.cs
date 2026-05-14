@@ -153,6 +153,7 @@ public sealed class OpeningTrainingRecommendationService
     {
         OpeningTrainingScheduledAction? dueAction = dueActions?
             .Where(action => action.LineKey.HasValue)
+            .Where(IsScheduledReminder)
             .OrderByDescending(action => action.Priority)
             .ThenBy(action => action.DueUtc)
             .FirstOrDefault(action => action.LineKey.HasValue && availableLines.Any(line => line.LineKey.Equals(action.LineKey.Value)));
@@ -179,6 +180,9 @@ public sealed class OpeningTrainingRecommendationService
             "Browse all openings",
             Math.Round(10_000d + dueAction.Priority, 2));
     }
+
+    private static bool IsScheduledReminder(OpeningTrainingScheduledAction action)
+        => action.DueUtc > action.CreatedUtc;
 
     private static Dictionary<OpeningLineKey, HashSet<string>> BuildReviewedBranchesByLine(IReadOnlyList<OpeningReviewItem> reviewItems)
     {

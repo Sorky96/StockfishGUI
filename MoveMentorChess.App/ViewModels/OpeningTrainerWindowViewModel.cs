@@ -279,6 +279,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
             {
                 LoadOverview();
                 RaiseNavigationStateChanged();
+                OnPropertyChanged(nameof(IsBoardRotated));
             }
         }
     }
@@ -491,6 +492,8 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         get => previewFen;
         private set => SetProperty(ref previewFen, value);
     }
+
+    public bool IsBoardRotated => SelectedOpening?.RepertoireSide == RepertoireSide.Black;
 
     public IReadOnlyList<BoardArrowViewModel> PreviewArrows { get; private set; } = [];
 
@@ -774,7 +777,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         : ResultTone switch
         {
             TrainingResultTone.Clean => "Next: stop here or return tomorrow.",
-            TrainingResultTone.Assisted => "Next: repeat after a short break.",
+            TrainingResultTone.Assisted => "Next: train another opening while this repeat waits.",
             TrainingResultTone.SingleRepair => "Next: repeat this line now.",
             TrainingResultTone.SeveralRepairs => "Next: repeat this line now.",
             TrainingResultTone.HeavyRepair => "Next: repeat a smaller repair pass.",
@@ -2031,19 +2034,31 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         switch (action.Kind)
         {
             case TrainingNextActionKind.RepeatNow:
+            case TrainingNextActionKind.PracticeMainLineOnly:
+            case TrainingNextActionKind.ReviewWithHintsAllowed:
                 RestartStudy();
                 break;
             case TrainingNextActionKind.RepeatAfterBreak:
                 ResultText = action.DelayMinutes > 0
-                    ? $"Scheduled. Review this line in about {action.DelayMinutes} min."
+                    ? $"Scheduled. Review this line in about {action.DelayMinutes} min. Starting another recommended opening now."
                     : "Scheduled for a later review.";
-                RefreshTodayRecommendation();
+                StartAnotherRecommendedOpening();
                 break;
             case TrainingNextActionKind.RepairWeakBranches:
                 SetPage(OverviewPageIndex);
                 break;
             case TrainingNextActionKind.BrowseAnotherOpening:
+                if (string.Equals(action.Id, "train-another-opening", StringComparison.OrdinalIgnoreCase))
+                {
+                    StartAnotherRecommendedOpening();
+                }
+                else
+                {
+                    SetPage(SelectionPageIndex);
+                }
+                break;
             case TrainingNextActionKind.ReturnTomorrow:
+            case TrainingNextActionKind.StopForNow:
                 SetPage(SelectionPageIndex);
                 break;
         }
@@ -2055,6 +2070,50 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
             ? Math.Max(0, (int)Math.Round((firstMoveUtc.Value - studyStartedUtc.Value).TotalSeconds))
             : 0;
     }
+
+    private void StartAnotherRecommendedOpening()
+    {
+        OpeningLineCatalogItem? currentLine = SelectedOpening;
+        RefreshTodayRecommendation();
+
+        OpeningLineCatalogItem? nextLine = FindAnotherRecommendedOpening(currentLine);
+        if (nextLine is null)
+        {
+            SetPage(SelectionPageIndex);
+            return;
+        }
+
+        SelectedOpening = nextLine;
+        LoadOverview();
+        StartGuidedStudy(null, "next_recommended_opening", nextLine.LineKey.Value);
+    }
+
+    private OpeningLineCatalogItem? FindAnotherRecommendedOpening(OpeningLineCatalogItem? currentLine)
+    {
+        IEnumerable<string> recommendedEco = (PlayerOpeningPlan?.Today ?? [])
+            .Concat(PlayerOpeningPlan?.ThisWeek ?? [])
+            .Concat(PlayerOpeningPlan?.LongTermGaps ?? [])
+            .Select(item => item.Eco)
+            .Where(eco => !string.IsNullOrWhiteSpace(eco))
+            .Cast<string>();
+
+        foreach (string eco in recommendedEco)
+        {
+            OpeningLineCatalogItem? match = OpeningItems.FirstOrDefault(item =>
+                !IsSameOpeningLine(item, currentLine)
+                && !string.Equals(item.Eco, currentLine?.Eco, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(item.Eco, eco, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return OpeningItems.FirstOrDefault(item => !IsSameOpeningLine(item, currentLine));
+    }
+
+    private static bool IsSameOpeningLine(OpeningLineCatalogItem? left, OpeningLineCatalogItem? right)
+        => left is not null && right is not null && left.LineKey.Equals(right.LineKey);
 
     private void TrackAbandonmentIfLeavingStudy(int nextPageIndex)
     {
@@ -2706,10 +2765,15 @@ public sealed record TrainingNextActionCardViewModel(
 
         string buttonText = action.Kind switch
         {
-            TrainingNextActionKind.RepeatAfterBreak when action.DelayMinutes > 0 => $"Repeat after {action.DelayMinutes} min",
+            TrainingNextActionKind.RepeatAfterBreak when action.DelayMinutes > 0 && isPrimary => "Train another opening",
+            TrainingNextActionKind.RepeatAfterBreak when action.DelayMinutes > 0 => "Schedule repeat",
             TrainingNextActionKind.RepeatNow => "Repeat now",
             TrainingNextActionKind.ReturnTomorrow => "Back to selection",
             TrainingNextActionKind.RepairWeakBranches => "Open priorities",
+            TrainingNextActionKind.PracticeMainLineOnly => "Practice main line only",
+            TrainingNextActionKind.ReviewWithHintsAllowed => "Review with hints",
+            TrainingNextActionKind.StopForNow => "Stop for now",
+            TrainingNextActionKind.BrowseAnotherOpening when string.Equals(action.Id, "train-another-opening", StringComparison.OrdinalIgnoreCase) => "Train another opening",
             TrainingNextActionKind.BrowseAnotherOpening => "Browse openings",
             _ => action.CommandLabel
         };

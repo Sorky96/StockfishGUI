@@ -15,5 +15,8 @@ public enum TrainingNextActionKind
     RepeatAfterBreak,
     ReturnTomorrow,
     RepairWeakBranches,
-    BrowseAnotherOpening
+    BrowseAnotherOpening,
+    PracticeMainLineOnly,
+    ReviewWithHintsAllowed,
+    StopForNow
 }
