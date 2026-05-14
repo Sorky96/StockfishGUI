@@ -24,6 +24,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     private TrainingNextAction? selectedNextAction;
     private TrainingNextActionCardViewModel? selectedSecondaryNextAction;
     private OpeningTrainingAnswerOption? selectedAnswerOption;
+    private OpeningTrainingIntensityChoice? selectedIntensityChoice;
     private TrainingSessionOutcomeSummary? outcomeSummary;
     private TrainingResultLearningPlan? learningPlan;
     private PlayerOpeningPlan? playerOpeningPlan;
@@ -106,7 +107,9 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
             () => SelectedSecondaryNextAction is not null);
 
         selectedProfileChoice = AvailableProfileChoices.First(choice => choice.Id == "both");
+        selectedIntensityChoice = AvailableIntensityChoices.First(choice => choice.Id == "balanced");
         selectedSide = selectedProfileChoice.Side;
+        selectedStrictness = selectedIntensityChoice.Strictness;
         RefreshOpenings();
         workspaceService.TrackTelemetry(
             OpeningTrainingTelemetryEvents.OpeningTrainerOpened,
@@ -152,6 +155,13 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         new("white", "Play White", "Build today's training from your White repertoire.", RepertoireSide.White, "opening-coach:white"),
         new("black", "Play Black", "Build today's training from your Black repertoire.", RepertoireSide.Black, "opening-coach:black"),
         new("both", "Both Sides", "Use the full repertoire when choosing today's training.", RepertoireSide.Both, "opening-coach:both")
+    ];
+
+    public IReadOnlyList<OpeningTrainingIntensityChoice> AvailableIntensityChoices { get; } =
+    [
+        new("safe", "Safe Review", "Only due known positions.", OpeningTrainingStrictness.StrictRepertoire),
+        new("balanced", "Balanced", "Due positions plus weak branches.", OpeningTrainingStrictness.BookFlexible),
+        new("challenge", "Challenge", "Adds less familiar opponent replies.", OpeningTrainingStrictness.Exploration)
     ];
 
     public IReadOnlyList<RepertoireSide> AvailableSides { get; } = Enum.GetValues<RepertoireSide>();
@@ -276,7 +286,13 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     public TrainingRecommendationCard? TodayRecommendation
     {
         get => todayRecommendation;
-        private set => SetProperty(ref todayRecommendation, value);
+        private set
+        {
+            if (SetProperty(ref todayRecommendation, value))
+            {
+                RaiseTodayRecommendationStateChanged();
+            }
+        }
     }
 
     public bool HasTodayRecommendation => TodayRecommendation is not null;
@@ -314,6 +330,47 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
 
     public string TodayLessonReason => TodayRecommendation?.Reason ?? "Import or choose an opening to start today's training.";
 
+    public string TodayDecisionSummary => TodayRecommendation is null
+        ? "Recommended today: import or choose an opening before starting."
+        : $"Today: {GetRecommendedPositionCount()} review positions covering {GetReviewMoveCount()} moves, approx. {GetEstimatedDurationText()}, {FormatRepertoireSide(TodayRecommendation.OpeningLine.RepertoireSide)} repertoire.";
+
+    public string TodayStartSequenceText => SelectedIntensityChoice?.Id switch
+    {
+        "safe" => "Starts with due known positions. Weak-branch repairs stay optional.",
+        "challenge" => "Starts with due positions, then adds less familiar opponent replies.",
+        _ => "Starts with due positions, then repairs weak branches."
+    };
+
+    public string TodayLessonReasonDetail
+    {
+        get
+        {
+            if (TodayRecommendation is null)
+            {
+                return "Once theory is available, the trainer will explain why this line is the next safest use of your time.";
+            }
+
+            int weakBranches = overview?.Coverage.WeakBranches ?? TodayRecommendation.OpeningLine.BookBranchCount;
+            string reason = TodayRecommendation.Reason.Trim();
+            if (TodayRecommendation.ReasonCode == TrainingRecommendationReasonCode.RevisitDue && TodayRecommendation.Priority >= 10_000)
+            {
+                reason = "This review is due because scheduled items have aged past their review window.";
+            }
+
+            string modeContext = SelectedIntensityChoice?.Id switch
+            {
+                "safe" => "Safe Review keeps weak-branch repair optional.",
+                "challenge" => "Challenge mode adds less familiar opponent replies after the main line.",
+                _ => "Balanced mode adds weak-branch repair after the main line."
+            };
+            string goal = weakBranches > 0
+                ? $"Goal: confirm the main setup and repair {weakBranches} weak branch{PluralSuffix(weakBranches)}."
+                : "Goal: confirm the main setup and keep recall stable.";
+
+            return $"{reason} {modeContext} {goal}";
+        }
+    }
+
     public string TodayTrainingReasonLabel => HasTodayLesson
         ? "Recommended because..."
         : "Ready when you are";
@@ -321,6 +378,26 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     public string TodayLessonButtonText => HasTodayLesson ? "Start Training" : "Import openings first";
 
     public bool HasTodayLesson => TodayRecommendation is not null;
+
+    public OpeningTrainingIntensityChoice? SelectedIntensityChoice
+    {
+        get => selectedIntensityChoice;
+        set
+        {
+            if (SetProperty(ref selectedIntensityChoice, value))
+            {
+                SelectedStrictness = value?.Strictness ?? OpeningTrainingStrictness.BookFlexible;
+                OnPropertyChanged(nameof(SelectedIntensitySummary));
+                OnPropertyChanged(nameof(TodayDecisionSummary));
+                OnPropertyChanged(nameof(TodayStartSequenceText));
+                OnPropertyChanged(nameof(TodayLessonReasonDetail));
+                OnPropertyChanged(nameof(PracticeFocusText));
+            }
+        }
+    }
+
+    public string SelectedIntensitySummary => SelectedIntensityChoice?.Description
+        ?? "Choose how cautious today's practice should feel.";
 
     public bool IsAdvancedOptionsExpanded
     {
@@ -354,6 +431,14 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         : PlayerOpeningPlan.Progress.SessionCount == 0
             ? "Start a session to build repertoire progress."
             : $"{PlayerOpeningPlan.Progress.AttemptCount} moves practiced, {PlayerOpeningPlan.Progress.AccuracyPercent:0.#}% accepted.";
+
+    public string PlayerOpeningProgressInterpretation => PlayerOpeningPlan is null
+        ? "Progress history will turn into a short coaching note after your first completed session."
+        : PlayerOpeningPlan.Progress.SessionCount == 0
+            ? "You are starting fresh, so today's session focuses on building the first reliable recall path."
+            : PlayerOpeningPlan.Progress.AccuracyPercent >= 80
+                ? "Your accuracy is stable. Today's session focuses on retention, not new material."
+                : "Recent practice still has some friction. Today's session keeps the scope controlled and repairs weak spots first.";
 
     public SpecialTrainingModeDefinition? SelectedSpecialMode
     {
@@ -398,7 +483,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         {
             TrainingPriorityAction.RepairThisPosition => "Repair This Position",
             TrainingPriorityAction.ReviewOpponentReply => "Review This Reply",
-            _ => "Train This Branch"
+            _ => "Train Selected Branch"
         };
 
     public string PreviewFen
@@ -454,7 +539,13 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     public string CurrentHintLevel
     {
         get => currentHintLevel;
-        private set => SetProperty(ref currentHintLevel, value);
+        private set
+        {
+            if (SetProperty(ref currentHintLevel, value))
+            {
+                OnPropertyChanged(nameof(StudyBoardStatusText));
+            }
+        }
     }
 
     public string MoveInput
@@ -486,7 +577,13 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     public string ResultText
     {
         get => resultText;
-        private set => SetProperty(ref resultText, value);
+        private set
+        {
+            if (SetProperty(ref resultText, value))
+            {
+                OnPropertyChanged(nameof(StudyFeedbackSummaryText));
+            }
+        }
     }
 
     public string StudyFeedbackText
@@ -555,14 +652,14 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     }
 
     public string StudyReferenceButtonText => IsStudyReferenceVisible
-        ? "Line Shown"
-        : "Show Line";
+        ? "Line shown"
+        : "Reveal line";
 
     public bool IsStudyReferenceHidden => !IsStudyReferenceVisible;
 
     public string StudyReferencePromptText => CanRevealStudyReference
-        ? "References are hidden so you can recall first. Reveal them only when you want to check the line."
-        : "References unlock after you start this practice step.";
+        ? "The line is available because you chose I Don't Know. Reveal it when you are ready to compare."
+        : "Line reference unlocks after I Don't Know, so recall and hints come first.";
 
     public string DontKnowButtonText => "I Don't Know";
 
@@ -585,6 +682,11 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
                 OnPropertyChanged(nameof(LearningPlanRepeatText));
                 OnPropertyChanged(nameof(LearningPlanNextReviewText));
                 OnPropertyChanged(nameof(LearningPlanReasonText));
+                OnPropertyChanged(nameof(ResultsCompletedMetricText));
+                OnPropertyChanged(nameof(ResultsClearMetricText));
+                OnPropertyChanged(nameof(ResultsAlternativesMetricText));
+                OnPropertyChanged(nameof(ResultsHintsMetricText));
+                OnPropertyChanged(nameof(ResultsRevisitMetricText));
                 OnPropertyChanged(nameof(ResultsNextActionReasonText));
                 OnPropertyChanged(nameof(HasLearningPlanReviewItems));
                 OnPropertyChanged(nameof(LearningPlanReviewPlaceholder));
@@ -601,15 +703,21 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
 
     public string LearningPlanReasonText => LearningPlan?.ReasonText ?? "Reason: the trainer will use your moves, hints, and misses.";
 
-    public string ResultsMasteredLabel => "Mastered";
+    public string ResultsMasteredLabel => "Completed";
 
-    public string ResultsNeedsReviewLabel => "Needs Review";
+    public string ResultsNeedsReviewLabel => "To Revisit";
 
     public string ResultsBiggestWeaknessText => wrongAttempts > 0
-        ? $"{wrongAttempts} position(s) still need a calmer repeat."
-        : hintUseCount > 0
-            ? "Hints helped this time; repeat once to make recall automatic."
-            : "No major weakness found in this run.";
+        ? ResultTone switch
+        {
+            TrainingResultTone.SingleRepair => "1 position is worth a calmer repeat.",
+            TrainingResultTone.SeveralRepairs => $"{wrongAttempts} positions are worth a calmer repeat.",
+            TrainingResultTone.HeavyRepair => $"{wrongAttempts} positions need a shorter repair pass.",
+            _ => FormatPositionCount(wrongAttempts, "is worth", "are worth") + " a calmer repeat."
+        }
+        : ResultTone == TrainingResultTone.Assisted
+            ? "Recall is close. Repeat once after a short break to make it automatic."
+            : "No urgent repair point from this run.";
 
     public string ResultsNextBestActionText => SelectedNextAction?.Title ?? "Finish practice to unlock the next best action.";
 
@@ -621,22 +729,16 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     {
         get
         {
-            if (guidedSession is null)
+            return ResultTone switch
             {
-                return "Review ready";
-            }
-
-            if (completedSteps >= guidedSession.Positions.Count && wrongAttempts == 0 && hintUseCount == 0)
-            {
-                return "Great run";
-            }
-
-            if (wrongAttempts == 0)
-            {
-                return "Strong progress";
-            }
-
-            return "Good practice target found";
+                TrainingResultTone.NotStarted => "Review ready",
+                TrainingResultTone.Clean => "Great run. This line is stable.",
+                TrainingResultTone.Assisted => "Good session. The line is almost automatic.",
+                TrainingResultTone.SingleRepair => "Good session. One move needs a calmer repeat.",
+                TrainingResultTone.SeveralRepairs => $"Good session. {wrongAttempts} moves need a calmer repeat.",
+                TrainingResultTone.HeavyRepair => "Useful diagnostic session. Slow this line down.",
+                _ => "Review ready"
+            };
         }
     }
 
@@ -644,33 +746,86 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     {
         get
         {
-            if (guidedSession is null)
+            return ResultTone switch
             {
-                return "Finish practice to see what improved and what comes next.";
-            }
-
-            if (wrongAttempts == 0)
-            {
-                return $"You completed all {completedSteps} positions. Review once more after spacing to make this line automatic.";
-            }
-
-            return $"You found {wrongAttempts} position(s) worth repairing. Repeat the line while the idea is fresh.";
+                TrainingResultTone.NotStarted => "Finish practice to see what improved and what comes next.",
+                TrainingResultTone.Clean => $"You completed all {completedSteps} positions without misses or hints. Let spacing do its work.",
+                TrainingResultTone.Assisted => $"You completed all {completedSteps} positions. Hints or alternatives helped, so a short-break repeat will make recall cleaner.",
+                TrainingResultTone.SingleRepair => "You can stop here, but one quick repeat will lock in the weak move while it is fresh.",
+                TrainingResultTone.SeveralRepairs => "You can stop here, but one quick repeat will lock in the weak moves while they are fresh.",
+                TrainingResultTone.HeavyRepair => "This was useful signal, not failure. Repeat fewer positions and focus on the first repair target.",
+                _ => "Finish practice to see what improved and what comes next."
+            };
         }
     }
 
-    public string ResultOutcomeBadge => wrongAttempts == 0
-        ? hintUseCount == 0 ? "Stable line" : "Almost automatic"
-        : "Review target";
+    public string ResultOutcomeBadge => ResultTone switch
+    {
+        TrainingResultTone.Clean => "Stable line",
+        TrainingResultTone.Assisted => "Almost automatic",
+        TrainingResultTone.SingleRepair => "1 repair target",
+        TrainingResultTone.SeveralRepairs => $"{wrongAttempts} repair targets",
+        TrainingResultTone.HeavyRepair => "Focused repair",
+        _ => "Review ready"
+    };
 
     public string ResultNextStepSummary => PrimaryNextAction is null
         ? "Next: finish practice to unlock a recommendation."
-        : $"Next: {PrimaryNextAction.ButtonText.ToLowerInvariant()}";
+        : ResultTone switch
+        {
+            TrainingResultTone.Clean => "Next: stop here or return tomorrow.",
+            TrainingResultTone.Assisted => "Next: repeat after a short break.",
+            TrainingResultTone.SingleRepair => "Next: repeat this line now.",
+            TrainingResultTone.SeveralRepairs => "Next: repeat this line now.",
+            TrainingResultTone.HeavyRepair => "Next: repeat a smaller repair pass.",
+            _ => $"Next: {PrimaryNextAction.ButtonText.ToLowerInvariant()}"
+        };
 
     public bool HasLearningPlanReviewItems => LearningPlanReviewItems.Count > 0;
 
     public string LearningPlanReviewPlaceholder => HasLearningPlanReviewItems
         ? string.Empty
         : "No urgent review positions from this run.";
+
+    public string ResultsCompletedMetricText => guidedSession is null
+        ? "0/0"
+        : $"{completedSteps}/{guidedSession.Positions.Count}";
+
+    public string ResultsClearMetricText => correctAnswers.ToString();
+
+    public string ResultsAlternativesMetricText => playableAnswers.ToString();
+
+    public string ResultsHintsMetricText => hintUseCount.ToString();
+
+    public string ResultsRevisitMetricText => wrongAttempts.ToString();
+
+    private TrainingResultTone ResultTone
+    {
+        get
+        {
+            if (guidedSession is null)
+            {
+                return TrainingResultTone.NotStarted;
+            }
+
+            if (wrongAttempts == 0)
+            {
+                return hintUseCount == 0 && playableAnswers == 0
+                    ? TrainingResultTone.Clean
+                    : TrainingResultTone.Assisted;
+            }
+
+            double wrongRatio = completedSteps == 0 ? 0d : (double)wrongAttempts / completedSteps;
+            if (wrongAttempts >= 3 || wrongRatio >= 0.35)
+            {
+                return TrainingResultTone.HeavyRepair;
+            }
+
+            return wrongAttempts == 1
+                ? TrainingResultTone.SingleRepair
+                : TrainingResultTone.SeveralRepairs;
+        }
+    }
 
     public TrainingNextAction? SelectedNextAction
     {
@@ -728,14 +883,42 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     public string StudyBoardHint => CurrentPosition is null
         ? "Start practice to use the board."
         : studySelectedSquare is null
-            ? "Click one of your pieces on the board, then click the target square to submit the move."
+            ? "Select a piece, then choose a highlighted square."
             : $"Selected {studySelectedSquare}. Click a highlighted target square to play the move.";
 
     public string StudyInputModeText => CurrentPosition is null
         ? "Board input is idle."
         : CurrentPosition.AnswerKind == OpeningTrainingAnswerKind.Move
-            ? "Make the move on the board. The trainer accepts the main book move and, depending on strictness, good theory alternatives."
+            ? "Accepted: main repertoire move and sound theory alternatives."
             : "Choose the answer option that best explains the position.";
+
+    public string StudyTaskTitle => CurrentPosition is null
+        ? "Find the repertoire move"
+        : CurrentPosition.AnswerKind == OpeningTrainingAnswerKind.Move
+            ? $"Find {CurrentPosition.SideToMove}'s repertoire move"
+            : "Choose the best plan";
+
+    public string StudyTaskSubtitle => guidedSession is null
+        ? "Position 0 of 0"
+        : $"Position {Math.Min(currentStepIndex + 1, guidedSession.Positions.Count)} of {guidedSession.Positions.Count} - {SelectedOpeningName}";
+
+    public string StudyBoardStatusText => CurrentPosition is null
+        ? "No position loaded"
+        : AppendCurrentPositionPracticeStatus($"{CurrentPosition.SideToMove} to move - {StudyProgressText} - {CurrentHintLevel}");
+
+    public string StudySideToMoveText => CurrentPosition is null
+        ? "No position loaded"
+        : $"{CurrentPosition.SideToMove} to move";
+
+    public string StudyMovePromptText => CurrentPosition is null
+        ? "Start practice to see the move prompt."
+        : CurrentPosition.AnswerKind == OpeningTrainingAnswerKind.Move
+            ? $"{CurrentPosition.SideToMove} to move. Find the prepared move from your repertoire."
+            : "Choose the answer that matches the plan for this position.";
+
+    public string StudyFeedbackSummaryText => string.IsNullOrWhiteSpace(ResultText)
+        ? "No move submitted yet."
+        : ResultText;
 
     public string CurrentPositionGoalText => CurrentPosition is null
         ? "Start practice to see the current goal."
@@ -754,13 +937,36 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
 
     public string CurrentAttemptHistoryText => currentSessionAttempts.Count == 0
         ? "No moves submitted yet in this run."
-        : $"This run: {currentSessionAttempts.Count} submitted, {correctAnswers} clear, {playableAnswers} accepted alternative(s), {wrongAttempts} need review.";
+        : $"This run: {currentSessionAttempts.Count} submitted, {correctAnswers} clear, {playableAnswers} accepted alternative(s), {wrongAttempts} to revisit.";
 
     public string SessionCorrectCountText => $"{correctAnswers} clear";
 
     public string SessionAcceptedAlternativesText => $"{playableAnswers} accepted alternative(s)";
 
-    public string SessionNeedsReviewText => $"{wrongAttempts} need review";
+    public string SessionNeedsReviewText => $"{wrongAttempts} to revisit";
+
+    private string AppendCurrentPositionPracticeStatus(string status)
+    {
+        string? positionId = CurrentPosition?.PositionId;
+        if (string.IsNullOrWhiteSpace(positionId))
+        {
+            return status;
+        }
+
+        int attempts = currentSessionAttempts.Count(attempt =>
+            string.Equals(attempt.PositionId, positionId, StringComparison.Ordinal));
+        if (attempts == 0)
+        {
+            return status;
+        }
+
+        bool needsPractice = currentSessionAttempts.Any(attempt =>
+            string.Equals(attempt.PositionId, positionId, StringComparison.Ordinal)
+            && attempt.Score == OpeningTrainingScore.Wrong);
+        string tryText = attempts == 1 ? "1 try" : $"{attempts} tries";
+        string practiceText = needsPractice ? "to revisit" : "on track";
+        return $"{status} - {tryText} - {practiceText}";
+    }
 
     public string StageTitle => currentPageIndex switch
     {
@@ -780,7 +986,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         _ => string.Empty
     };
 
-    public string StageProgressLabel => $"Step {currentPageIndex + 1} of {TotalPages}";
+    public string StageProgressLabel => $"Stage {currentPageIndex + 1} of {TotalPages} - {StageTitle}";
 
     public double StageProgressPercent => (currentPageIndex + 1d) / TotalPages * 100d;
 
@@ -800,6 +1006,97 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         ? "Choose an item from the list"
         : $"{SelectedOpening.RepertoireSide} repertoire";
 
+    public string OpeningContextStartsFrom => overview is null || overview.MainLine.Count == 0
+        ? "Starts from: choose an opening to see the first moves."
+        : $"Starts from: {FormatMainLine(overview.MainLine, 4)}";
+
+    public string OpeningContextPlan
+    {
+        get
+        {
+            if (overview is null)
+            {
+                return "Plan: load an opening to see the strategic map before practice.";
+            }
+
+            string? idea = overview.WhyTheseMovesMatter
+                .Select(moveIdea => moveIdea.ShortExplanation)
+                .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text));
+            idea ??= overview.MainLine
+                .Select(move => move.Idea?.ShortExplanation)
+                .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text));
+
+            return string.IsNullOrWhiteSpace(idea)
+                ? "Plan: build the center, finish development, and avoid early tactical overreach."
+                : $"Plan: {idea}";
+        }
+    }
+
+    public string CoverageHumanText
+    {
+        get
+        {
+            if (overview is null)
+            {
+                return "Choose an opening to see what is ready and what needs another pass.";
+            }
+
+            int needsReview = overview.Coverage.WeakBranches;
+            if (PlayerOpeningPlan?.Progress.SessionCount > 0)
+            {
+                return needsReview == 0
+                    ? "You have practice history in this repertoire. This opening is in good shape for today."
+                    : $"You have practice history in this repertoire. {needsReview} position{PluralSuffix(needsReview)} are worth revisiting today.";
+            }
+
+            if (overview.Coverage.CoveragePercent <= 0.1)
+            {
+                return $"You are starting fresh in this opening. {needsReview} position{PluralSuffix(needsReview)} are ready for practice today.";
+            }
+
+            return needsReview == 0
+                ? "This opening is in good shape. Today can stay light and retention-focused."
+                : $"{needsReview} position{PluralSuffix(needsReview)} are worth revisiting before adding new material.";
+        }
+    }
+
+    public string CoverageMetricText => overview is null
+        ? "No coverage metrics loaded yet."
+        : $"Today's practice set: {overview.Coverage.CoveredBranches}/{overview.Coverage.TotalBookBranches} practiced | To revisit {overview.Coverage.WeakBranches}";
+
+    public string PracticeFocusText => overview is null
+        ? "Practice focus appears after an opening loads."
+        : SelectedIntensityChoice?.Id switch
+        {
+            "safe" => "Focus: main line review only. Weak branches are listed below as optional repairs.",
+            "challenge" => $"Focus: main line from {FormatMainLine(overview.MainLine, 4)}, plus less familiar opponent replies.",
+            _ => overview.Coverage.WeakBranches > 0
+                ? $"Focus: {overview.Coverage.WeakBranches} review position{PluralSuffix(overview.Coverage.WeakBranches)} from {FormatMainLine(overview.MainLine, 4)}, covering {GetReviewMoveCount()} moves, with weak branches repaired after the main line."
+                : $"Focus: main line from {FormatMainLine(overview.MainLine, 4)}, plus the most useful opponent replies."
+        };
+
+    public string MainLineText => overview is null || overview.MainLine.Count == 0
+        ? "No main line loaded yet."
+        : FormatMainLine(overview.MainLine, Math.Min(12, overview.MainLine.Count));
+
+    public string RememberThisText
+    {
+        get
+        {
+            if (overview is null || overview.MainLine.Count == 0)
+            {
+                return "Remember: load an opening to see the plan before practicing the moves.";
+            }
+
+            string line = FormatMainLine(overview.MainLine, Math.Min(6, overview.MainLine.Count));
+            string idea = overview.WhyTheseMovesMatter
+                .Select(moveIdea => moveIdea.ShortExplanation)
+                .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text))
+                ?? OpeningContextPlan.Replace("Plan: ", string.Empty, StringComparison.OrdinalIgnoreCase);
+            return $"Remember: {idea} Start from {line}, then follow the plan instead of memorizing isolated moves.";
+        }
+    }
+
     public string WeakPositionsPlaceholder => WeakPositionItems.Count == 0
         ? "No weak positions are saved for this opening yet."
         : string.Empty;
@@ -816,10 +1113,10 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
 
     public string ResultsSummaryText => guidedSession is null
         ? "No session data yet."
-        : $"{completedSteps}/{guidedSession.Positions.Count} positions, {correctAnswers} clear, {playableAnswers} accepted alternative(s), {wrongAttempts} need review, {hintUseCount} hint(s) used.";
+        : $"{completedSteps}/{guidedSession.Positions.Count} positions, {correctAnswers} clear, {playableAnswers} accepted alternative(s), {wrongAttempts} to revisit, {hintUseCount} hint(s) used.";
 
     public string TranspositionSummaryText => transposedAnswers == 0
-        ? "No transpositions were used in the last run."
+        ? "No transposition shortcuts appeared in this run."
         : $"Transposed to known positions {transposedAnswers} time(s).";
 
     private OpeningTrainingPosition? CurrentPosition => guidedSession is not null && currentStepIndex >= 0 && currentStepIndex < guidedSession.Positions.Count
@@ -852,6 +1149,8 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
             OpponentSummary = "Opponent replies are unavailable.";
             CoverageText = "No practice history yet.";
             CoverageExplanation = "Try another filter or repertoire side.";
+            OnPropertyChanged(nameof(MainLineText));
+            OnPropertyChanged(nameof(RememberThisText));
             OnPropertyChanged(nameof(WeakPositionsPlaceholder));
             OnPropertyChanged(nameof(ShowWeakPositionsPlaceholder));
             RaisePriorityStateChanged();
@@ -900,7 +1199,11 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(PlayerOpeningPlanTitle));
         OnPropertyChanged(nameof(PlayerOpeningPlanSummary));
         OnPropertyChanged(nameof(PlayerOpeningProgressText));
-        OnPropertyChanged(nameof(SelectedSpecialModeDescription));
+        OnPropertyChanged(nameof(PlayerOpeningProgressInterpretation));
+            OnPropertyChanged(nameof(CoverageHumanText));
+            OnPropertyChanged(nameof(MainLineText));
+            OnPropertyChanged(nameof(RememberThisText));
+            OnPropertyChanged(nameof(SelectedSpecialModeDescription));
         OnPropertyChanged(nameof(SelectedSpecialModeButtonText));
         StartRecommendedStudyCommand.RaiseCanExecuteChanged();
         StartSpecialModeCommand.RaiseCanExecuteChanged();
@@ -979,6 +1282,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
             OpponentSummary = "Opponent replies are unavailable.";
             CoverageText = "No practice history yet.";
             CoverageExplanation = "The selected opening does not have enough local theory data yet.";
+            RaiseSelectionCoachingTextChanged();
             OnPropertyChanged(nameof(WeakPositionsPlaceholder));
             OnPropertyChanged(nameof(ShowWeakPositionsPlaceholder));
             RaisePriorityStateChanged();
@@ -991,20 +1295,22 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(PreviewArrows));
         SummaryText = $"{SelectedOpening.DisplayName}{Environment.NewLine}Main line moves: {overview.MainLine.Count}";
         OpponentSummary = overview.OpponentReplyProfile.Summary;
-        CoverageText = $"Ready: {overview.Coverage.CoveragePercent:0.#}% | Practiced {overview.Coverage.CoveredBranches}/{overview.Coverage.TotalBookBranches} | Needs review {overview.Coverage.WeakBranches}";
+        CoverageText = $"Your saved progress: {overview.Coverage.CoveredBranches}/{overview.Coverage.TotalBookBranches}";
         CoverageExplanation = overview.Coverage.CoveragePercent <= 0.1
             ? "You do not have saved review progress for this opening yet, so coverage starts at zero."
             : $"Stable branches: {overview.Coverage.StableBranches}. Unseen common branches: {overview.Coverage.UnseenCommonBranches}.";
-        ReplaceItems(MainLineItems, overview.MainLine.Select(move =>
-            $"{move.MoveNumber}. {move.San} {(string.IsNullOrWhiteSpace(move.Idea?.ShortExplanation) ? string.Empty : $"| {move.Idea!.ShortExplanation}")}").ToList());
+        ReplaceItems(MainLineItems, overview.MainLine.Select(FormatMoveLabel).ToList());
         ReplaceItems(BranchItems, overview.CommonBranches.Select(branch =>
-            $"{branch.OpponentMove} | freq {branch.Frequency} | {branch.SourceSummary}").ToList());
+            $"{branch.OpponentMove} - {FormatBranchFrequencyLabel(branch, overview.CommonBranches)}").ToList());
         ReplaceItems(PriorityItems, overview.Priorities);
         ReplaceItems(UnderstandingCards, workspaceService.BuildUnderstandingCards(overview, SelectedOpening));
         SelectedPriority = PriorityItems.FirstOrDefault();
         ReplaceItems(WeakPositionItems, overview.WeakPositions.Select(position =>
             $"{position.OpeningName} | {position.Instruction}").ToList());
         ResultText = string.Empty;
+        RaiseSelectionCoachingTextChanged();
+        OnPropertyChanged(nameof(MainLineText));
+        OnPropertyChanged(nameof(RememberThisText));
         OnPropertyChanged(nameof(WeakPositionsPlaceholder));
         OnPropertyChanged(nameof(ShowWeakPositionsPlaceholder));
         RaisePriorityStateChanged();
@@ -1130,10 +1436,17 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
             : SelectedAnswerOption?.Id ?? string.Empty;
         OpeningTrainingAttemptResult result = workspaceService.Evaluate(position, submittedAnswer);
         currentSessionAttempts.Add(result);
-        string statusText = result.Status == OpeningTrainingAttemptStatus.TransposedToKnownPosition
-            ? "TransposedToKnownPosition"
-            : result.Score.ToString();
-        ResultText = $"{statusText}: {result.ShortExplanation}";
+        OpeningTrainingMoveOption? mainMove = position.CandidateMoves.FirstOrDefault(option => option.IsPreferred)
+            ?? position.CandidateMoves.FirstOrDefault();
+        ResultText = result.Score switch
+        {
+            OpeningTrainingScore.Correct => "Good. This keeps your repertoire plan on track.",
+            OpeningTrainingScore.Wrong => BuildWrongMoveFeedback(position, mainMove),
+            _ when IsSubmittedMainRepertoireMove(result, mainMove) => "Good. This is the prepared repertoire move.",
+            _ => mainMove is not null
+                ? $"Accepted, but the main repertoire move is {mainMove.DisplayText}."
+                : "Accepted. This is a useful theory alternative."
+        };
         TriggerStudyFeedback(result);
         CurrentWhy = result.RecoverySuggestion
             ?? result.WhyThisMove?.ShortExplanation
@@ -1151,9 +1464,9 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         if (result.Score == OpeningTrainingScore.Wrong)
         {
             wrongAttempts++;
-            UnlockStudyReference();
             ClearStudySelection();
             RaiseResultsStateChanged();
+            RaiseStudyNavigationStateChanged();
             return;
         }
 
@@ -1195,6 +1508,71 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         return position.AnswerKind == OpeningTrainingAnswerKind.Move
             ? !string.IsNullOrWhiteSpace(MoveInput)
             : SelectedAnswerOption is not null;
+    }
+
+    private static string BuildWrongMoveFeedback(
+        OpeningTrainingPosition position,
+        OpeningTrainingMoveOption? preferred)
+    {
+        OpeningMoveIdea? idea = preferred?.Idea;
+        if (idea?.IdeaTags.Contains(OpeningMoveIdeaTag.ControlCenter) == true)
+        {
+            return "Not this time. Think about the move that supports central control.";
+        }
+
+        if (idea?.IdeaTags.Contains(OpeningMoveIdeaTag.DevelopPiece) == true)
+        {
+            return "Not this time. Think about the move that improves piece activity.";
+        }
+
+        if (idea?.IdeaTags.Contains(OpeningMoveIdeaTag.KingSafety) == true)
+        {
+            return "Not this time. Think about the move that keeps your king and pieces coordinated.";
+        }
+
+        if (idea?.IdeaTags.Contains(OpeningMoveIdeaTag.TacticalResource) == true)
+        {
+            return "Not this time. Check for a forcing resource before moving quietly.";
+        }
+
+        return position.Mode switch
+        {
+            OpeningTrainingMode.BranchAwareness => "Not this time. Think about the opponent reply this branch is testing.",
+            OpeningTrainingMode.MistakeRepair => "Not this time. Think about what the old mistake left unresolved.",
+            _ => "Not this time. Use the plan hint before trying again."
+        };
+    }
+
+    private static bool IsSubmittedMainRepertoireMove(
+        OpeningTrainingAttemptResult result,
+        OpeningTrainingMoveOption? mainMove)
+    {
+        if (mainMove is null)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(mainMove.Uci)
+            && !string.IsNullOrWhiteSpace(result.ResolvedUci)
+            && string.Equals(mainMove.Uci, result.ResolvedUci, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.ResolvedSan)
+            && string.Equals(
+                SanNotation.NormalizeSan(mainMove.DisplayText),
+                SanNotation.NormalizeSan(result.ResolvedSan),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(result.SubmittedMoveText)
+            && string.Equals(
+                SanNotation.NormalizeSan(mainMove.DisplayText),
+                SanNotation.NormalizeSan(result.SubmittedMoveText),
+                StringComparison.OrdinalIgnoreCase);
     }
 
     public void HandleStudyBoardSquarePressed(string squareName)
@@ -1499,6 +1877,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(HasSelectedOpening));
         OnPropertyChanged(nameof(SelectedOpeningName));
         OnPropertyChanged(nameof(SelectedOpeningSideText));
+        RaiseSelectionCoachingTextChanged();
     }
 
     private void RaiseStudyNavigationStateChanged()
@@ -1518,6 +1897,12 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanUseDontKnow));
         OnPropertyChanged(nameof(StudyProgressPercent));
         OnPropertyChanged(nameof(StudyProgressText));
+        OnPropertyChanged(nameof(StudyTaskTitle));
+        OnPropertyChanged(nameof(StudyTaskSubtitle));
+        OnPropertyChanged(nameof(StudyBoardStatusText));
+        OnPropertyChanged(nameof(StudySideToMoveText));
+        OnPropertyChanged(nameof(StudyMovePromptText));
+        OnPropertyChanged(nameof(StudyFeedbackSummaryText));
         OnPropertyChanged(nameof(StudySelectedSquare));
         OnPropertyChanged(nameof(StudyAvailableMoveSquares));
         OnPropertyChanged(nameof(StudyBoardHint));
@@ -1542,6 +1927,11 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(ResultCelebrationText));
         OnPropertyChanged(nameof(ResultOutcomeBadge));
         OnPropertyChanged(nameof(ResultNextStepSummary));
+        OnPropertyChanged(nameof(ResultsCompletedMetricText));
+        OnPropertyChanged(nameof(ResultsClearMetricText));
+        OnPropertyChanged(nameof(ResultsAlternativesMetricText));
+        OnPropertyChanged(nameof(ResultsHintsMetricText));
+        OnPropertyChanged(nameof(ResultsRevisitMetricText));
         OnPropertyChanged(nameof(ResultsNextBestActionText));
         OnPropertyChanged(nameof(ResultsNextActionReasonText));
         OnPropertyChanged(nameof(HasAdvancedResultDetails));
@@ -1763,7 +2153,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         OpeningTrainingAttemptResult result = BuildDontKnowAttempt(position);
         currentSessionAttempts.Add(result);
         wrongAttempts++;
-        ResultText = "Needs review: use the hint, then play the prepared move on the board.";
+        ResultText = "Marked to revisit: use the hint, then play the prepared move on the board.";
         AddResultLine(result);
         ShowNextHint(trackAsDontKnow: true);
         UnlockStudyReference();
@@ -1852,7 +2242,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     private void ResetStudyReference()
     {
         IsStudyReferenceVisible = false;
-        CanRevealStudyReference = CurrentPosition is not null;
+        CanRevealStudyReference = false;
     }
 
     private void ShowNextHint()
@@ -1871,7 +2261,6 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         {
             CurrentHintLevel = "No hint available";
             CurrentHintText = "This position does not have a coaching hint yet.";
-            UnlockStudyReference();
             RaiseStudyNavigationStateChanged();
             return;
         }
@@ -1891,7 +2280,6 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         }
 
         hintUseCount++;
-        UnlockStudyReference();
         workspaceService.TrackTelemetry(
             OpeningTrainingTelemetryEvents.GuidedHintUsed,
             PlayerKey,
@@ -1970,6 +2358,174 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(SelectedPriorityActionText));
         StartPriorityStudyCommand.RaiseCanExecuteChanged();
     }
+
+    private void RaiseTodayRecommendationStateChanged()
+    {
+        OnPropertyChanged(nameof(HasTodayRecommendation));
+        OnPropertyChanged(nameof(TodayRecommendationOpening));
+        OnPropertyChanged(nameof(TodayRecommendationMeta));
+        OnPropertyChanged(nameof(TodayRecommendationReason));
+        OnPropertyChanged(nameof(TodayRecommendationAction));
+        OnPropertyChanged(nameof(TodayLessonOpening));
+        OnPropertyChanged(nameof(TodayLessonSideText));
+        OnPropertyChanged(nameof(TodayLessonDurationText));
+        OnPropertyChanged(nameof(TodayLessonMoveCountText));
+        OnPropertyChanged(nameof(TodayLessonReason));
+        OnPropertyChanged(nameof(TodayDecisionSummary));
+        OnPropertyChanged(nameof(TodayStartSequenceText));
+        OnPropertyChanged(nameof(TodayLessonReasonDetail));
+        OnPropertyChanged(nameof(TodayTrainingReasonLabel));
+        OnPropertyChanged(nameof(TodayLessonButtonText));
+        OnPropertyChanged(nameof(HasTodayLesson));
+        StartRecommendedStudyCommand.RaiseCanExecuteChanged();
+    }
+
+    private void RaiseSelectionCoachingTextChanged()
+    {
+        OnPropertyChanged(nameof(OpeningContextStartsFrom));
+        OnPropertyChanged(nameof(OpeningContextPlan));
+        OnPropertyChanged(nameof(CoverageHumanText));
+        OnPropertyChanged(nameof(CoverageMetricText));
+        OnPropertyChanged(nameof(PracticeFocusText));
+        OnPropertyChanged(nameof(TodayLessonReasonDetail));
+        OnPropertyChanged(nameof(TodayDecisionSummary));
+        OnPropertyChanged(nameof(TodayStartSequenceText));
+    }
+
+    private int GetRecommendedPositionCount()
+    {
+        if (overview is not null && TodayRecommendation is not null && Equals(SelectedOpening, TodayRecommendation.OpeningLine))
+        {
+            return Math.Max(1, overview.Coverage.WeakBranches > 0 ? overview.Coverage.WeakBranches : overview.MainLine.Count);
+        }
+
+        return TodayRecommendation is null
+            ? 0
+            : Math.Max(1, TodayRecommendation.OpeningLine.BookBranchCount);
+    }
+
+    private int GetReviewMoveCount()
+    {
+        string? targetEco = TodayRecommendation?.OpeningLine.Eco ?? SelectedOpening?.Eco;
+        if (!string.IsNullOrWhiteSpace(targetEco))
+        {
+            PlayerOpeningPlanItem? matchingWeeklyItem = WeeklyPlanItems.FirstOrDefault(item =>
+                string.Equals(item.Eco, targetEco, StringComparison.OrdinalIgnoreCase));
+            int parsedCount = ExtractLeadingInt(matchingWeeklyItem?.Evidence);
+            if (parsedCount > 0)
+            {
+                return parsedCount;
+            }
+        }
+
+        if (overview is not null && overview.MainLine.Count > 0)
+        {
+            return overview.MainLine.Count;
+        }
+
+        return Math.Max(1, GetRecommendedPositionCount());
+    }
+
+    private static int ExtractLeadingInt(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
+        int value = 0;
+        foreach (char character in text)
+        {
+            if (!char.IsDigit(character))
+            {
+                break;
+            }
+
+            value = value * 10 + character - '0';
+        }
+
+        return value;
+    }
+
+    private string GetEstimatedDurationText()
+    {
+        if (TodayRecommendation is null)
+        {
+            return "0 min";
+        }
+
+        if (SelectedIntensityChoice?.Id == "balanced" && (overview?.Coverage.WeakBranches ?? TodayRecommendation.OpeningLine.BookBranchCount) > 0)
+        {
+            int lowerBound = Math.Max(TodayRecommendation.EstimatedDurationMinutes, 8);
+            int upperBound = Math.Max(lowerBound + 2, 10);
+            return $"{lowerBound}-{upperBound} min";
+        }
+
+        return $"{TodayRecommendation.EstimatedDurationMinutes} min";
+    }
+
+    private static string FormatRepertoireSide(RepertoireSide side)
+        => side switch
+        {
+            RepertoireSide.White => "White",
+            RepertoireSide.Black => "Black",
+            _ => "Both sides"
+        };
+
+    private static string FormatMainLine(IReadOnlyList<OpeningLineMove> moves, int maxPly)
+    {
+        string line = string.Join(" ", moves
+            .Take(maxPly)
+            .Select(move => move.Side == PlayerSide.White
+                ? $"{move.MoveNumber}.{move.San}"
+                : move.San));
+        return string.IsNullOrWhiteSpace(line) ? "the selected opening" : line;
+    }
+
+    private static string FormatMoveLabel(OpeningLineMove move)
+    {
+        string tag = move.Idea?.IdeaTags.FirstOrDefault() switch
+        {
+            OpeningMoveIdeaTag.ControlCenter => "center",
+            OpeningMoveIdeaTag.DevelopPiece => "development",
+            OpeningMoveIdeaTag.KingSafety => "king safety",
+            OpeningMoveIdeaTag.TacticalResource => "tactic",
+            _ => string.Empty
+        };
+        string suffix = string.IsNullOrWhiteSpace(tag) ? string.Empty : $"  {tag}";
+        return move.Side == PlayerSide.White
+            ? $"{move.MoveNumber}. {move.San}{suffix}"
+            : $"{move.San}{suffix}";
+    }
+
+    private static string FormatBranchFrequencyLabel(
+        OpeningTrainingBranch branch,
+        IReadOnlyList<OpeningTrainingBranch> branches)
+    {
+        if (branches.Count == 0)
+        {
+            return "reply";
+        }
+
+        int rank = branches
+            .OrderByDescending(item => item.Frequency)
+            .ThenBy(item => item.OpponentMove, StringComparer.OrdinalIgnoreCase)
+            .Select((item, index) => new { item, index })
+            .FirstOrDefault(pair => ReferenceEquals(pair.item, branch))?.index ?? 0;
+
+        return rank switch
+        {
+            0 => "most common reply",
+            1 or 2 => "common",
+            _ => "less common"
+        };
+    }
+
+    private static string PluralSuffix(int count)
+        => count == 1 ? string.Empty : "s";
+
+    private static string FormatPositionCount(int count, string singularVerb, string pluralVerb)
+        => count == 1 ? $"1 position {singularVerb}" : $"{count} positions {pluralVerb}";
 
     private static IReadOnlyList<BoardArrowViewModel> BuildArrows(OpeningTrainingPosition position)
     {
@@ -2113,6 +2669,22 @@ public sealed record OpeningTrainingProfileChoice(
     RepertoireSide Side,
     string PlayerKey);
 
+public sealed record OpeningTrainingIntensityChoice(
+    string Id,
+    string Title,
+    string Description,
+    OpeningTrainingStrictness Strictness);
+
+internal enum TrainingResultTone
+{
+    NotStarted,
+    Clean,
+    Assisted,
+    SingleRepair,
+    SeveralRepairs,
+    HeavyRepair
+}
+
 public sealed record TrainingNextActionCardViewModel(
     TrainingNextAction Action,
     string Title,
@@ -2125,6 +2697,7 @@ public sealed record TrainingNextActionCardViewModel(
     {
         string timingText = action.DelayMinutes switch
         {
+            _ when !isPrimary && action.Kind == TrainingNextActionKind.RepairWeakBranches => "Optional",
             <= 0 => "Ready now",
             < 60 => $"{action.DelayMinutes} min",
             1440 => "Tomorrow",

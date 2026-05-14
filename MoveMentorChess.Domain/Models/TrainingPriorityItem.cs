@@ -13,7 +13,14 @@ public sealed record TrainingPriorityItem(
     OpeningBranchKey? BranchKey = null,
     OpeningPositionKey? PositionKey = null,
     string? MoveSan = null,
-    string? MoveUci = null);
+    string? MoveUci = null)
+{
+    public string PriorityLabel => Score >= 10_000 || ReasonCode == TrainingPriorityReasonCode.RecentMistake
+        ? "Highest priority"
+        : Score >= 1_000 || ReasonCode == TrainingPriorityReasonCode.DangerousOpponentReply
+            ? "Common"
+            : "Low priority";
+}
 
 public enum TrainingPriorityAction
 {

@@ -66,15 +66,10 @@ public sealed class PlayerOpeningPlanService
             .OrderByDescending(action => action.Priority)
             .ThenBy(action => action.DueUtc)
             .Take(3)
-            .Select((action, index) => new PlayerOpeningPlanItem(
-                action.Kind switch
-                {
-                    TrainingNextActionKind.RepeatAfterBreak => "Due review: repeat after break",
-                    TrainingNextActionKind.ReturnTomorrow => "Due review: return to clean line",
-                    TrainingNextActionKind.RepairWeakBranches => "Due review: repair weak branches",
-                    _ => "Due opening review"
-                },
-                FormatDueDate(action.DueUtc),
+            .GroupBy(action => action.Kind)
+            .Select((group, index) => new PlayerOpeningPlanItem(
+                FormatDueActionTitle(group.Key),
+                FormatDueActionDetail(group),
                 string.Empty,
                 null,
                 TrainingPlanTopicCategory.CoreWeakness,
@@ -109,8 +104,8 @@ public sealed class PlayerOpeningPlanService
         return dueItems.Concat(
         [
             new PlayerOpeningPlanItem(
-                recommendation.OpeningLine.DisplayName,
-                $"{recommendation.Difficulty} study, about {recommendation.EstimatedDurationMinutes} minutes.",
+                "Main line review",
+                $"{recommendation.Difficulty} study, about {recommendation.EstimatedDurationMinutes} minutes",
                 evidence,
                 recommendation.OpeningLine.Eco,
                 TrainingPlanTopicCategory.CoreWeakness,
@@ -119,10 +114,22 @@ public sealed class PlayerOpeningPlanService
         ]).ToList();
     }
 
-    private static string FormatDueDate(DateTime dueUtc)
-        => dueUtc
-            .ToLocalTime()
-            .ToString("d MMM yyyy, HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+    private static string FormatDueActionTitle(TrainingNextActionKind kind)
+        => kind switch
+        {
+            TrainingNextActionKind.RepeatAfterBreak => "Main line review",
+            TrainingNextActionKind.ReturnTomorrow => "Next scheduled review",
+            TrainingNextActionKind.RepairWeakBranches => "Weak branch repair",
+            _ => "Opening line review"
+        };
+
+    private static string FormatDueActionDetail(IGrouping<TrainingNextActionKind, OpeningTrainingScheduledAction> actions)
+    {
+        DateTime earliestDueUtc = actions.Min(action => action.DueUtc);
+        string dueSince = $"due since {earliestDueUtc.ToLocalTime():HH:mm}";
+        int count = actions.Count();
+        return count == 1 ? dueSince : $"{count} due items; earliest {dueSince}";
+    }
 
     private static IReadOnlyList<PlayerOpeningPlanItem> BuildThisWeek(
         IReadOnlyList<OpeningLineCatalogItem> availableLines,
@@ -155,11 +162,16 @@ public sealed class PlayerOpeningPlanService
             .OrderByDescending(item => item.Score)
             .ThenBy(item => item.Line.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Take(3)
+            .GroupBy(item => $"{item.Line.Eco}|{item.Line.DisplayName}", StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(item => item.Wrong)
+                .ThenByDescending(item => item.Gap)
+                .First())
             .Select((item, index) => new PlayerOpeningPlanItem(
                 item.Line.DisplayName,
-                item.Wrong > 0 ? "Repair and repeat this week." : "Keep this line in weekly rotation.",
+                item.Wrong > 0 ? "Weak branch repair." : "Main line review.",
                 item.Wrong > 0
-                    ? $"{item.Wrong} move(s) need another look in this opening."
+                    ? $"{item.Wrong} moves are ready for review."
                     : $"{item.Gap} common branch gap(s) remain by current review history.",
                 item.Line.Eco,
                 index == 0 ? TrainingPlanTopicCategory.CoreWeakness : TrainingPlanTopicCategory.SecondaryWeakness,

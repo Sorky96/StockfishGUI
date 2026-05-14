@@ -9,18 +9,20 @@ public sealed class OpeningTrainingNextActionService
         List<TrainingNextAction> actions = [];
         if (summary.WrongCount > 0)
         {
+            bool heavyRepair = summary.WrongCount >= 3
+                || (summary.CompletedCount > 0 && (double)summary.WrongCount / summary.CompletedCount >= 0.35);
             actions.Add(new TrainingNextAction(
                 "repeat-now",
                 TrainingNextActionKind.RepeatNow,
-                "Repeat this line now",
-                "Wrong attempts mean the line is not stable yet. Run the same study again while the position is fresh.",
+                heavyRepair ? "Repeat a smaller repair pass" : "Repeat this line now",
+                BuildRepairRepeatReason(summary, heavyRepair),
                 "Repeat now",
                 100));
             actions.Add(new TrainingNextAction(
                 "repair-weak-branches",
                 TrainingNextActionKind.RepairWeakBranches,
-                "Repair weak branches",
-                "Go back to the overview and train from the highest priority branch or weak position.",
+                "Open priorities",
+                "Use this later if you want to inspect the broader weak-branch list.",
                 "Open priorities",
                 90));
         }
@@ -30,7 +32,7 @@ public sealed class OpeningTrainingNextActionService
                 "repeat-after-break",
                 TrainingNextActionKind.RepeatAfterBreak,
                 "Repeat after a short break",
-                "The line is close, but hints or playable alternatives show it is not automatic yet.",
+                "Good session. The line is close, but hints or playable alternatives show it is not automatic yet.",
                 "Repeat after break",
                 90,
                 10));
@@ -48,7 +50,7 @@ public sealed class OpeningTrainingNextActionService
                 "return-tomorrow",
                 TrainingNextActionKind.ReturnTomorrow,
                 "Return tomorrow",
-                "This run was clean. Let spacing do its work and revisit the line tomorrow.",
+                "Clean session. Let spacing do its work and revisit the line tomorrow.",
                 "Back to selection",
                 80,
                 1440));
@@ -65,6 +67,18 @@ public sealed class OpeningTrainingNextActionService
             .OrderByDescending(action => action.Priority)
             .ThenBy(action => action.Title, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static string BuildRepairRepeatReason(TrainingSessionOutcomeSummary summary, bool heavyRepair)
+    {
+        if (heavyRepair)
+        {
+            return "Useful diagnostic session. Repeat fewer positions and focus on the first repair target.";
+        }
+
+        return summary.WrongCount == 1
+            ? "Good session overall. One quick repeat will lock in the weak move while it is fresh."
+            : "Good session overall. A quick repeat will lock in the weak moves while they are fresh.";
     }
 
     public IReadOnlyList<OpeningTrainingScheduledAction> BuildScheduledActions(

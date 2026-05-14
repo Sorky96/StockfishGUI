@@ -237,8 +237,8 @@ public sealed class OpeningTrainerWorkspaceService
                     lineMove.Side,
                     $"Play your {lineMove.Side} repertoire move for {item.DisplayName}.",
                     specialMode is null
-                        ? $"Opponent moves are replayed automatically. Strictness: {effectiveStrictness}. Use SAN or UCI."
-                        : $"{specialMode.Title}. Opponent moves are replayed automatically. Strictness: {effectiveStrictness}. Use SAN or UCI.",
+                        ? "Opponent moves are replayed automatically. Accepted: main repertoire move and sound theory alternatives."
+                        : $"{specialMode.Title}. Opponent moves are replayed automatically. Accepted: main repertoire move and sound theory alternatives.",
                     Math.Max(1, overview.MainLine.Count - positions.Count),
                     item.RepertoireSide,
                     effectiveStrictness,

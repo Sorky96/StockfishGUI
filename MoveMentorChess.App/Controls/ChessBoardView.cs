@@ -239,8 +239,9 @@ public sealed class ChessBoardView : Control
 
     private void DrawCoordinates(DrawingContext context, int boardX, int boardY, Rect tileRect, bool lightSquare, double tileSize)
     {
-        IBrush brush = new SolidColorBrush(lightSquare ? Color.Parse("#8B4513") : Color.Parse("#F5DEB3"));
-        double fontSize = Math.Max(10, tileSize / 5.5);
+        IBrush brush = new SolidColorBrush(lightSquare ? Color.Parse("#3A160B") : Color.Parse("#FFF8D6"));
+        double fontSize = Math.Max(11, tileSize / 5.2);
+        Typeface typeface = new("Segoe UI", FontStyle.Normal, FontWeight.SemiBold);
 
         Point drawPoint = ToDrawPoint(boardX, boardY);
         if (drawPoint.X == 0)
@@ -249,7 +250,7 @@ public sealed class ChessBoardView : Control
                 (8 - boardY).ToString(),
                 System.Globalization.CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
-                new Typeface("Segoe UI"),
+                typeface,
                 fontSize,
                 brush);
             context.DrawText(rankText, new Point(tileRect.X + 3, tileRect.Y + 1));
@@ -261,7 +262,7 @@ public sealed class ChessBoardView : Control
                 ((char)('a' + boardX)).ToString(),
                 System.Globalization.CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
-                new Typeface("Segoe UI"),
+                typeface,
                 fontSize,
                 brush);
             context.DrawText(fileText, new Point(tileRect.Right - fileText.Width - 4, tileRect.Bottom - fileText.Height - 2));

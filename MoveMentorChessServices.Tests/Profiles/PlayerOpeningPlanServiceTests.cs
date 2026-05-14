@@ -24,7 +24,7 @@ public sealed class PlayerOpeningPlanServiceTests
 
         Assert.Equal("alpha", plan.PlayerKey);
         Assert.Single(plan.Today);
-        Assert.Equal(line.DisplayName, plan.Today[0].Title);
+        Assert.Equal("Main line review", plan.Today[0].Title);
         Assert.Equal(0, plan.Progress.SessionCount);
     }
 
@@ -40,7 +40,7 @@ public sealed class PlayerOpeningPlanServiceTests
 
         Assert.NotEmpty(plan.ThisWeek);
         Assert.Equal("B12", plan.ThisWeek[0].Eco);
-        Assert.Contains("need another look", plan.ThisWeek[0].Evidence, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("moves are ready for review", plan.ThisWeek[0].Evidence, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, plan.Progress.SessionCount);
     }
 
@@ -105,9 +105,45 @@ public sealed class PlayerOpeningPlanServiceTests
         PlayerOpeningPlan plan = service.BuildPlan("Alpha", null, [line], [], [], [dueAction]);
 
         Assert.NotEmpty(plan.Today);
-        Assert.Contains("Due review", plan.Today[0].Title, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Main line review", plan.Today[0].Title, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("session", plan.Today[0].Detail, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(dueAction.DueUtc.ToLocalTime().ToString("HH:mm"), plan.Today[0].Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildPlan_GroupsDuplicateDueScheduledActionsToday()
+    {
+        OpeningLineCatalogItem line = CreateLine("C20", "King's Pawn", 3, 10);
+        DateTime firstDueUtc = DateTime.UtcNow.AddMinutes(-40);
+        DateTime secondDueUtc = DateTime.UtcNow.AddMinutes(-10);
+        OpeningTrainingScheduledAction firstDueAction = new(
+            "due-action-1",
+            "alpha",
+            "session-1",
+            TrainingNextActionKind.RepeatAfterBreak,
+            line.LineKey,
+            null,
+            null,
+            firstDueUtc.AddMinutes(-10),
+            firstDueUtc,
+            OpeningTrainingScheduledActionStatus.Pending,
+            null,
+            90,
+            "repeat-after-break");
+        OpeningTrainingScheduledAction secondDueAction = firstDueAction with
+        {
+            Id = "due-action-2",
+            DueUtc = secondDueUtc,
+            CreatedUtc = secondDueUtc.AddMinutes(-10)
+        };
+        PlayerOpeningPlanService service = new();
+
+        PlayerOpeningPlan plan = service.BuildPlan("Alpha", null, [line], [], [], [firstDueAction, secondDueAction]);
+
+        PlayerOpeningPlanItem item = Assert.Single(plan.Today);
+        Assert.Equal("Main line review", item.Title);
+        Assert.Contains("2 due items", item.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(firstDueUtc.ToLocalTime().ToString("HH:mm"), item.Detail, StringComparison.Ordinal);
     }
 
     private static OpeningLineCatalogItem CreateLine(string eco, string displayName, int branchCount, int gameCount)

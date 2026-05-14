@@ -17,7 +17,7 @@ public sealed class OpeningTrainingResultPlanServiceTests
 
         TrainingResultLearningPlan plan = service.BuildPlan(summary, [], actions);
 
-        Assert.Equal("Mastered: 4/4 positions", plan.MasteredText);
+        Assert.Equal("Completed: 4/4", plan.MasteredText);
         Assert.Contains("tomorrow", plan.NextReviewText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("clean line", plan.ReasonText, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(plan.ReviewItems);
@@ -33,9 +33,12 @@ public sealed class OpeningTrainingResultPlanServiceTests
         TrainingResultLearningPlan plan = service.BuildPlan(summary, [wrong], []);
 
         TrainingResultReviewItem item = Assert.Single(plan.ReviewItems);
-        Assert.Equal("h3", item.MoveText);
-        Assert.Equal("wrong_attempt", item.ReasonText);
-        Assert.Contains("wrong attempt", plan.ReasonText, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Incorrect attempt: h3", item.MoveText);
+        Assert.Equal("wrong attempt", item.ReasonText);
+        Assert.Equal("h3", item.AttemptedMoveText);
+        Assert.Equal("not available", item.PreparedMoveText);
+        Assert.Equal("High", item.PriorityText);
+        Assert.Contains("reinforcement", plan.ReasonText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -60,8 +63,8 @@ public sealed class OpeningTrainingResultPlanServiceTests
 
         TrainingResultLearningPlan plan = service.BuildPlan(summary, [wrong, dontKnow], []);
 
-        Assert.Equal("position marked I don't know", plan.ReviewItems[0].MoveText);
-        Assert.Equal("not_known", plan.ReviewItems[0].ReasonText);
+        Assert.Equal("Incorrect attempt: I don't know", plan.ReviewItems[0].MoveText);
+        Assert.Equal("I don't know", plan.ReviewItems[0].ReasonText);
         Assert.Contains("I don't know", plan.ReasonText, StringComparison.OrdinalIgnoreCase);
     }
 

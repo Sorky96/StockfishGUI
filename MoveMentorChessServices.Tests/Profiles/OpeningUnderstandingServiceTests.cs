@@ -13,12 +13,11 @@ public sealed class OpeningUnderstandingServiceTests
 
         IReadOnlyList<OpeningUnderstandingCard> cards = service.BuildCards(overview, line);
 
-        Assert.Equal(4, cards.Count);
+        Assert.Equal(3, cards.Count);
         Assert.Equal(cards.Count, cards.Select(card => card.Kind).Distinct().Count());
         Assert.Contains(cards, card => card.Kind == OpeningUnderstandingCardKind.OpeningPlan);
         Assert.Contains(cards, card => card.Kind == OpeningUnderstandingCardKind.PieceSetup);
         Assert.Contains(cards, card => card.Kind == OpeningUnderstandingCardKind.CommonTrap);
-        Assert.Contains(cards, card => card.Kind == OpeningUnderstandingCardKind.TheoryExit);
     }
 
     [Fact]
@@ -38,18 +37,17 @@ public sealed class OpeningUnderstandingServiceTests
     }
 
     [Fact]
-    public void BuildCards_TheoryExitUsesBranchResponseWhenAvailable()
+    public void BuildCards_MainRiskUsesCommonBranchWhenAvailable()
     {
         OpeningLineCatalogItem line = CreateLine();
         OpeningTrainingBranch branch = CreateBranch("d5", "d7d5", "c4");
         OpeningTrainerOverview overview = CreateOverview(line, branches: [branch]);
         OpeningUnderstandingService service = new();
 
-        OpeningUnderstandingCard theoryExit = service.BuildCards(overview, line)
-            .Single(card => card.Kind == OpeningUnderstandingCardKind.TheoryExit);
+        OpeningUnderstandingCard risk = service.BuildCards(overview, line)
+            .Single(card => card.Kind == OpeningUnderstandingCardKind.CommonTrap);
 
-        Assert.Contains("d5", theoryExit.Body, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("c4", theoryExit.Body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("d5", risk.Body, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -62,7 +60,7 @@ public sealed class OpeningUnderstandingServiceTests
         OpeningUnderstandingCard trap = service.BuildCards(overview, line)
             .Single(card => card.Kind == OpeningUnderstandingCardKind.CommonTrap);
 
-        Assert.Contains("No specific trap", trap.Body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("No specific risk", trap.Body, StringComparison.OrdinalIgnoreCase);
     }
 
     private static OpeningTrainerOverview CreateOverview(

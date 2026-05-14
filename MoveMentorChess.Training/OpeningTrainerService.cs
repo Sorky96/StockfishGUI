@@ -231,10 +231,12 @@ public sealed class OpeningTrainerService
             matchingReferences = transposedReferences;
         }
 
-        bool matchedPreferred = matchingReferences.Any(match =>
-            preferredReferences.Any(reference => MoveOptionsMatch(reference, match)));
-        bool matchedPlayable = matchingReferences.Any(match =>
-            playableReferences.Any(reference => MoveOptionsMatch(reference, match)));
+        bool matchedPreferred = preferredReferences.Any(reference => MovesMatch(reference, resolvedMove))
+            || matchingReferences.Any(match =>
+                preferredReferences.Any(reference => MoveOptionsMatch(reference, match)));
+        bool matchedPlayable = playableReferences.Any(reference => MovesMatch(reference, resolvedMove))
+            || matchingReferences.Any(match =>
+                playableReferences.Any(reference => MoveOptionsMatch(reference, match)));
         bool transposedToKnownPosition = transposedReferences.Count > 0 && !position.CandidateMoves.Any(option => MovesMatch(option, resolvedMove));
         OpeningTrainingScore score = DetermineScore(position.Strictness, matchedPreferred, matchedPlayable, transposedToKnownPosition);
         OpeningTrainingAttemptStatus status = transposedToKnownPosition

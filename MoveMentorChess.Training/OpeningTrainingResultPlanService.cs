@@ -13,14 +13,13 @@ public sealed class OpeningTrainingResultPlanService
         ArgumentNullException.ThrowIfNull(attempts);
         ArgumentNullException.ThrowIfNull(nextActions);
 
-        int mastered = summary.CorrectCount + summary.PlayableCount;
         IReadOnlyList<TrainingResultReviewItem> reviewItems = BuildReviewItems(attempts);
         TrainingNextAction? primaryAction = nextActions
             .OrderByDescending(action => action.Priority)
             .FirstOrDefault();
 
         return new TrainingResultLearningPlan(
-            $"Mastered: {mastered}/{summary.PositionCount} positions",
+            $"Completed: {summary.CompletedCount}/{summary.PositionCount}",
             BuildRepeatText(reviewItems),
             BuildNextReviewText(primaryAction),
             BuildReasonText(summary, attempts),
@@ -43,7 +42,10 @@ public sealed class OpeningTrainingResultPlanService
                     strongest.PositionId,
                     BuildMoveText(strongest),
                     BuildReviewReason(strongest),
-                    GetReviewPriority(strongest));
+                    GetReviewPriority(strongest),
+                    BuildAttemptedMoveText(strongest),
+                    BuildPreparedMoveText(strongest),
+                    BuildPriorityText(strongest));
             })
             .OrderByDescending(item => item.Priority)
             .ThenBy(item => item.MoveText, StringComparer.OrdinalIgnoreCase)
@@ -59,8 +61,8 @@ public sealed class OpeningTrainingResultPlanService
 
         TrainingResultReviewItem first = reviewItems[0];
         return reviewItems.Count == 1
-            ? $"To review: {first.MoveText}"
-            : $"To review: {first.MoveText} and {reviewItems.Count - 1} more position(s)";
+            ? $"Revisit: {first.MoveText}"
+            : $"Revisit: {first.MoveText} and {FormatCount(reviewItems.Count - 1, "more position", "more positions")}";
     }
 
     private static string BuildNextReviewText(TrainingNextAction? action)
@@ -90,62 +92,92 @@ public sealed class OpeningTrainingResultPlanService
         int dontKnowCount = attempts.Count(IsDontKnowAttempt);
         if (dontKnowCount > 0)
         {
-            return $"Reason: {dontKnowCount} position(s) were marked I don't know.";
+            return FormatCount(dontKnowCount, "position was", "positions were") + " marked I don't know.";
         }
 
         if (summary.WrongCount > 0)
         {
-            return $"Reason: {summary.WrongCount} wrong attempt(s) need reinforcement.";
+            return summary.WrongCount == 1
+                ? "One wrong attempt needs reinforcement while the position is still fresh."
+                : $"{summary.WrongCount} wrong attempts need reinforcement while the positions are still fresh.";
         }
 
         if (summary.HintCount > 0)
         {
-            return $"Reason: {summary.HintCount} hint(s) were used, so recall is close but not automatic.";
+            return FormatCount(summary.HintCount, "hint was", "hints were") + " used, so recall is close but not automatic.";
         }
 
         if (summary.PlayableCount > 0)
         {
-            return "Reason: playable alternatives were accepted, but the main line should still become automatic.";
+            return "Playable alternatives were accepted, but the main line should still become automatic.";
         }
 
-        return "Reason: clean line, so spacing is enough for the next review.";
+        return "Clean line, so spacing is enough for the next review.";
     }
 
     private static string BuildMoveText(OpeningTrainingAttemptResult attempt)
     {
         if (IsDontKnowAttempt(attempt))
         {
-            return "position marked I don't know";
+            return "Incorrect attempt: I don't know";
         }
 
         if (!string.IsNullOrWhiteSpace(attempt.ResolvedSan))
         {
-            return attempt.ResolvedSan!;
+            return $"Incorrect attempt: {attempt.ResolvedSan}";
         }
 
         if (!string.IsNullOrWhiteSpace(attempt.SubmittedMoveText))
         {
-            return attempt.SubmittedMoveText;
+            return $"Incorrect attempt: {attempt.SubmittedMoveText}";
         }
 
         return attempt.PositionId;
+    }
+
+    private static string BuildAttemptedMoveText(OpeningTrainingAttemptResult attempt)
+    {
+        if (IsDontKnowAttempt(attempt))
+        {
+            return "I don't know";
+        }
+
+        return !string.IsNullOrWhiteSpace(attempt.ResolvedSan)
+            ? attempt.ResolvedSan!
+            : !string.IsNullOrWhiteSpace(attempt.SubmittedMoveText)
+                ? attempt.SubmittedMoveText
+                : "unknown";
+    }
+
+    private static string BuildPreparedMoveText(OpeningTrainingAttemptResult attempt)
+    {
+        OpeningTrainingMoveOption? preferred = attempt.PreferredReferences.FirstOrDefault()
+            ?? attempt.ExpectedMoves.FirstOrDefault(move => move.IsPreferred)
+            ?? attempt.ExpectedMoves.FirstOrDefault();
+        return preferred?.DisplayText ?? preferred?.Uci ?? "not available";
     }
 
     private static string BuildReviewReason(OpeningTrainingAttemptResult attempt)
     {
         if (IsDontKnowAttempt(attempt))
         {
-            return "not_known";
+            return "I don't know";
         }
 
         if (attempt.ShouldRepeatImmediately)
         {
-            return "wrong_attempt";
+            return "wrong attempt";
         }
 
         return attempt.Score == OpeningTrainingScore.Wrong
-            ? "wrong_attempt"
-            : "needs_review";
+            ? "wrong attempt"
+            : "needs repeat";
+    }
+
+    private static string BuildPriorityText(OpeningTrainingAttemptResult attempt)
+    {
+        int priority = GetReviewPriority(attempt);
+        return priority >= 100 ? "High" : priority >= 80 ? "Medium" : "Low";
     }
 
     private static int GetReviewPriority(OpeningTrainingAttemptResult attempt)
@@ -165,4 +197,7 @@ public sealed class OpeningTrainingResultPlanService
 
     private static bool IsDontKnowAttempt(OpeningTrainingAttemptResult attempt)
         => string.Equals(attempt.SubmittedMoveText, DontKnowSubmittedMove, StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatCount(int count, string singular, string plural)
+        => count == 1 ? $"1 {singular}" : $"{count} {plural}";
 }

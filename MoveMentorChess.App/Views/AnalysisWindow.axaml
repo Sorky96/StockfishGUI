@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:MoveMentorChess.App.Controls"
         x:Class="MoveMentorChess.App.Views.AnalysisWindow"
         Width="1120"
         Height="760"
@@ -55,13 +56,38 @@
     </Grid>
 
     <Grid Grid.Row="2" Margin="0,16,0,0" ColumnDefinitions="360,*">
-      <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="8">
-        <ListBox x:Name="MistakesListBox"
-                 SelectionChanged="MistakesListBox_OnSelectionChanged"
-                 DoubleTapped="MistakesListBox_OnDoubleTapped"
-                 Background="{DynamicResource ChromeBrush}"
-                 Foreground="#D7E2EA"
-                 BorderThickness="0">
+      <Grid RowDefinitions="Auto,*">
+        <Border Background="#101820"
+                BorderBrush="{DynamicResource PanelAccentBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="10">
+          <StackPanel Spacing="7">
+            <TextBlock Text="Game Map"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="#8FB0C2" />
+            <Grid x:Name="TimelineBandsGrid" Height="20" />
+            <UniformGrid x:Name="TimelineMarkersGrid" Rows="1" MinHeight="24" />
+            <TextBlock x:Name="TimelineSelectedTextBlock"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="#F5FAFD"
+                       TextWrapping="Wrap" />
+            <TextBlock x:Name="TimelineSummaryTextBlock"
+                       FontSize="12"
+                       Foreground="#9EB5C5"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Margin="0,10,0,0" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="8">
+          <ListBox x:Name="MistakesListBox"
+                   SelectionChanged="MistakesListBox_OnSelectionChanged"
+                   DoubleTapped="MistakesListBox_OnDoubleTapped"
+                   Background="{DynamicResource ChromeBrush}"
+                   Foreground="#D7E2EA"
+                   BorderThickness="0">
           <ListBox.Styles>
             <Style Selector="ListBoxItem">
               <Setter Property="Foreground" Value="#D7E2EA" />
@@ -79,7 +105,7 @@
           </ListBox.Styles>
           <ListBox.ItemTemplate>
             <DataTemplate x:CompileBindings="False">
-              <Grid Margin="8,6" RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto">
+              <Grid Margin="8,6" RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Row="0"
                            Grid.Column="0"
                            Margin="0,0,8,0"
@@ -104,47 +130,417 @@
                 </Border>
                 <TextBlock Grid.Row="1"
                            Grid.Column="0"
-                           Grid.ColumnSpan="2"
                            Margin="0,4,0,0"
                            FontSize="12"
                            Foreground="#9EB5C5"
                            Text="{Binding MetaText}"
                            TextTrimming="CharacterEllipsis" />
+                <Border Grid.Row="1"
+                        Grid.Column="1"
+                        Margin="8,4,0,0"
+                        Padding="6,2"
+                        CornerRadius="4"
+                        Background="{Binding PriorityBrush}">
+                  <TextBlock FontSize="11"
+                             FontWeight="SemiBold"
+                             Foreground="#FFFFFF"
+                             Text="{Binding PriorityText}"
+                             TextTrimming="CharacterEllipsis" />
+                </Border>
+                <TextBlock Grid.Row="2"
+                           Grid.Column="0"
+                           Grid.ColumnSpan="2"
+                           Margin="0,4,0,0"
+                           FontSize="12"
+                           Foreground="#BFD1DC"
+                           Text="{Binding PriorityReason}"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Row="3"
+                           Grid.Column="0"
+                           Grid.ColumnSpan="2"
+                           Margin="0,3,0,0"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="{Binding ReviewStatusBrush}"
+                           Text="{Binding ReviewStatusText}"
+                           TextTrimming="CharacterEllipsis" />
               </Grid>
             </DataTemplate>
           </ListBox.ItemTemplate>
-        </ListBox>
-      </Border>
+          </ListBox>
+        </Border>
+      </Grid>
 
       <Grid Grid.Column="1" Margin="14,0,0,0" RowDefinitions="*,Auto">
         <Border Background="#101820" BorderBrush="#395061" BorderThickness="1" CornerRadius="8" Padding="12">
           <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-            <TextBlock x:Name="DetailsTextBlock"
-                       Foreground="White"
-                       FontFamily="Cascadia Code, Consolas, monospace"
-                       TextWrapping="Wrap" />
+            <StackPanel Spacing="12">
+              <Border Background="#152531" BorderBrush="#496173" BorderThickness="1" CornerRadius="6" Padding="14">
+                <Grid ColumnDefinitions="1.45*,1*">
+                <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                  <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                    <TextBlock x:Name="DetailMoveTextBlock"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Foreground="#F5FAFD"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="Try instead"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 Foreground="#8FB0C2" />
+                      <TextBlock x:Name="DetailBestMoveTextBlock"
+                                 Foreground="#F5FAFD"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                  </StackPanel>
+                  <StackPanel Grid.Row="0"
+                              Grid.Column="1"
+                              MinWidth="150"
+                              Margin="12,0,0,0"
+                              HorizontalAlignment="Right"
+                              Spacing="6">
+                    <Border Padding="9,4"
+                            CornerRadius="4"
+                            Background="#263A49">
+                      <TextBlock x:Name="DetailQualityTextBlock"
+                                 HorizontalAlignment="Center"
+                                 FontWeight="SemiBold"
+                                 Foreground="#FFFFFF"
+                                 TextWrapping="Wrap" />
+                    </Border>
+                    <TextBlock x:Name="DetailLossTextBlock"
+                               HorizontalAlignment="Right"
+                               Foreground="#D7E2EA"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+
+                  <Grid Grid.Row="1"
+                        Grid.ColumnSpan="2"
+                        Margin="0,14,0,0"
+                        ColumnDefinitions="*,*">
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="Evaluation swing"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 Foreground="#8FB0C2" />
+                      <TextBlock x:Name="DetailEvalSwingTextBlock"
+                                 FontSize="16"
+                                 FontWeight="SemiBold"
+                                 Foreground="#F5FAFD"
+                                 TextWrapping="Wrap" />
+                      <TextBlock x:Name="DetailEvalInterpretationTextBlock"
+                                 Foreground="#D7E2EA"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1"
+                                Margin="18,0,0,0"
+                                Spacing="4">
+                      <TextBlock Text="Position context"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 Foreground="#8FB0C2" />
+                      <TextBlock x:Name="DetailContextTextBlock"
+                                 Foreground="#D7E2EA"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Grid>
+
+                  <Border Grid.Row="2"
+                          Grid.ColumnSpan="2"
+                          Margin="0,14,0,0"
+                          Padding="12"
+                          Background="#0F1B24"
+                          BorderBrush="#2B4354"
+                          BorderThickness="1"
+                          CornerRadius="6">
+                    <StackPanel Spacing="5">
+                      <TextBlock Text="What happened"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 Foreground="#8FB0C2" />
+                      <TextBlock x:Name="DetailAdviceTextBlock"
+                                 FontSize="14"
+                                 Foreground="#F5FAFD"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+
+                  <StackPanel Grid.Row="3"
+                              Grid.ColumnSpan="2"
+                              Margin="0,12,0,0"
+                              Spacing="4">
+                    <TextBlock Text="Why it matters"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#8FB0C2" />
+                    <TextBlock x:Name="DetailWhyTextBlock"
+                               Foreground="#D7E2EA"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="4"
+                              Grid.ColumnSpan="2"
+                              Margin="0,12,0,0"
+                              Spacing="4">
+                    <TextBlock Text="Training focus"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#8FB0C2" />
+                    <TextBlock x:Name="DetailTrainingHintTextBlock"
+                               Foreground="#D7E2EA"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="5"
+                              Grid.ColumnSpan="2"
+                              Margin="0,12,0,0"
+                              Spacing="4">
+                    <TextBlock Text="Review action"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#8FB0C2" />
+                    <Border Padding="12"
+                            Background="#102A22"
+                            BorderBrush="#1F7A55"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                        <TextBlock x:Name="DetailReviewActionTextBlock"
+                                   FontWeight="SemiBold"
+                                   Foreground="#EAFBF0"
+                                   TextWrapping="Wrap" />
+                        <Button x:Name="MarkReviewedButton"
+                                Grid.Column="1"
+                                Margin="12,0,0,0"
+                                Click="MarkReviewedButton_Click"
+                                Content="Mark reviewed" />
+                        <Button x:Name="MarkReviewedNextButton"
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                Margin="12,6,0,0"
+                                Click="MarkReviewedNextButton_Click"
+                                Content="Mark reviewed &amp; next" />
+                        <TextBlock x:Name="ReviewStatusTextBlock"
+                                   Grid.Row="1"
+                                   Margin="0,6,0,0"
+                                   Foreground="#9ED7A6"
+                                   TextWrapping="Wrap" />
+                      </Grid>
+                    </Border>
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="6"
+                              Grid.ColumnSpan="2"
+                              Margin="0,12,0,0"
+                              Spacing="4">
+                    <TextBlock Text="Top candidate moves"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#8FB0C2" />
+                    <TextBlock x:Name="DetailTopCandidatesTextBlock"
+                               Foreground="#D7E2EA"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="7"
+                              Grid.ColumnSpan="2"
+                              Margin="0,12,0,0"
+                              Spacing="4">
+                    <TextBlock Text="Before moving, check"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#8FB0C2" />
+                    <TextBlock x:Name="DetailChecklistTextBlock"
+                               Foreground="#D7E2EA"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                </Grid>
+
+                <Border x:Name="PositionSnapshotPanel"
+                        Grid.Column="1"
+                        Margin="18,0,0,0"
+                        Padding="12"
+                        Background="#0F1B24"
+                        BorderBrush="#2B4354"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                  <StackPanel Spacing="8">
+                    <TextBlock Text="Position snapshot"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#8FB0C2" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Border Width="18" Height="4" Background="#D9822B" VerticalAlignment="Center" />
+                        <TextBlock Text="Played move"
+                                   FontSize="12"
+                                   Foreground="#D7E2EA" />
+                      </StackPanel>
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Border Width="18" Height="4" Background="#56C271" VerticalAlignment="Center" />
+                        <TextBlock Text="Best move"
+                                   FontSize="12"
+                                   Foreground="#D7E2EA" />
+                      </StackPanel>
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Border Width="18" Height="4" Background="#D84A4A" VerticalAlignment="Center" />
+                        <TextBlock Text="Threat"
+                                   FontSize="12"
+                                   Foreground="#D7E2EA" />
+                      </StackPanel>
+                    </StackPanel>
+                    <controls:ChessBoardView x:Name="PositionSnapshotBoard" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Button x:Name="SnapshotPlayedButton"
+                              Click="SnapshotPlayedButton_Click"
+                              Content="Played" />
+                      <Button x:Name="SnapshotBestButton"
+                              Click="SnapshotBestButton_Click"
+                              Content="Best" />
+                      <Button x:Name="SnapshotThreatButton"
+                              Click="SnapshotThreatButton_Click"
+                              Content="Threat" />
+                    </StackPanel>
+                    <Border x:Name="PositionSafetyBadgeBorder"
+                            HorizontalAlignment="Left"
+                            Padding="8,4"
+                            CornerRadius="4"
+                            Background="#263A49">
+                      <TextBlock x:Name="PositionSafetyBadgeTextBlock"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 Foreground="#FFFFFF"
+                                 TextWrapping="Wrap" />
+                    </Border>
+                    <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="90,*" Margin="0,4,0,0">
+                      <TextBlock Text="Threat:"
+                                 FontWeight="SemiBold"
+                                 Foreground="#8FB0C2" />
+                      <TextBlock x:Name="PositionThreatTextBlock"
+                                 Grid.Column="1"
+                                 Foreground="#D7E2EA"
+                                 TextWrapping="Wrap" />
+                      <TextBlock Grid.Row="1"
+                                 Text="Best idea:"
+                                 FontWeight="SemiBold"
+                                 Foreground="#8FB0C2" />
+                      <TextBlock x:Name="PositionBestIdeaTextBlock"
+                                 Grid.Row="1"
+                                 Grid.Column="1"
+                                 Foreground="#D7E2EA"
+                                 TextWrapping="Wrap" />
+                      <TextBlock Grid.Row="2"
+                                 Text="Mistake:"
+                                 FontWeight="SemiBold"
+                                 Foreground="#8FB0C2" />
+                      <TextBlock x:Name="PositionMistakeTextBlock"
+                                 Grid.Row="2"
+                                 Grid.Column="1"
+                                 Foreground="#D7E2EA"
+                                 TextWrapping="Wrap" />
+                    </Grid>
+                  </StackPanel>
+                </Border>
+                </Grid>
+              </Border>
+
+              <Expander Header="Advanced details" IsExpanded="False" Margin="0,-2,0,0">
+                <TextBlock x:Name="DetailsTextBlock"
+                           Margin="0,8,0,0"
+                           Foreground="#BFD1DC"
+                           FontFamily="Cascadia Code, Consolas, monospace"
+                           TextWrapping="Wrap" />
+              </Expander>
+
+              <Border Background="#0F1B24"
+                      BorderBrush="#2B4354"
+                      BorderThickness="1"
+                      CornerRadius="6"
+                      Padding="12">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="Similar mistakes in this game"
+                             FontSize="12"
+                             FontWeight="SemiBold"
+                             Foreground="#8FB0C2" />
+                  <TextBlock x:Name="SimilarMistakesHintTextBlock"
+                             Foreground="#9EB5C5"
+                             TextWrapping="Wrap" />
+                  <ListBox x:Name="SimilarMistakesListBox"
+                           SelectionChanged="SimilarMistakesListBox_OnSelectionChanged"
+                           MaxHeight="130"
+                           Background="#0F1B24"
+                           Foreground="#D7E2EA"
+                           BorderThickness="0">
+                    <ListBox.Styles>
+                      <Style Selector="ListBoxItem">
+                        <Setter Property="Cursor" Value="Hand" />
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Background" Value="Transparent" />
+                      </Style>
+                      <Style Selector="ListBoxItem:pointerover">
+                        <Setter Property="Background" Value="#203746" />
+                      </Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:CompileBindings="False">
+                        <Grid Margin="6,4" ColumnDefinitions="120,*,Auto,Auto">
+                          <TextBlock FontFamily="Cascadia Code, Consolas, monospace"
+                                     FontWeight="SemiBold"
+                                     Foreground="#EAF2F7"
+                                     Text="{Binding MoveRange}"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Grid.Column="1"
+                                     Margin="8,0,0,0"
+                                     Foreground="#BFD1DC"
+                                     Text="{Binding MetaText}"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Grid.Column="2"
+                                     Margin="8,0,0,0"
+                                     Foreground="#8FB0C2"
+                                     Text="{Binding RoleText}"
+                                     TextTrimming="CharacterEllipsis" />
+                          <Border Grid.Column="3"
+                                  Margin="8,0,0,0"
+                                  Padding="6,2"
+                                  CornerRadius="4"
+                                  Background="#263A49">
+                            <TextBlock Text="Jump"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="#FFFFFF" />
+                          </Border>
+                        </Grid>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </StackPanel>
+              </Border>
+            </StackPanel>
           </ScrollViewer>
         </Border>
         <StackPanel Grid.Row="1"
                     Margin="0,10,0,0"
                     Spacing="8">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button x:Name="CorrectFeedbackButton"
-                    Click="CorrectFeedbackButton_Click"
-                    Content="Correct" />
-            <Button x:Name="WrongLabelFeedbackButton"
-                    Click="WrongLabelFeedbackButton_Click"
-                    Content="Wrong label" />
-            <Button x:Name="NotUsefulFeedbackButton"
-                    Click="NotUsefulFeedbackButton_Click"
-                    Content="Not useful" />
-            <Button x:Name="TooGenericFeedbackButton"
-                    Click="TooGenericFeedbackButton_Click"
-                    Content="Too generic" />
-            <Button x:Name="GoodExplanationFeedbackButton"
-                    Click="GoodExplanationFeedbackButton_Click"
-                    Content="Good explanation" />
-          </StackPanel>
+          <Expander Header="Improve advice" IsExpanded="False">
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+              <Button x:Name="CorrectFeedbackButton"
+                      Click="CorrectFeedbackButton_Click"
+                      Content="Helpful" />
+              <Button x:Name="WrongLabelFeedbackButton"
+                      Click="WrongLabelFeedbackButton_Click"
+                      Content="Wrong diagnosis" />
+              <Button x:Name="NotUsefulFeedbackButton"
+                      Click="NotUsefulFeedbackButton_Click"
+                      Content="Not useful" />
+              <Button x:Name="TooGenericFeedbackButton"
+                      Click="TooGenericFeedbackButton_Click"
+                      Content="Needs clearer explanation" />
+              <Button x:Name="GoodExplanationFeedbackButton"
+                      Click="GoodExplanationFeedbackButton_Click"
+                      Content="Good explanation" />
+            </StackPanel>
+          </Expander>
           <Grid x:Name="ManualCorrectionPanel"
                 ColumnDefinitions="180,180,*,110"
                 IsVisible="False">

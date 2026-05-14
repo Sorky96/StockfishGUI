@@ -13,8 +13,7 @@ public sealed class OpeningUnderstandingService
         [
             BuildOpeningPlanCard(overview, line),
             BuildPieceSetupCard(overview, line),
-            BuildCommonTrapCard(overview, line),
-            BuildTheoryExitCard(overview, line)
+            BuildCommonTrapCard(overview, line)
         ];
 
         return cards
@@ -40,7 +39,7 @@ public sealed class OpeningUnderstandingService
 
         return new OpeningUnderstandingCard(
             OpeningUnderstandingCardKind.OpeningPlan,
-            "Opening Plan",
+            "Opening idea",
             body,
             100);
     }
@@ -58,7 +57,7 @@ public sealed class OpeningUnderstandingService
 
         return new OpeningUnderstandingCard(
             OpeningUnderstandingCardKind.PieceSetup,
-            "Typical Piece Setup",
+            "Typical setup",
             body,
             80);
     }
@@ -72,8 +71,8 @@ public sealed class OpeningUnderstandingService
         {
             return new OpeningUnderstandingCard(
                 OpeningUnderstandingCardKind.CommonTrap,
-                "Most Likely Trap",
-                $"Your history points to this repair first: {repair.Title}. {repair.Summary}",
+                "What to watch for",
+                $"Main risk: {repair.Title}. {repair.Summary}",
                 70);
         }
 
@@ -81,13 +80,13 @@ public sealed class OpeningUnderstandingService
             .OrderByDescending(candidate => candidate.Frequency)
             .FirstOrDefault();
         string body = branch is null
-            ? $"No specific trap is known for {line.DisplayName} from local data yet. Treat forcing moves carefully and use hints when the plan is unclear."
-            : $"No personal trap is recorded yet. The most common reply is {branch.OpponentMove}, so make sure you know the prepared answer before memorizing deeper moves.";
+            ? $"No specific risk is known for {line.DisplayName} from local data yet. Treat forcing moves carefully and use hints when the plan is unclear."
+            : $"No personal risk is recorded yet. The most common reply is {branch.OpponentMove}, so make sure you know the prepared answer before memorizing deeper moves.";
 
         return new OpeningUnderstandingCard(
             OpeningUnderstandingCardKind.CommonTrap,
-            "Most Likely Trap",
-            body,
+            "What to watch for",
+            $"Main risk: {body}",
             60);
     }
 

@@ -11,4 +11,7 @@ public sealed record TrainingResultReviewItem(
     string PositionId,
     string MoveText,
     string ReasonText,
-    int Priority);
+    int Priority,
+    string AttemptedMoveText = "",
+    string PreparedMoveText = "",
+    string PriorityText = "");

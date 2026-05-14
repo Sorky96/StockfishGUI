@@ -22,7 +22,31 @@ public sealed class OpeningTrainingNextActionServiceTests
         IReadOnlyList<TrainingNextAction> actions = service.BuildNextActions(summary);
 
         Assert.Equal(TrainingNextActionKind.RepeatNow, actions[0].Kind);
+        Assert.Equal("Repeat this line now", actions[0].Title);
+        Assert.Contains("Good session", actions[0].Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.RepairWeakBranches);
+    }
+
+    [Fact]
+    public void BuildNextActions_UsesRepairToneAfterManyWrongAttempts()
+    {
+        OpeningTrainingNextActionService service = new();
+        TrainingSessionOutcomeSummary summary = new(
+            "Needs reinforcement",
+            8,
+            8,
+            3,
+            1,
+            4,
+            1,
+            100,
+            50);
+
+        IReadOnlyList<TrainingNextAction> actions = service.BuildNextActions(summary);
+
+        Assert.Equal(TrainingNextActionKind.RepeatNow, actions[0].Kind);
+        Assert.Equal("Repeat a smaller repair pass", actions[0].Title);
+        Assert.Contains("diagnostic", actions[0].Description, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -43,7 +67,30 @@ public sealed class OpeningTrainingNextActionServiceTests
         IReadOnlyList<TrainingNextAction> actions = service.BuildNextActions(summary);
 
         Assert.Equal(TrainingNextActionKind.ReturnTomorrow, actions[0].Kind);
+        Assert.Contains("Clean session", actions[0].Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(actions, action => action.Kind == TrainingNextActionKind.BrowseAnotherOpening);
+    }
+
+    [Fact]
+    public void BuildNextActions_UsesAlmostAutomaticToneAfterHintsOrAlternatives()
+    {
+        OpeningTrainingNextActionService service = new();
+        TrainingSessionOutcomeSummary summary = new(
+            "Almost stable",
+            8,
+            8,
+            6,
+            2,
+            0,
+            1,
+            100,
+            100);
+
+        IReadOnlyList<TrainingNextAction> actions = service.BuildNextActions(summary);
+
+        Assert.Equal(TrainingNextActionKind.RepeatAfterBreak, actions[0].Kind);
+        Assert.Contains("Good session", actions[0].Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not automatic", actions[0].Description, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

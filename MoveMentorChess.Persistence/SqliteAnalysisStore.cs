@@ -373,6 +373,7 @@ public sealed class SqliteAnalysisStore :
                 """);
 
             HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, IReadOnlyList<string>> validationMovesByRoot = new(StringComparer.Ordinal);
             while (statement.Step() == SqliteRow)
             {
                 string eco = statement.GetText(0) ?? string.Empty;
@@ -395,6 +396,17 @@ public sealed class SqliteAnalysisStore :
                 if (!string.IsNullOrWhiteSpace(filterText)
                     && displayName.Contains(filterText, StringComparison.OrdinalIgnoreCase) == false
                     && eco.Contains(filterText, StringComparison.OrdinalIgnoreCase) == false)
+                {
+                    continue;
+                }
+
+                if (!validationMovesByRoot.TryGetValue(rootPositionKey.Value, out IReadOnlyList<string>? validationMoves))
+                {
+                    validationMoves = BuildOpeningValidationMoves(database, rootPositionKey);
+                    validationMovesByRoot[rootPositionKey.Value] = validationMoves;
+                }
+
+                if (!IsEcoConsistentWithMoves(eco, validationMoves))
                 {
                     continue;
                 }
@@ -547,6 +559,19 @@ public sealed class SqliteAnalysisStore :
                 ? "No opponent branches were found in the local opening book."
                 : $"Tracked {branches.Count} opponent branch(es) from the local opening book.");
 
+        IReadOnlyList<string> validationMoves = BuildOpeningValidationMoves(rootPositionKey);
+        if (!IsEcoConsistentWithMoves(eco, validationMoves.Count > 0 ? validationMoves : mainLine.Select(move => move.San).ToList()))
+        {
+            overview = null;
+            return false;
+        }
+
+        IReadOnlyList<OpeningLineMove> pathLineMoves = BuildOpeningPathLineMoves(rootPositionKey);
+        if (pathLineMoves.Count > 0)
+        {
+            mainLine.InsertRange(0, pathLineMoves);
+        }
+
         overview = new OpeningTrainerOverview(
             openingKey,
             lineKey,
@@ -562,6 +587,216 @@ public sealed class SqliteAnalysisStore :
             [],
             ideas);
         return true;
+    }
+
+    private IReadOnlyList<string> BuildOpeningValidationMoves(OpeningPositionKey rootPositionKey)
+    {
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            return BuildOpeningValidationMoves(database, rootPositionKey);
+        }
+    }
+
+    private static IReadOnlyList<string> BuildOpeningValidationMoves(SqliteDatabase database, OpeningPositionKey rootPositionKey)
+    {
+        List<string> pathMoves = BuildPathMovesToPosition(database, rootPositionKey);
+        if (pathMoves.Count >= 4)
+        {
+            return pathMoves;
+        }
+
+        IReadOnlyList<string> continuationMoves = BuildPrimaryContinuationMoves(database, rootPositionKey, 4 - pathMoves.Count);
+        return pathMoves.Concat(continuationMoves).ToList();
+    }
+
+    private IReadOnlyList<OpeningLineMove> BuildOpeningPathLineMoves(OpeningPositionKey rootPositionKey)
+    {
+        lock (sync)
+        {
+            using SqliteDatabase database = OpenDatabase();
+            return BuildOpeningPathLineMoves(database, rootPositionKey);
+        }
+    }
+
+    private static IReadOnlyList<OpeningLineMove> BuildOpeningPathLineMoves(SqliteDatabase database, OpeningPositionKey rootPositionKey)
+    {
+        List<OpeningLineMove> reversedMoves = [];
+        string? currentNodeId = LoadOpeningNodeId(database, rootPositionKey.Value);
+        int guard = 0;
+
+        while (!string.IsNullOrWhiteSpace(currentNodeId) && guard++ < 16)
+        {
+            using SqliteStatement statement = database.Prepare("""
+                SELECT
+                    edges.from_node_id,
+                    edges.move_san,
+                    edges.move_uci,
+                    from_nodes.position_key,
+                    to_nodes.position_key,
+                    to_nodes.ply,
+                    to_nodes.move_number,
+                    to_nodes.side_to_move,
+                    edges.is_main_move
+                FROM opening_move_edges edges
+                INNER JOIN opening_position_nodes from_nodes ON from_nodes.id = edges.from_node_id
+                INNER JOIN opening_position_nodes to_nodes ON to_nodes.id = edges.to_node_id
+                WHERE edges.to_node_id = ?1
+                ORDER BY edges.occurrence_count DESC, edges.rank_within_position ASC, edges.move_san ASC
+                LIMIT 1;
+                """);
+
+            statement.BindText(1, currentNodeId);
+            if (statement.Step() != SqliteRow)
+            {
+                break;
+            }
+
+            currentNodeId = statement.GetText(0);
+            string moveSan = statement.GetText(1) ?? string.Empty;
+            string? moveUci = statement.GetText(2);
+            OpeningPositionKey fromPositionKey = new(statement.GetText(3) ?? string.Empty);
+            OpeningPositionKey toPositionKey = new(statement.GetText(4) ?? string.Empty);
+            PlayerSide side = ParsePlayerSide(statement.GetText(7)) == PlayerSide.White ? PlayerSide.Black : PlayerSide.White;
+
+            if (!string.IsNullOrWhiteSpace(moveSan))
+            {
+                reversedMoves.Add(new OpeningLineMove(
+                    statement.GetInt(5),
+                    statement.GetInt(6),
+                    side,
+                    moveSan,
+                    moveUci,
+                    fromPositionKey,
+                    toPositionKey,
+                    statement.GetInt(8) != 0));
+            }
+
+            if (fromPositionKey.Value == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -")
+            {
+                break;
+            }
+        }
+
+        reversedMoves.Reverse();
+        return reversedMoves;
+    }
+
+    private static List<string> BuildPathMovesToPosition(SqliteDatabase database, OpeningPositionKey rootPositionKey)
+    {
+        List<string> reversedMoves = [];
+        string? currentNodeId = LoadOpeningNodeId(database, rootPositionKey.Value);
+        int guard = 0;
+
+        while (!string.IsNullOrWhiteSpace(currentNodeId) && guard++ < 16)
+        {
+            using SqliteStatement statement = database.Prepare("""
+                SELECT
+                    edges.from_node_id,
+                    edges.move_san,
+                    from_nodes.ply
+                FROM opening_move_edges edges
+                INNER JOIN opening_position_nodes from_nodes ON from_nodes.id = edges.from_node_id
+                WHERE edges.to_node_id = ?1
+                ORDER BY edges.occurrence_count DESC, edges.rank_within_position ASC, edges.move_san ASC
+                LIMIT 1;
+                """);
+
+            statement.BindText(1, currentNodeId);
+            if (statement.Step() != SqliteRow)
+            {
+                break;
+            }
+
+            currentNodeId = statement.GetText(0);
+            string moveSan = statement.GetText(1) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(moveSan))
+            {
+                reversedMoves.Add(moveSan);
+            }
+
+            if (statement.GetInt(2) == 0)
+            {
+                break;
+            }
+        }
+
+        reversedMoves.Reverse();
+        return reversedMoves;
+    }
+
+    private static IReadOnlyList<string> BuildPrimaryContinuationMoves(SqliteDatabase database, OpeningPositionKey rootPositionKey, int maxPly)
+    {
+        List<string> moves = [];
+        string? currentNodeId = LoadOpeningNodeId(database, rootPositionKey.Value);
+
+        for (int ply = 0; ply < maxPly && !string.IsNullOrWhiteSpace(currentNodeId); ply++)
+        {
+            using SqliteStatement statement = database.Prepare("""
+                SELECT
+                    edges.to_node_id,
+                    edges.move_san
+                FROM opening_move_edges edges
+                WHERE edges.from_node_id = ?1
+                ORDER BY edges.rank_within_position ASC, edges.occurrence_count DESC, edges.move_san ASC
+                LIMIT 1;
+                """);
+
+            statement.BindText(1, currentNodeId);
+            if (statement.Step() != SqliteRow)
+            {
+                break;
+            }
+
+            currentNodeId = statement.GetText(0);
+            string moveSan = statement.GetText(1) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(moveSan))
+            {
+                moves.Add(moveSan);
+            }
+        }
+
+        return moves;
+    }
+
+    private static bool IsEcoConsistentWithMoves(string eco, IReadOnlyList<string> moves)
+    {
+        if (string.IsNullOrWhiteSpace(eco) || moves.Count < 2 || eco.Length < 3)
+        {
+            return true;
+        }
+
+        char family = char.ToUpperInvariant(eco[0]);
+        if (!int.TryParse(eco.AsSpan(1, 2), NumberStyles.None, CultureInfo.InvariantCulture, out int code))
+        {
+            return true;
+        }
+
+        string firstMove = NormalizeSanForEcoValidation(moves[0]);
+        string firstBlackMove = NormalizeSanForEcoValidation(moves[1]);
+
+        return family switch
+        {
+            'B' when code == 22 => firstMove == "e4"
+                && firstBlackMove == "c5"
+                && moves.Count >= 3
+                && NormalizeSanForEcoValidation(moves[2]) == "c3",
+            'B' when code >= 20 => firstMove == "e4" && firstBlackMove == "c5",
+            'B' => firstMove == "e4" && firstBlackMove != "e5",
+            'C' when code < 20 => firstMove == "e4" && firstBlackMove == "e6",
+            'C' => firstMove == "e4" && firstBlackMove == "e5",
+            _ => true
+        };
+    }
+
+    private static string NormalizeSanForEcoValidation(string san)
+    {
+        return san
+            .Replace("+", string.Empty, StringComparison.Ordinal)
+            .Replace("#", string.Empty, StringComparison.Ordinal)
+            .Replace("!", string.Empty, StringComparison.Ordinal)
+            .Replace("?", string.Empty, StringComparison.Ordinal)
+            .Trim();
     }
 
     public void SaveImportedGame(ImportedGame game)
@@ -2415,6 +2650,10 @@ public sealed class SqliteAnalysisStore :
         database.ExecuteNonQuery("""
             CREATE INDEX IF NOT EXISTS idx_opening_move_edges_from_node_id
             ON opening_move_edges (from_node_id);
+            """);
+        database.ExecuteNonQuery("""
+            CREATE INDEX IF NOT EXISTS idx_opening_move_edges_to_node_id
+            ON opening_move_edges (to_node_id);
             """);
         database.ExecuteNonQuery("""
             CREATE TABLE IF NOT EXISTS opening_node_tags (

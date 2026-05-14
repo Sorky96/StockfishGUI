@@ -82,7 +82,9 @@ public sealed class OpeningTrainingCoachingServiceTests
         Assert.True(coached.ShouldRepeatImmediately);
         Assert.Equal(TrainingCoachHintLevel.Plan, coached.NextHintLevel);
         Assert.Equal(TrainingMistakeCategory.MissedBookMove, coached.MistakeCategory);
-        Assert.Contains("Nf3", coached.RecoverySuggestion, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("prepared book continuation", coached.RecoverySuggestion, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("central control", coached.RecoverySuggestion, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Nf3", coached.RecoverySuggestion, StringComparison.OrdinalIgnoreCase);
     }
 
     private static OpeningTrainingPosition CreatePosition()

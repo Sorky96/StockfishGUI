@@ -193,9 +193,6 @@ public sealed class OpeningTrainingCoachingService
         OpeningTrainingMoveOption? preferred = result.PreferredReferences.FirstOrDefault()
             ?? position.CandidateMoves.FirstOrDefault(option => option.IsPreferred)
             ?? position.CandidateMoves.FirstOrDefault();
-        string preferredText = preferred?.DisplayText ?? position.BetterMove ?? "the prepared move";
-        string? reason = preferred?.Idea?.ShortExplanation ?? position.BetterMoveReason;
-
         string categoryText = category switch
         {
             TrainingMistakeCategory.IllegalMove => "First make sure the move is legal in the current board position.",
@@ -204,9 +201,40 @@ public sealed class OpeningTrainingCoachingService
             _ => "The move missed the prepared book continuation."
         };
 
-        return string.IsNullOrWhiteSpace(reason)
-            ? $"{categoryText} Try again and aim for {preferredText}."
-            : $"{categoryText} Try again and aim for {preferredText}: {reason}";
+        return $"{categoryText} {BuildConceptualRecoveryCue(position, preferred)}";
+    }
+
+    private static string BuildConceptualRecoveryCue(
+        OpeningTrainingPosition position,
+        OpeningTrainingMoveOption? preferred)
+    {
+        OpeningMoveIdea? idea = preferred?.Idea;
+        if (idea?.IdeaTags.Contains(OpeningMoveIdeaTag.ControlCenter) == true)
+        {
+            return "Think about the move that supports central control.";
+        }
+
+        if (idea?.IdeaTags.Contains(OpeningMoveIdeaTag.DevelopPiece) == true)
+        {
+            return "Look for the move that improves piece activity without losing the thread of the line.";
+        }
+
+        if (idea?.IdeaTags.Contains(OpeningMoveIdeaTag.KingSafety) == true)
+        {
+            return "Look for the move that keeps king safety and coordination first.";
+        }
+
+        if (idea?.IdeaTags.Contains(OpeningMoveIdeaTag.TacticalResource) == true)
+        {
+            return "Check for the forcing resource before choosing a quiet-looking move.";
+        }
+
+        return position.Mode switch
+        {
+            OpeningTrainingMode.BranchAwareness => "Name the opponent's idea first, then choose the prepared response.",
+            OpeningTrainingMode.MistakeRepair => "Recall what the old mistake changed, then find the move that repairs it.",
+            _ => "Try again from the plan, not from the move notation."
+        };
     }
 
     private static string SanitizeHintText(

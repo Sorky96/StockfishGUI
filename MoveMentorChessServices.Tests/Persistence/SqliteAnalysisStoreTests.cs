@@ -81,6 +81,46 @@ public sealed class SqliteAnalysisStoreTests
 1. d4 d5 2. Nf3 Nf6 *
 """;
 
+    private const string MismatchedB22Pgn = """
+[Event "Mismatched ECO"]
+[Site "Test"]
+[Date "2026.04.23"]
+[White "Alpha"]
+[Black "Beta"]
+[Result "*"]
+[ECO "B22"]
+[Opening "Semi-Open Game"]
+
+1. e4 e5 2. Nf3 Nc6 *
+""";
+
+    private const string AlapinB22Pgn = """
+[Event "Alapin"]
+[Site "Test"]
+[Date "2026.04.23"]
+[White "Alpha"]
+[Black "Beta"]
+[Result "*"]
+[ECO "B22"]
+[Opening "Sicilian Defense"]
+[Variation "Alapin"]
+
+1. e4 c5 2. c3 Nf6 *
+""";
+
+    private const string OpenSicilianB22Pgn = """
+[Event "Wrong B22 Open Sicilian"]
+[Site "Test"]
+[Date "2026.04.23"]
+[White "Alpha"]
+[Black "Beta"]
+[Result "*"]
+[ECO "B22"]
+[Opening "Sicilian Defense"]
+
+1. e4 c5 2. Nf3 Nc6 *
+""";
+
     [Fact]
     public void SqliteAnalysisStore_SavesAndLoadsImportedGame()
     {
@@ -1119,6 +1159,72 @@ public sealed class SqliteAnalysisStoreTests
             -20,
             new MistakeTag(label, 0.82, ["late_development", "king_uncastled"]),
             new MoveExplanation("Short", "Hint", "Detailed"));
+    }
+
+    [Fact]
+    public void OpeningTheoryQueryService_HidesEcoTagsThatContradictTheActualMoveOrder()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            store.SaveOpeningTree(BuildOpeningTree(MismatchedB22Pgn));
+            OpeningTheoryQueryService queryService = new(store);
+
+            IReadOnlyList<OpeningLineCatalogItem> lines = queryService.ListOpeningLines(limit: 20);
+
+            Assert.DoesNotContain(lines, line => line.Eco == "B22");
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void OpeningTheoryQueryService_KeepsB22WhenTheMoveOrderIsSicilian()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            store.SaveOpeningTree(BuildOpeningTree(AlapinB22Pgn));
+            OpeningTheoryQueryService queryService = new(store);
+
+            OpeningLineCatalogItem line = Assert.Single(queryService.ListOpeningLines(repertoireSide: RepertoireSide.White, limit: 20), item => item.Eco == "B22");
+            bool loaded = queryService.TryGetOpeningOverview(line.LineKey, line.RepertoireSide, 4, out OpeningTrainerOverview? overview);
+
+            Assert.True(loaded);
+            Assert.NotNull(overview);
+            Assert.Equal(["e4", "c5", "c3", "Nf6"], overview!.MainLine.Select(move => move.San).ToArray());
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void OpeningTheoryQueryService_HidesB22WhenTheMoveOrderIsOpenSicilian()
+    {
+        string databasePath = CreateTempDatabasePath();
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath);
+            store.SaveOpeningTree(BuildOpeningTree(OpenSicilianB22Pgn));
+            OpeningTheoryQueryService queryService = new(store);
+
+            IReadOnlyList<OpeningLineCatalogItem> lines = queryService.ListOpeningLines(limit: 20);
+
+            Assert.DoesNotContain(lines, line => line.Eco == "B22");
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
     }
 
     private static OpeningTrainingScheduledAction CreateScheduledAction(
