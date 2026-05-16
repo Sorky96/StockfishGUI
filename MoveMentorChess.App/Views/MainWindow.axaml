@@ -104,8 +104,8 @@
                   Height="36"
                   Margin="0,8,0,0"
                   HorizontalAlignment="Stretch"
-                  IsEnabled="False"
-                  Content="OPENING COVERAGE COMING HERE" />
+                  Click="OpeningCoverageButton_Click"
+                  Content="OPENING COVERAGE" />
 
           <Button Grid.Row="6"
                   Grid.Column="0"

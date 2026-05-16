@@ -1,0 +1,162 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MoveMentorChess.App.ViewModels"
+        x:Class="MoveMentorChess.App.Views.OpeningCoverageWindow"
+        x:DataType="vm:OpeningCoverageWindowViewModel"
+        Width="1260"
+        Height="820"
+        MinWidth="1080"
+        MinHeight="700"
+        WindowState="FullScreen"
+        SystemDecorations="None"
+        Title="Opening Coverage"
+        Background="{DynamicResource ChromeBrush}">
+  <Grid Margin="18" RowDefinitions="Auto,14,Auto,14,*">
+    <Border Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+      <Grid ColumnDefinitions="*,260,180,Auto,Auto" RowDefinitions="Auto">
+        <StackPanel Spacing="4">
+          <TextBlock Foreground="White" FontSize="24" FontWeight="Bold" Text="Opening Coverage" />
+          <TextBlock Foreground="#9EB5C5" Text="{Binding StatusText}" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <TextBox Grid.Column="1"
+                 Margin="14,0,0,0"
+                 VerticalAlignment="Center"
+                 Background="{DynamicResource ChromeBrush}"
+                 Foreground="#EAF2F7"
+                 BorderBrush="{DynamicResource PanelAccentBrush}"
+                 Watermark="Filter ECO or opening..."
+                 Text="{Binding FilterText}" />
+
+        <ComboBox Grid.Column="2"
+                  Margin="10,0,0,0"
+                  VerticalAlignment="Center"
+                  Background="{DynamicResource ChromeBrush}"
+                  Foreground="#EAF2F7"
+                  BorderBrush="{DynamicResource PanelAccentBrush}"
+                  ItemsSource="{Binding AvailableSides}"
+                  SelectedItem="{Binding SelectedSide}" />
+
+        <Button Grid.Column="3"
+                Margin="10,0,0,0"
+                VerticalAlignment="Center"
+                Command="{Binding RefreshCommand}"
+                Content="Refresh" />
+        <Button Grid.Column="4"
+                Margin="10,0,0,0"
+                VerticalAlignment="Center"
+                Click="CloseButton_Click"
+                Content="Close" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*,*">
+      <Border Margin="0,0,6,0" Padding="14" CornerRadius="14" Background="{DynamicResource PanelBrush}">
+        <StackPanel Spacing="4">
+          <TextBlock Foreground="#9EB5C5" Text="Lines" />
+          <TextBlock Foreground="White" FontSize="26" FontWeight="Bold" Text="{Binding TotalLinesText}" />
+        </StackPanel>
+      </Border>
+      <Border Grid.Column="1" Margin="6,0" Padding="14" CornerRadius="14" Background="{DynamicResource PanelBrush}">
+        <StackPanel Spacing="4">
+          <TextBlock Foreground="#9EB5C5" Text="Due Today" />
+          <TextBlock Foreground="White" FontSize="26" FontWeight="Bold" Text="{Binding DueReviewText}" />
+        </StackPanel>
+      </Border>
+      <Border Grid.Column="2" Margin="6,0" Padding="14" CornerRadius="14" Background="{DynamicResource PanelBrush}">
+        <StackPanel Spacing="4">
+          <TextBlock Foreground="#9EB5C5" Text="Weak Branches" />
+          <TextBlock Foreground="White" FontSize="26" FontWeight="Bold" Text="{Binding WeakBranchesText}" />
+        </StackPanel>
+      </Border>
+      <Border Grid.Column="3" Margin="6,0" Padding="14" CornerRadius="14" Background="{DynamicResource PanelBrush}">
+        <StackPanel Spacing="4">
+          <TextBlock Foreground="#9EB5C5" Text="Avg Coverage" />
+          <TextBlock Foreground="White" FontSize="26" FontWeight="Bold" Text="{Binding AverageCoverageText}" />
+        </StackPanel>
+      </Border>
+      <Border Grid.Column="4" Margin="6,0,0,0" Padding="14" CornerRadius="14" Background="{DynamicResource PanelBrush}">
+        <StackPanel Spacing="4">
+          <TextBlock Foreground="#9EB5C5" Text="Missing ECO" />
+          <TextBlock Foreground="White" FontSize="26" FontWeight="Bold" Text="{Binding MissingEcoText}" />
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <Grid Grid.Row="4" ColumnDefinitions="2*,14,*">
+      <Border Padding="12" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+        <ListBox x:Name="CoverageListBox"
+                 ItemsSource="{Binding Lines}"
+                 SelectedItem="{Binding SelectedLine}"
+                 DoubleTapped="CoverageListBox_OnDoubleTapped"
+                 Background="{DynamicResource ChromeBrush}"
+                 Foreground="#D7E2EA"
+                 BorderThickness="0">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem">
+              <Setter Property="Foreground" Value="#D7E2EA" />
+              <Setter Property="Background" Value="Transparent" />
+            </Style>
+            <Style Selector="ListBoxItem:pointerover">
+              <Setter Property="Foreground" Value="#F5FAFD" />
+              <Setter Property="Background" Value="#203746" />
+            </Style>
+            <Style Selector="ListBoxItem:selected">
+              <Setter Property="Foreground" Value="#FFFFFF" />
+              <Setter Property="Background" Value="{DynamicResource PanelAccentBrush}" />
+            </Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:OpeningCoverageLineItemViewModel">
+              <Grid Margin="6,5" ColumnDefinitions="90,*,120,120" RowDefinitions="Auto,Auto,Auto">
+                <TextBlock Foreground="#9EB5C5" FontWeight="SemiBold" Text="{Binding MissingEcoText}" />
+                <TextBlock Grid.Column="1" Foreground="White" FontWeight="SemiBold" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="2" Foreground="#D7E2EA" Text="{Binding CoverageText}" />
+                <TextBlock Grid.Column="3" Foreground="#D7E2EA" Text="{Binding StatusText}" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Foreground="#9EB5C5" Text="{Binding MainLineText}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Foreground="#D7E2EA" Text="{Binding BranchText}" />
+                <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Foreground="#D7E2EA" Text="{Binding WeakBranchText}" />
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Border>
+
+      <Border Grid.Column="2" Padding="16" CornerRadius="18" Background="{DynamicResource PanelBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Spacing="12">
+            <TextBlock Foreground="#9EB5C5" FontSize="14" FontWeight="SemiBold" Text="Selected line" />
+            <TextBlock Foreground="White" FontSize="24" FontWeight="Bold" Text="{Binding SelectedLine.DisplayName}" TextWrapping="Wrap" />
+            <TextBlock Foreground="#D7E2EA" Text="{Binding SelectedLine.SideText}" />
+
+            <Border Padding="14" CornerRadius="12" Background="{DynamicResource ChromeBrush}">
+              <StackPanel Spacing="8">
+                <TextBlock Foreground="White" FontSize="17" FontWeight="SemiBold" Text="Coverage" />
+                <ProgressBar Minimum="0" Maximum="100" Height="12" Value="{Binding SelectedLine.CoveragePercent}" />
+                <TextBlock Foreground="#D7E2EA" Text="{Binding SelectedLine.BranchText}" TextWrapping="Wrap" />
+                <TextBlock Foreground="#D7E2EA" Text="{Binding SelectedLine.WeakBranchText}" TextWrapping="Wrap" />
+                <TextBlock Foreground="#D7E2EA" Text="{Binding SelectedLine.PriorityText}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Border Padding="14" CornerRadius="12" Background="{DynamicResource ChromeBrush}">
+              <StackPanel Spacing="8">
+                <TextBlock Foreground="White" FontSize="17" FontWeight="SemiBold" Text="Repertoire Map" />
+                <TextBlock Foreground="#D7E2EA" Text="{Binding SelectedLine.MainLineText}" TextWrapping="Wrap" />
+                <TextBlock Foreground="#9EB5C5" Text="{Binding SelectedLine.StatusText}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Button MinHeight="46"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    FontSize="16"
+                    FontWeight="SemiBold"
+                    Click="PracticeSelectedButton_Click"
+                    Content="Practice selected line" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

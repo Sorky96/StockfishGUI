@@ -260,6 +260,25 @@ public partial class MainWindow : Window
         await dialog.ShowDialog(this);
     }
 
+    private async void OpeningCoverageButton_Click(object? sender, RoutedEventArgs e)
+    {
+        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
+        if (store is null)
+        {
+            return;
+        }
+
+        OpeningCoverageWindow coverageWindow = new(new OpeningCoverageWindowViewModel(store));
+        bool? result = await coverageWindow.ShowDialog<bool?>(this);
+        if (result == true && coverageWindow.SelectedLine is not null)
+        {
+            OpeningTrainerWindowViewModel trainerViewModel = new(store);
+            trainerViewModel.OpenLineFromCoverage(coverageWindow.SelectedLine);
+            OpeningTrainerWindow trainerWindow = new(trainerViewModel);
+            await trainerWindow.ShowDialog(this);
+        }
+    }
+
     private void CloseButton_Click(object? sender, RoutedEventArgs e)
     {
         Close();

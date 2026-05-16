@@ -1,6 +1,6 @@
 # MoveMentor Chess
 
-A chess training app built with Avalonia for manual play, PGN review, engine-assisted analysis, and local coaching notes.
+A chess training app built with Avalonia for manual play, PGN review, engine-assisted analysis, local coaching notes, player profiles, and opening training.
 
 ## Features
 
@@ -8,19 +8,26 @@ A chess training app built with Avalonia for manual play, PGN review, engine-ass
 - legal move validation, including castling and promotion
 - undo support
 - PGN import
+- batch PGN file import with player detection
 - step-by-step replay of imported moves
+- Stockfish-assisted game analysis and saved analysis history
 - external engine top-move suggestions (`MultiPV`)
 - evaluation bar showing which side is better and by how much
 - move-quality labels for analysis:
   `Best`, `Excellent`, `Good`, `Inaccuracy`, `Mistake`, and `Blunder`
 - planned future move-quality label: `Brilliant`
+- Player Coach profile with recurring mistakes, trend signals, MoveMentor estimated strength, and weekly training plan
+- Opening Trainer with daily recommendations, guided study, hints, session results, and next actions
+- Opening Coverage dashboard for repertoire coverage, due review, weak branches, missing ECO signals, and direct practice launch
+- local LLM advice runtime with heuristic fallback
 - board rotation
 
 ## Requirements
 
 - Windows
 - .NET 8 SDK
-- optional UCI chess engine executable placed next to the app at runtime
+- optional UCI chess engine executable placed next to the app at runtime for analysis
+- optional local `llama.cpp` runtime and GGUF model for richer coaching text
 - piece images from the `Images` folder copied to the output directory
 
 ## External engine setup
@@ -42,7 +49,7 @@ After downloading:
 
 ## Local LLM advice setup
 
-The project now supports a fully local `llama.cpp` advice runtime for short coaching explanations.
+The project supports a fully local `llama.cpp` advice runtime for short coaching explanations. If the runtime or model is missing, the app falls back to local heuristic coaching text.
 
 Recommended setup:
 
@@ -63,6 +70,19 @@ The analysis window shows the current advice-runtime status and includes a `Test
 
 For the complete English setup guide, see [LOCAL_LLM_SETUP.md](LOCAL_LLM_SETUP.md).
 
+## Product flow
+
+The current product loop is:
+
+1. Import PGN games.
+2. Analyze games with Stockfish.
+3. Review saved analyses and coaching advice.
+4. Open Player Coach to see recurring mistakes, trend, estimated strength, and a weekly plan.
+5. Use Opening Coverage to inspect repertoire coverage and launch practice from weak or due lines.
+6. Complete Opening Trainer sessions so results can feed future recommendations and profile priorities.
+
+`MoveMentor estimated strength` is a coaching estimate based on local analysis signals and available game metadata. It is not an official chess rating.
+
 ## Run
 
 ```powershell
@@ -76,8 +96,14 @@ If the app is already running, a normal `dotnet build` may fail to overwrite `Mo
 
 - `MoveMentorChess.App/Views/MainWindow.axaml` - main Avalonia window
 - `MoveMentorChess.App/ViewModels/MainWindowViewModel.cs` - main UI orchestration, import/replay, and analysis commands
-- `MoveMentorChessServices/Engine/StockfishEngine.cs` - communication with Stockfish
-- `MoveMentorChessServices/Images` - piece assets copied to the output directory
+- `MoveMentorChess.App/Views/OpeningCoverageWindow.axaml` - repertoire coverage dashboard
+- `MoveMentorChess.App/ViewModels/OpeningTrainerWindowViewModel.cs` - opening trainer UI state and session orchestration
+- `MoveMentorChess.Analysis` - analysis services, mistake classification, advice generation, and local runtime integration
+- `MoveMentorChess.Engine/StockfishEngine.cs` - communication with Stockfish
+- `MoveMentorChess.Profiles` - player profile and strength estimation services
+- `MoveMentorChess.Training` - training plans, opening trainer, coverage, recommendations, telemetry, and next actions
+- `MoveMentorChess.Persistence` - SQLite store, migrations, analysis cache, opening data, and training history
+- `MoveMentorChessServices.Tests` - service and persistence regression tests
 
 ## Data reset and migration policy
 
@@ -88,6 +114,7 @@ Authoritative data should be preserved across analysis model changes:
 - imported PGN records in `imported_games`
 - opening seed/tree data in the opening tables
 - opening training history in `opening_training_session_results`
+- opening review items and scheduled training actions
 - manual advice feedback in `move_advice_feedbacks`
 
 Derived data can be rebuilt and is versioned with the `derived_analysis_data_version` metadata key:
@@ -100,5 +127,6 @@ When `SqliteAnalysisStore.CurrentDerivedAnalysisDataVersion` changes, startup cl
 
 ## Notes
 
-- `Tracker.cs` still exists in the project for OCR-related work, but the current import flow uses PGN files. Might be used for importing chess positions.
+- `Tracker.cs` still exists in the project for OCR-related work, but the main import flow uses PGN files.
+- The larger Avalonia windows are feature-rich and should be split into smaller renderers/view models before adding more large UI flows.
 

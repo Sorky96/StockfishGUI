@@ -209,6 +209,13 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
 
     public RelayCommand ExecuteSelectedSecondaryNextActionCommand { get; }
 
+    public void OpenLineFromCoverage(OpeningLineCatalogItem opening)
+    {
+        ArgumentNullException.ThrowIfNull(opening);
+        SelectedOpening = opening;
+        SetPage(OverviewPageIndex);
+    }
+
     public string FilterText
     {
         get => filterText;
