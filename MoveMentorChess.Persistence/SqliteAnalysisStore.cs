@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Globalization;
 
@@ -20,14 +19,10 @@ public sealed class SqliteAnalysisStore :
     private const string AppDataDirectoryName = "MoveMentorChessServices";
     private const string DatabaseFileName = "analysis-cache.db";
     private const string DerivedAnalysisDataVersionKey = "derived_analysis_data_version";
-    private const int SqliteOk = 0;
-    private const int SqliteRow = 100;
-    private const int SqliteDone = 101;
-    private const int SqliteNull = 5;
+    private const int SqliteRow = SqliteResult.Row;
     private const int NoMoveTimeMs = -1;
     public const string CurrentDerivedAnalysisDataVersion = "derived-analysis-v1";
 
-    private static readonly IntPtr SqliteTransient = new(-1);
     private static readonly JsonSerializerOptions JsonOptions = new();
 
     private readonly string databasePath;
@@ -3247,180 +3242,6 @@ public sealed class SqliteAnalysisStore :
         database.ExecuteNonQuery($"ALTER TABLE {tableName} ADD COLUMN {columnName} {definition};");
     }
 
-    private sealed class SqliteDatabase : IDisposable
-    {
-        public SqliteDatabase(string path)
-        {
-            int result = sqlite3_open16(path, out IntPtr handle);
-            if (result != SqliteOk)
-            {
-                string message = handle == IntPtr.Zero ? "unknown error" : GetErrorMessage(handle);
-                if (handle != IntPtr.Zero)
-                {
-                    sqlite3_close(handle);
-                }
-
-                throw new InvalidOperationException($"Unable to open SQLite database '{path}': {message}");
-            }
-
-            Handle = handle;
-        }
-
-        public IntPtr Handle { get; }
-
-        public void ExecuteNonQuery(string sql)
-        {
-            using SqliteStatement statement = Prepare(sql);
-            statement.StepUntilDone();
-        }
-
-        public void ExecuteNonQuery(string sql, Action<SqliteStatement> bind)
-        {
-            using SqliteStatement statement = Prepare(sql);
-            bind(statement);
-            statement.StepUntilDone();
-        }
-
-        public bool Exists(string sql, Action<SqliteStatement> bind)
-        {
-            using SqliteStatement statement = Prepare(sql);
-            bind(statement);
-            return statement.Step() == SqliteRow;
-        }
-
-        public SqliteStatement Prepare(string sql)
-        {
-            int result = sqlite3_prepare16_v2(Handle, sql, -1, out IntPtr statement, IntPtr.Zero);
-            ThrowIfError(result, Handle, $"prepare SQL '{sql}'");
-            return new SqliteStatement(this, statement);
-        }
-
-        public void Dispose()
-        {
-            sqlite3_close(Handle);
-        }
-    }
-
-    private sealed class SqliteStatement : IDisposable
-    {
-        private readonly SqliteDatabase database;
-
-        public SqliteStatement(SqliteDatabase database, IntPtr handle)
-        {
-            this.database = database;
-            Handle = handle;
-        }
-
-        public IntPtr Handle { get; }
-
-        public void BindText(int index, string value)
-        {
-            int result = sqlite3_bind_text16(Handle, index, value, -1, SqliteTransient);
-            ThrowIfError(result, database.Handle, $"bind text parameter {index}");
-        }
-
-        public void BindNullableText(int index, string? value)
-        {
-            if (value is null)
-            {
-                BindNull(index);
-                return;
-            }
-
-            BindText(index, value);
-        }
-
-        public void BindNull(int index)
-        {
-            int bindNullResult = sqlite3_bind_null(Handle, index);
-            ThrowIfError(bindNullResult, database.Handle, $"bind null parameter {index}");
-        }
-
-        public void BindInt(int index, int value)
-        {
-            int result = sqlite3_bind_int(Handle, index, value);
-            ThrowIfError(result, database.Handle, $"bind int parameter {index}");
-        }
-
-        public int Step()
-        {
-            int result = sqlite3_step(Handle);
-            if (result is SqliteRow or SqliteDone)
-            {
-                return result;
-            }
-
-            ThrowIfError(result, database.Handle, "execute statement");
-            return result;
-        }
-
-        public void StepUntilDone()
-        {
-            int result = Step();
-            if (result != SqliteDone)
-            {
-                throw new InvalidOperationException("SQLite statement returned rows when no rows were expected.");
-            }
-        }
-
-        public void Reset()
-        {
-            int resetResult = sqlite3_reset(Handle);
-            ThrowIfError(resetResult, database.Handle, "reset statement");
-
-            int clearResult = sqlite3_clear_bindings(Handle);
-            ThrowIfError(clearResult, database.Handle, "clear statement bindings");
-        }
-
-        public int GetInt(int columnIndex)
-        {
-            return sqlite3_column_int(Handle, columnIndex);
-        }
-
-        public int? GetNullableInt(int columnIndex)
-        {
-            return sqlite3_column_type(Handle, columnIndex) == SqliteNull
-                ? null
-                : sqlite3_column_int(Handle, columnIndex);
-        }
-
-        public string? GetText(int columnIndex)
-        {
-            if (sqlite3_column_type(Handle, columnIndex) == SqliteNull)
-            {
-                return null;
-            }
-
-            IntPtr textPointer = sqlite3_column_text16(Handle, columnIndex);
-            return textPointer == IntPtr.Zero
-                ? null
-                : Marshal.PtrToStringUni(textPointer);
-        }
-
-        public void Dispose()
-        {
-            sqlite3_finalize(Handle);
-        }
-    }
-
-    private static void ThrowIfError(int result, IntPtr databaseHandle, string operation)
-    {
-        if (result == SqliteOk)
-        {
-            return;
-        }
-
-        throw new InvalidOperationException($"SQLite failed to {operation}: {GetErrorMessage(databaseHandle)}");
-    }
-
-    private static string GetErrorMessage(IntPtr databaseHandle)
-    {
-        IntPtr pointer = sqlite3_errmsg16(databaseHandle);
-        return pointer == IntPtr.Zero
-            ? "unknown error"
-            : Marshal.PtrToStringUni(pointer) ?? "unknown error";
-    }
-
     private static string BuildDisplayTitle(string? whitePlayer, string? blackPlayer, string? dateText, string? result, string? eco)
     {
         string players = $"{whitePlayer ?? "White"} vs {blackPlayer ?? "Black"}";
@@ -3431,46 +3252,4 @@ public sealed class SqliteAnalysisStore :
     }
 
     private sealed record StoredMoveAnnotation(MistakeTag? Tag, MoveExplanation? Explanation);
-
-    [DllImport("winsqlite3", CharSet = CharSet.Unicode, EntryPoint = "sqlite3_open16")]
-    private static extern int sqlite3_open16(string filename, out IntPtr db);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_close")]
-    private static extern int sqlite3_close(IntPtr db);
-
-    [DllImport("winsqlite3", CharSet = CharSet.Unicode, EntryPoint = "sqlite3_prepare16_v2")]
-    private static extern int sqlite3_prepare16_v2(IntPtr db, string sql, int numBytes, out IntPtr statement, IntPtr tail);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_step")]
-    private static extern int sqlite3_step(IntPtr statement);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_reset")]
-    private static extern int sqlite3_reset(IntPtr statement);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_clear_bindings")]
-    private static extern int sqlite3_clear_bindings(IntPtr statement);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_finalize")]
-    private static extern int sqlite3_finalize(IntPtr statement);
-
-    [DllImport("winsqlite3", CharSet = CharSet.Unicode, EntryPoint = "sqlite3_bind_text16")]
-    private static extern int sqlite3_bind_text16(IntPtr statement, int index, string value, int length, IntPtr destructor);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_bind_null")]
-    private static extern int sqlite3_bind_null(IntPtr statement, int index);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_bind_int")]
-    private static extern int sqlite3_bind_int(IntPtr statement, int index, int value);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_column_int")]
-    private static extern int sqlite3_column_int(IntPtr statement, int columnIndex);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_column_type")]
-    private static extern int sqlite3_column_type(IntPtr statement, int columnIndex);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_column_text16")]
-    private static extern IntPtr sqlite3_column_text16(IntPtr statement, int columnIndex);
-
-    [DllImport("winsqlite3", EntryPoint = "sqlite3_errmsg16")]
-    private static extern IntPtr sqlite3_errmsg16(IntPtr db);
 }
