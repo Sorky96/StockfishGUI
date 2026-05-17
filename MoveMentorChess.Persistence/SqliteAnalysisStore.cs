@@ -12,6 +12,7 @@ public sealed class SqliteAnalysisStore :
     IAnalysisWindowStateStore,
     IOpeningTreeStore,
     IOpeningTheoryStore,
+    IOpeningLineContextStore,
     IOpeningTrainingHistoryStore,
     IOpeningTrainingTelemetryStore
 {
@@ -368,7 +369,6 @@ public sealed class SqliteAnalysisStore :
                 """);
 
             HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, IReadOnlyList<string>> validationMovesByRoot = new(StringComparer.Ordinal);
             while (statement.Step() == SqliteRow)
             {
                 string eco = statement.GetText(0) ?? string.Empty;
@@ -391,17 +391,6 @@ public sealed class SqliteAnalysisStore :
                 if (!string.IsNullOrWhiteSpace(filterText)
                     && displayName.Contains(filterText, StringComparison.OrdinalIgnoreCase) == false
                     && eco.Contains(filterText, StringComparison.OrdinalIgnoreCase) == false)
-                {
-                    continue;
-                }
-
-                if (!validationMovesByRoot.TryGetValue(rootPositionKey.Value, out IReadOnlyList<string>? validationMoves))
-                {
-                    validationMoves = BuildOpeningValidationMoves(database, rootPositionKey);
-                    validationMovesByRoot[rootPositionKey.Value] = validationMoves;
-                }
-
-                if (!IsEcoConsistentWithMoves(eco, validationMoves))
                 {
                     continue;
                 }
@@ -437,154 +426,7 @@ public sealed class SqliteAnalysisStore :
         return items;
     }
 
-    public bool TryGetOpeningOverview(
-        OpeningLineKey lineKey,
-        RepertoireSide repertoireSide,
-        int maxDepth,
-        out OpeningTrainerOverview? overview)
-    {
-        if (!TryParseOpeningLineKey(lineKey.Value, out string eco, out string openingName, out string variationName, out RepertoireSide parsedSide, out OpeningPositionKey rootPositionKey))
-        {
-            overview = null;
-            return false;
-        }
-
-        OpeningKey openingKey = new(BuildOpeningKey(eco, openingName));
-        List<OpeningLineMove> mainLine = [];
-        List<OpeningTrainingBranch> branches = [];
-        List<OpeningMoveIdea> ideas = [];
-        OpeningPositionKey currentPositionKey = rootPositionKey;
-        string? currentFen = null;
-        int maxPly = Math.Max(1, maxDepth);
-
-        if (TryGetOpeningPositionByKey(currentPositionKey.Value, out OpeningTheoryPosition? rootPosition) && rootPosition is not null)
-        {
-            currentFen = rootPosition.Fen;
-        }
-
-        for (int ply = 0; ply < maxPly; ply++)
-        {
-            IReadOnlyList<OpeningTheoryMove> moves = GetOpeningMovesByPositionKey(currentPositionKey.Value, 6, playableOnly: false);
-            if (moves.Count == 0)
-            {
-                break;
-            }
-
-            OpeningTheoryMove primary = moves[0];
-            OpeningMoveIdea primaryIdea = primary.Idea ?? BuildOpeningMoveIdea(primary.MoveSan, primary.IsMainMove);
-            ideas.Add(primaryIdea);
-
-            if (TryGetOpeningPositionByKey(primary.ToPositionKey, out OpeningTheoryPosition? nextPosition) && nextPosition is not null)
-            {
-                mainLine.Add(new OpeningLineMove(
-                    nextPosition.Ply,
-                    nextPosition.MoveNumber,
-                    ParsePlayerSide(nextPosition.SideToMove) == PlayerSide.White ? PlayerSide.Black : PlayerSide.White,
-                    primary.MoveSan,
-                    primary.MoveUci,
-                    currentPositionKey,
-                    primary.ToOpeningPositionKey,
-                    primary.IsMainMove,
-                    primaryIdea));
-                currentPositionKey = primary.ToOpeningPositionKey;
-                currentFen = nextPosition.Fen;
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        IReadOnlyList<OpeningTheoryMove> branchMoves = GetOpeningMovesByPositionKey(rootPositionKey.Value, 5, playableOnly: false);
-        foreach (OpeningTheoryMove move in branchMoves)
-        {
-            OpeningMoveIdea idea = move.Idea ?? BuildOpeningMoveIdea(move.MoveSan, move.IsMainMove);
-            OpeningTrainingMoveOption? recommended = null;
-            IReadOnlyList<OpeningTheoryMove> replies = GetOpeningMovesByPositionKey(move.ToPositionKey, 1, playableOnly: false);
-            OpeningTheoryMove? bestReply = replies.FirstOrDefault();
-            if (bestReply is not null)
-            {
-                recommended = new OpeningTrainingMoveOption(
-                    bestReply.MoveSan,
-                    bestReply.MoveUci,
-                    OpeningTrainingMoveRole.Expected,
-                    bestReply.IsMainMove,
-                    "Best local book response.",
-                    OpeningLineRecallReferenceKind.BestMove,
-                    OpeningTrainingMoveSourceKind.OpeningBook,
-                    bestReply.Idea ?? BuildOpeningMoveIdea(bestReply.MoveSan, bestReply.IsMainMove),
-                    bestReply.ToOpeningPositionKey);
-            }
-
-            branches.Add(new OpeningTrainingBranch(
-                new OpeningBranchKey($"{lineKey.Value}|{move.MoveUci}"),
-                move.MoveSan,
-                move.MoveUci,
-                Math.Max(1, move.DistinctGameCount),
-                $"Book frequency: {move.OccurrenceCount} occurrence(s), {move.DistinctGameCount} game(s).",
-                recommended,
-                [],
-                [],
-                move.ToOpeningPositionKey));
-        }
-
-        OpeningCoverageSummary coverage = new(
-            TotalBookBranches: Math.Max(branches.Count, 1),
-            CoveredBranches: 0,
-            WeakBranches: branches.Count,
-            UnseenCommonBranches: branches.Count,
-            CoveragePercent: 0,
-            KnownPositions: mainLine.Count,
-            StableBranches: 0,
-            KnowledgeBoundaryPly: mainLine.LastOrDefault()?.Ply ?? 0);
-        OpponentReplyProfile opponentProfile = new(
-            lineKey,
-            parsedSide == RepertoireSide.Both ? repertoireSide : parsedSide,
-            branches.Select(branch => new OpponentMoveFrequency(
-                branch.OpponentMove,
-                branch.OpponentMoveUci,
-                branch.Frequency,
-                branch.Frequency,
-                0,
-                0,
-                false,
-                OpponentMoveFrequencySourceKind.BookFrequency,
-                branch.SourceSummary)).ToList(),
-            branches.Count == 0
-                ? "No opponent branches were found in the local opening book."
-                : $"Tracked {branches.Count} opponent branch(es) from the local opening book.");
-
-        IReadOnlyList<string> validationMoves = BuildOpeningValidationMoves(rootPositionKey);
-        if (!IsEcoConsistentWithMoves(eco, validationMoves.Count > 0 ? validationMoves : mainLine.Select(move => move.San).ToList()))
-        {
-            overview = null;
-            return false;
-        }
-
-        IReadOnlyList<OpeningLineMove> pathLineMoves = BuildOpeningPathLineMoves(rootPositionKey);
-        if (pathLineMoves.Count > 0)
-        {
-            mainLine.InsertRange(0, pathLineMoves);
-        }
-
-        overview = new OpeningTrainerOverview(
-            openingKey,
-            lineKey,
-            parsedSide,
-            eco,
-            openingName,
-            variationName,
-            mainLine,
-            branches,
-            opponentProfile,
-            coverage,
-            [],
-            [],
-            ideas);
-        return true;
-    }
-
-    private IReadOnlyList<string> BuildOpeningValidationMoves(OpeningPositionKey rootPositionKey)
+    public IReadOnlyList<string> GetOpeningValidationMoves(OpeningPositionKey rootPositionKey)
     {
         lock (sync)
         {
@@ -605,7 +447,7 @@ public sealed class SqliteAnalysisStore :
         return pathMoves.Concat(continuationMoves).ToList();
     }
 
-    private IReadOnlyList<OpeningLineMove> BuildOpeningPathLineMoves(OpeningPositionKey rootPositionKey)
+    public IReadOnlyList<OpeningLineMove> GetOpeningPathLineMoves(OpeningPositionKey rootPositionKey)
     {
         lock (sync)
         {
@@ -752,46 +594,6 @@ public sealed class SqliteAnalysisStore :
         }
 
         return moves;
-    }
-
-    private static bool IsEcoConsistentWithMoves(string eco, IReadOnlyList<string> moves)
-    {
-        if (string.IsNullOrWhiteSpace(eco) || moves.Count < 2 || eco.Length < 3)
-        {
-            return true;
-        }
-
-        char family = char.ToUpperInvariant(eco[0]);
-        if (!int.TryParse(eco.AsSpan(1, 2), NumberStyles.None, CultureInfo.InvariantCulture, out int code))
-        {
-            return true;
-        }
-
-        string firstMove = NormalizeSanForEcoValidation(moves[0]);
-        string firstBlackMove = NormalizeSanForEcoValidation(moves[1]);
-
-        return family switch
-        {
-            'B' when code == 22 => firstMove == "e4"
-                && firstBlackMove == "c5"
-                && moves.Count >= 3
-                && NormalizeSanForEcoValidation(moves[2]) == "c3",
-            'B' when code >= 20 => firstMove == "e4" && firstBlackMove == "c5",
-            'B' => firstMove == "e4" && firstBlackMove != "e5",
-            'C' when code < 20 => firstMove == "e4" && firstBlackMove == "e6",
-            'C' => firstMove == "e4" && firstBlackMove == "e5",
-            _ => true
-        };
-    }
-
-    private static string NormalizeSanForEcoValidation(string san)
-    {
-        return san
-            .Replace("+", string.Empty, StringComparison.Ordinal)
-            .Replace("#", string.Empty, StringComparison.Ordinal)
-            .Replace("!", string.Empty, StringComparison.Ordinal)
-            .Replace("?", string.Empty, StringComparison.Ordinal)
-            .Trim();
     }
 
     public void SaveImportedGame(ImportedGame game)
@@ -3022,8 +2824,7 @@ public sealed class SqliteAnalysisStore :
                 statement.GetText(12) ?? string.Empty,
                 statement.GetText(13) ?? string.Empty,
                 statement.GetText(14) ?? string.Empty),
-            "opening_book",
-            BuildOpeningMoveIdea(moveSan, isMainMove));
+            "opening_book");
     }
 
     private static OpeningTrainingScheduledAction ReadOpeningTrainingScheduledAction(SqliteStatement statement)
@@ -3141,91 +2942,9 @@ public sealed class SqliteAnalysisStore :
             SanitizeKeyPart(positionKey));
     }
 
-    private static bool TryParseOpeningLineKey(
-        string value,
-        out string eco,
-        out string openingName,
-        out string variationName,
-        out RepertoireSide side,
-        out OpeningPositionKey positionKey)
-    {
-        eco = string.Empty;
-        openingName = string.Empty;
-        variationName = string.Empty;
-        side = RepertoireSide.Both;
-        positionKey = default;
-
-        string[] parts = value.Split(CompositeKeySeparator);
-        if (parts.Length < 5)
-        {
-            return false;
-        }
-
-        eco = RestoreKeyPart(parts[0]);
-        openingName = RestoreKeyPart(parts[1]);
-        variationName = RestoreKeyPart(parts[2]);
-        _ = Enum.TryParse(parts[3], out side);
-        positionKey = new OpeningPositionKey(RestoreKeyPart(parts[4]));
-        return !positionKey.IsEmpty;
-    }
-
     private static string SanitizeKeyPart(string? value)
     {
         return (value ?? string.Empty).Replace("\\", "\\\\", StringComparison.Ordinal).Replace("|", "\\|", StringComparison.Ordinal);
-    }
-
-    private static string RestoreKeyPart(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        return value.Replace("\\|", "|", StringComparison.Ordinal).Replace("\\\\", "\\", StringComparison.Ordinal);
-    }
-
-    private static OpeningMoveIdea BuildOpeningMoveIdea(string moveSan, bool isMainMove)
-    {
-        List<OpeningMoveIdeaTag> tags = [];
-        string explanation;
-        string normalized = moveSan.Trim();
-
-        if (normalized.StartsWith("O-O", StringComparison.OrdinalIgnoreCase))
-        {
-            tags.Add(OpeningMoveIdeaTag.KingSafety);
-            explanation = "Castling improves king safety and activates the rooks.";
-        }
-        else if (normalized.StartsWith("N", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("B", StringComparison.OrdinalIgnoreCase))
-        {
-            tags.Add(OpeningMoveIdeaTag.DevelopPiece);
-            explanation = "This move develops a piece toward active play.";
-        }
-        else if (normalized.StartsWith("c", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("d", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("e", StringComparison.OrdinalIgnoreCase))
-        {
-            tags.Add(OpeningMoveIdeaTag.ControlCenter);
-            explanation = "This move fights for central space and influence.";
-        }
-        else
-        {
-            tags.Add(OpeningMoveIdeaTag.ImproveWorstPiece);
-            explanation = "This move improves coordination without drifting from theory.";
-        }
-
-        if (normalized.Contains("+", StringComparison.Ordinal) || normalized.Contains("x", StringComparison.Ordinal))
-        {
-            tags.Add(OpeningMoveIdeaTag.TacticalResource);
-        }
-
-        if (isMainMove)
-        {
-            tags.Add(OpeningMoveIdeaTag.MainTheoreticalMove);
-            explanation = $"{explanation} It is also the main theoretical move here.";
-        }
-
-        return new OpeningMoveIdea(normalized, tags.Distinct().ToList(), explanation);
     }
 
     private static void EnsureColumnExists(SqliteDatabase database, string tableName, string columnName, string definition)
