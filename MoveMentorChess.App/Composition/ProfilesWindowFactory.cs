@@ -16,11 +16,8 @@ public sealed class ProfilesWindowFactory : IProfilesWindowFactory
 
     public ProfilesWindow Create(ProfilesWindowRequest request)
     {
-        IAnalysisStore store = analysisStoreProvider()
-            ?? throw new InvalidOperationException("Local analysis store is unavailable.");
-
         return new ProfilesWindow(
-            new PlayerProfileService(store),
+            new DefaultProfilesWindowDataService(analysisStoreProvider),
             request.NavigateToProfileExampleAsync,
             request.NavigateToOpeningExampleAsync,
             request.NavigateToOpeningPositionAsync);

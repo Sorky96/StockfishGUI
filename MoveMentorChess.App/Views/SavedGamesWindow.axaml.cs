@@ -8,19 +8,24 @@ namespace MoveMentorChess.App.Views;
 
 public partial class SavedGamesWindow : Window
 {
-    private readonly IAnalysisStore analysisStore;
+    private readonly ISavedLibraryDataService dataService;
     private List<SavedGameItemViewModel> items = [];
     private SavedGamesSortColumn sortColumn = SavedGamesSortColumn.Player;
     private bool sortAscending = true;
 
     public SavedGamesWindow()
-        : this(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable."))
+        : this(new DefaultSavedLibraryDataService(() => null))
     {
     }
 
     public SavedGamesWindow(IAnalysisStore analysisStore)
+        : this(new StoreBackedSavedLibraryDataService(analysisStore))
     {
-        this.analysisStore = analysisStore;
+    }
+
+    internal SavedGamesWindow(ISavedLibraryDataService dataService)
+    {
+        this.dataService = dataService ?? throw new ArgumentNullException(nameof(dataService));
         InitializeComponent();
         RefreshList();
     }
@@ -69,12 +74,11 @@ public partial class SavedGamesWindow : Window
             return;
         }
 
-        if (!analysisStore.DeleteImportedGame(item.Summary.GameFingerprint))
+        if (!dataService.DeleteGameAndCachedAnalysis(item.Summary.GameFingerprint))
         {
             return;
         }
 
-        GameAnalysisCache.RemoveGame(item.Summary.GameFingerprint);
         RefreshList();
     }
 
@@ -85,7 +89,7 @@ public partial class SavedGamesWindow : Window
 
     private void RefreshList()
     {
-        IEnumerable<SavedGameItemViewModel> query = analysisStore.ListImportedGames(null)
+        IEnumerable<SavedGameItemViewModel> query = dataService.ListImportedGames(null)
             .Select(summary => new SavedGameItemViewModel(summary));
 
         string filter = FilterTextBox.Text?.Trim() ?? string.Empty;
@@ -151,7 +155,7 @@ public partial class SavedGamesWindow : Window
             return;
         }
 
-        if (!analysisStore.TryLoadImportedGame(item.Summary.GameFingerprint, out ImportedGame? game) || game is null)
+        if (!dataService.TryLoadImportedGame(item.Summary.GameFingerprint, out ImportedGame? game) || game is null)
         {
             return;
         }

@@ -29,12 +29,14 @@ public sealed class SqliteAnalysisStore :
     private readonly string databasePath;
     private readonly string derivedAnalysisDataVersion;
     private readonly bool applyDerivedAnalysisDataVersionPolicy;
+    private readonly IClock clock;
     private readonly object sync = new();
 
     public SqliteAnalysisStore(
         string databasePath,
         string derivedAnalysisDataVersion = CurrentDerivedAnalysisDataVersion,
-        bool applyDerivedAnalysisDataVersionPolicy = true)
+        bool applyDerivedAnalysisDataVersionPolicy = true,
+        IClock? clock = null)
     {
         if (string.IsNullOrWhiteSpace(databasePath))
         {
@@ -46,6 +48,7 @@ public sealed class SqliteAnalysisStore :
         this.databasePath = databasePath;
         this.derivedAnalysisDataVersion = derivedAnalysisDataVersion;
         this.applyDerivedAnalysisDataVersionPolicy = applyDerivedAnalysisDataVersionPolicy;
+        this.clock = clock ?? SystemClock.Instance;
         string? directory = Path.GetDirectoryName(databasePath);
         if (!string.IsNullOrWhiteSpace(directory))
         {
@@ -606,7 +609,7 @@ public sealed class SqliteAnalysisStore :
             database.ExecuteNonQuery("BEGIN IMMEDIATE;");
             try
             {
-                SaveImportedGames(database, [game]);
+                SaveImportedGames(database, [game], clock.UtcNow);
                 database.ExecuteNonQuery("COMMIT;");
             }
             catch
@@ -631,7 +634,7 @@ public sealed class SqliteAnalysisStore :
             database.ExecuteNonQuery("BEGIN IMMEDIATE;");
             try
             {
-                SaveImportedGames(database, games);
+                SaveImportedGames(database, games, clock.UtcNow);
                 database.ExecuteNonQuery("COMMIT;");
             }
             catch
@@ -1234,7 +1237,7 @@ public sealed class SqliteAnalysisStore :
         SaveImportedGame(result.Game);
 
         string payload = JsonSerializer.Serialize(result, JsonOptions);
-        string timestamp = DateTime.UtcNow.ToString("O");
+        string timestamp = clock.UtcNow.ToString("O");
 
         lock (sync)
         {
@@ -1305,7 +1308,7 @@ public sealed class SqliteAnalysisStore :
         ArgumentException.ThrowIfNullOrWhiteSpace(gameFingerprint);
         ArgumentNullException.ThrowIfNull(state);
 
-        string timestamp = DateTime.UtcNow.ToString("O");
+        string timestamp = clock.UtcNow.ToString("O");
 
         lock (sync)
         {
@@ -2620,9 +2623,9 @@ public sealed class SqliteAnalysisStore :
             });
     }
 
-    private static void SaveImportedGames(SqliteDatabase database, IReadOnlyList<ImportedGame> games)
+    private static void SaveImportedGames(SqliteDatabase database, IReadOnlyList<ImportedGame> games, DateTime timestampUtc)
     {
-        string timestamp = DateTime.UtcNow.ToString("O");
+        string timestamp = timestampUtc.ToUniversalTime().ToString("O");
         using SqliteStatement statement = database.Prepare("""
             INSERT INTO imported_games (
                 game_fingerprint,

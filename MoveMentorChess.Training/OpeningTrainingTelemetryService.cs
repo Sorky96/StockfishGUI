@@ -4,10 +4,17 @@ public sealed class OpeningTrainingTelemetryService
 {
     private readonly List<OpeningTrainingTelemetryEvent> events = [];
     private readonly IOpeningTrainingTelemetryStore? telemetryStore;
+    private readonly IClock clock;
 
     public OpeningTrainingTelemetryService(IOpeningTrainingTelemetryStore? telemetryStore = null)
+        : this(telemetryStore, SystemClock.Instance)
+    {
+    }
+
+    public OpeningTrainingTelemetryService(IOpeningTrainingTelemetryStore? telemetryStore, IClock clock)
     {
         this.telemetryStore = telemetryStore;
+        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
     public void Track(OpeningTrainingTelemetryEvent telemetryEvent)
@@ -32,7 +39,7 @@ public sealed class OpeningTrainingTelemetryService
     {
         Track(new OpeningTrainingTelemetryEvent(
             eventName,
-            DateTime.UtcNow,
+            clock.UtcNow,
             NormalizePlayerKey(playerKey),
             opening?.LineKey,
             opening?.OpeningKey,

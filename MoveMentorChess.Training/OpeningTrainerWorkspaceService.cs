@@ -3,9 +3,10 @@ namespace MoveMentorChess.Training;
 public sealed class OpeningTrainerWorkspaceService
 {
     private readonly IAnalysisStore analysisStore;
+    private readonly IClock clock;
     private readonly OpeningTheoryQueryService? openingTheory;
     private readonly OpeningTrainerService trainerService;
-    private readonly OpeningTrainingRecommendationService recommendationService = new();
+    private readonly OpeningTrainingRecommendationService recommendationService;
     private readonly OpeningTrainingPriorityService priorityService = new();
     private readonly OpeningTrainingCoachingService coachingService = new();
     private readonly OpeningTrainingNextActionService nextActionService = new();
@@ -17,13 +18,22 @@ public sealed class OpeningTrainerWorkspaceService
     private readonly IOpeningTrainingHistoryStore? historyStore;
 
     public OpeningTrainerWorkspaceService(IAnalysisStore analysisStore)
+        : this(analysisStore, SystemClock.Instance)
+    {
+    }
+
+    public OpeningTrainerWorkspaceService(IAnalysisStore analysisStore, IClock clock)
     {
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
+        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
         openingTheory = OpeningTheorySourceResolver.Create(analysisStore);
-        trainerService = new OpeningTrainerService(analysisStore);
+        trainerService = new OpeningTrainerService(analysisStore, clock);
+        recommendationService = new OpeningTrainingRecommendationService(clock);
         historyStore = analysisStore as IOpeningTrainingHistoryStore;
-        telemetryService = new OpeningTrainingTelemetryService(analysisStore as IOpeningTrainingTelemetryStore);
+        telemetryService = new OpeningTrainingTelemetryService(analysisStore as IOpeningTrainingTelemetryStore, clock);
     }
+
+    public DateTime UtcNow => clock.UtcNow;
 
     public IReadOnlyList<OpeningLineCatalogItem> ListOpeningLines(string? filterText, RepertoireSide side, int limit = 100)
     {
@@ -57,7 +67,7 @@ public sealed class OpeningTrainerWorkspaceService
         IReadOnlyList<OpeningLineCatalogItem> availableLines = ListOpeningLines(null, side, limit);
         IReadOnlyList<OpeningReviewItem> reviewItems = historyStore?.ListOpeningReviewItems(playerKey, 2000) ?? [];
         IReadOnlyList<OpeningTrainingSessionResult> sessionResults = historyStore?.ListOpeningTrainingSessionResults(playerKey, 200) ?? [];
-        IReadOnlyList<OpeningTrainingScheduledAction> dueActions = historyStore?.ListDueOpeningTrainingScheduledActions(playerKey, DateTime.UtcNow, 50) ?? [];
+        IReadOnlyList<OpeningTrainingScheduledAction> dueActions = historyStore?.ListDueOpeningTrainingScheduledActions(playerKey, UtcNow, 50) ?? [];
 
         return recommendationService.Recommend(playerKey, availableLines, reviewItems, sessionResults, dueActions);
     }
@@ -67,7 +77,7 @@ public sealed class OpeningTrainerWorkspaceService
         IReadOnlyList<OpeningLineCatalogItem> availableLines = ListOpeningLines(null, side, limit);
         IReadOnlyList<OpeningReviewItem> reviewItems = historyStore?.ListOpeningReviewItems(playerKey, 2000) ?? [];
         IReadOnlyList<OpeningTrainingSessionResult> sessionResults = historyStore?.ListOpeningTrainingSessionResults(playerKey, 200) ?? [];
-        IReadOnlyList<OpeningTrainingScheduledAction> dueActions = historyStore?.ListDueOpeningTrainingScheduledActions(playerKey, DateTime.UtcNow, 50) ?? [];
+        IReadOnlyList<OpeningTrainingScheduledAction> dueActions = historyStore?.ListDueOpeningTrainingScheduledActions(playerKey, UtcNow, 50) ?? [];
         TrainingRecommendationCard? recommendation = recommendationService.Recommend(playerKey, availableLines, reviewItems, sessionResults, dueActions);
 
         return playerOpeningPlanService.BuildPlan(playerKey, recommendation, availableLines, reviewItems, sessionResults, dueActions);
@@ -299,11 +309,12 @@ public sealed class OpeningTrainerWorkspaceService
             new OpeningTrainingReference(string.Empty, PlayerSide.White, "Theory", null, null, "Guided study", 1, null),
             item.RepertoireSide));
 
+        DateTime createdUtc = UtcNow;
         return new OpeningTrainingSession(
-            $"guided:{item.LineKey.Value}:{DateTime.UtcNow:yyyyMMddHHmmss}",
+            $"guided:{item.LineKey.Value}:{createdUtc:yyyyMMddHHmmss}",
             normalizedPlayerKey,
             displayName,
-            DateTime.UtcNow,
+            createdUtc,
             OpeningTrainingStyle.Memorization,
             effectiveStrictness,
             item.RepertoireSide,
@@ -398,7 +409,7 @@ public sealed class OpeningTrainerWorkspaceService
             session,
             attempts,
             outcome,
-            completedUtc: DateTime.UtcNow,
+            completedUtc: UtcNow,
             startSource: startSource,
             recommendationId: recommendationId,
             hintCount: hintCount,
@@ -440,7 +451,7 @@ public sealed class OpeningTrainerWorkspaceService
             sessionResult.PlayerKey,
             sessionResult,
             nextActions,
-            DateTime.UtcNow);
+            UtcNow);
         if (actions.Count > 0)
         {
             historyStore?.SaveOpeningTrainingScheduledActions(sessionResult.PlayerKey, actions);
@@ -457,6 +468,11 @@ public sealed class OpeningTrainerWorkspaceService
         }
 
         historyStore?.MarkOpeningTrainingScheduledActionCompleted(playerKey, actionId, completedUtc);
+    }
+
+    public void MarkScheduledActionCompleted(string playerKey, string actionId)
+    {
+        MarkScheduledActionCompleted(playerKey, actionId, UtcNow);
     }
 
     public OpeningTrainingSessionOptions BuildSpecialModeOptions(SpecialTrainingModeDefinition definition)

@@ -224,17 +224,20 @@ public sealed class TrackingTests
     {
         const string seedFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         const string midgamePlacement = "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R";
+        DateTime nowUtc = new(2026, 5, 18, 16, 10, 0, DateTimeKind.Utc);
 
         TrackingCoordinator coordinator = new(
             new FakeMoveListRecognizer(Array.Empty<MoveListRecognitionResult>()),
             new BoardPositionRecognizer(GetImagesDirectory()),
-            new ScreenCaptureService());
+            new ScreenCaptureService(),
+            new FixedClock(nowUtc));
 
         using Bitmap board = RenderBoard(midgamePlacement, whiteAtBottom: true);
         TrackingUpdate initialization = coordinator.InitializeBoardOnly(board, seedFen, whiteAtBottom: true);
 
         Assert.NotNull(initialization.Snapshot);
         Assert.Equal(midgamePlacement, initialization.Snapshot!.PlacementFen);
+        Assert.Equal(nowUtc, initialization.Snapshot.SourceTimestamp);
     }
 
     [Fact]
@@ -543,5 +546,10 @@ public sealed class TrackingTests
             error = null;
             return true;
         }
+    }
+
+    private sealed class FixedClock(DateTime utcNow) : IClock
+    {
+        public DateTime UtcNow { get; } = utcNow;
     }
 }

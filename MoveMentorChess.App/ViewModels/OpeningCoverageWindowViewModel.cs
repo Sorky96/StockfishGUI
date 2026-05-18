@@ -17,14 +17,14 @@ public sealed class OpeningCoverageWindowViewModel : ViewModelBase
     private int missingEcoLines;
     private double averageCoveragePercent;
 
-    public OpeningCoverageWindowViewModel()
-        : this(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable."))
+    public OpeningCoverageWindowViewModel(IAnalysisStore analysisStore)
+        : this(new OpeningTrainerWorkspaceService(analysisStore))
     {
     }
 
-    public OpeningCoverageWindowViewModel(IAnalysisStore analysisStore)
+    public OpeningCoverageWindowViewModel(OpeningTrainerWorkspaceService workspaceService)
     {
-        workspaceService = new OpeningTrainerWorkspaceService(analysisStore);
+        this.workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         RefreshCommand = new RelayCommand(Refresh);
         AvailableSides = Enum.GetValues<RepertoireSide>();
         Refresh();

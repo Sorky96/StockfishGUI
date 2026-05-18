@@ -16,16 +16,35 @@ public partial class MainWindow : Window
 {
     private readonly IAnalysisWindowFactory analysisWindowFactory;
     private readonly IProfilesWindowFactory profilesWindowFactory;
+    private readonly IMainWindowDialogDataService dialogDataService;
 
     public MainWindow()
-        : this(new AnalysisWindowFactory(), new ProfilesWindowFactory(AnalysisStoreProvider.GetStore))
+        : this(
+            new AnalysisWindowFactory(),
+            new ProfilesWindowFactory(() => null),
+            () => null)
     {
     }
 
-    public MainWindow(IAnalysisWindowFactory analysisWindowFactory, IProfilesWindowFactory profilesWindowFactory)
+    public MainWindow(
+        IAnalysisWindowFactory analysisWindowFactory,
+        IProfilesWindowFactory profilesWindowFactory,
+        Func<IAnalysisStore?> analysisStoreProvider)
+        : this(
+            analysisWindowFactory,
+            profilesWindowFactory,
+            new DefaultMainWindowDialogDataService(analysisStoreProvider))
+    {
+    }
+
+    private MainWindow(
+        IAnalysisWindowFactory analysisWindowFactory,
+        IProfilesWindowFactory profilesWindowFactory,
+        IMainWindowDialogDataService dialogDataService)
     {
         this.analysisWindowFactory = analysisWindowFactory ?? throw new ArgumentNullException(nameof(analysisWindowFactory));
         this.profilesWindowFactory = profilesWindowFactory ?? throw new ArgumentNullException(nameof(profilesWindowFactory));
+        this.dialogDataService = dialogDataService ?? throw new ArgumentNullException(nameof(dialogDataService));
         InitializeComponent();
         Opened += (_, _) =>
         {
@@ -75,13 +94,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
-        if (store is null)
+        ISavedLibraryDataService savedLibrary = dialogDataService.SavedLibrary;
+        if (!savedLibrary.IsAvailable)
         {
             return;
         }
 
-        SavedGamesWindow dialog = new(store);
+        SavedGamesWindow dialog = new(savedLibrary);
         bool? result = await dialog.ShowDialog<bool?>(this);
         if (result == true && dialog.SelectedGame is not null)
         {
@@ -213,13 +232,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
-        if (store is null)
+        ISavedLibraryDataService savedLibrary = dialogDataService.SavedLibrary;
+        if (!savedLibrary.IsAvailable)
         {
             return;
         }
 
-        SavedAnalysesWindow dialog = new(store, canOpenAnalysis: true);
+        SavedAnalysesWindow dialog = new(savedLibrary, canOpenAnalysis: true);
         bool? result = await dialog.ShowDialog<bool?>(this);
         if (result != true || dialog.SelectedResult is null)
         {
@@ -255,29 +274,31 @@ public partial class MainWindow : Window
 
     private async void OpeningTrainerButton_Click(object? sender, RoutedEventArgs e)
     {
-        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
-        if (store is null)
+        if (!dialogDataService.TryCreateOpeningTrainerViewModel(out OpeningTrainerWindowViewModel? viewModel) || viewModel is null)
         {
             return;
         }
 
-        OpeningTrainerWindow dialog = new(new OpeningTrainerWindowViewModel(store));
+        OpeningTrainerWindow dialog = new(viewModel);
         await dialog.ShowDialog(this);
     }
 
     private async void OpeningCoverageButton_Click(object? sender, RoutedEventArgs e)
     {
-        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
-        if (store is null)
+        if (!dialogDataService.TryCreateOpeningCoverageViewModel(out OpeningCoverageWindowViewModel? viewModel) || viewModel is null)
         {
             return;
         }
 
-        OpeningCoverageWindow coverageWindow = new(new OpeningCoverageWindowViewModel(store));
+        OpeningCoverageWindow coverageWindow = new(viewModel);
         bool? result = await coverageWindow.ShowDialog<bool?>(this);
         if (result == true && coverageWindow.SelectedLine is not null)
         {
-            OpeningTrainerWindowViewModel trainerViewModel = new(store);
+            if (!dialogDataService.TryCreateOpeningTrainerViewModel(out OpeningTrainerWindowViewModel? trainerViewModel) || trainerViewModel is null)
+            {
+                return;
+            }
+
             trainerViewModel.OpenLineFromCoverage(coverageWindow.SelectedLine);
             OpeningTrainerWindow trainerWindow = new(trainerViewModel);
             await trainerWindow.ShowDialog(this);

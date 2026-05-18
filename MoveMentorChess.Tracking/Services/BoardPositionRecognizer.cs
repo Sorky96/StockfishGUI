@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -594,8 +595,14 @@ public sealed class BoardPositionRecognizer
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceWarning(
+                "BoardPositionRecognizer: failed to load image template '{0}' from '{1}' ({2}: {3})",
+                pieceType,
+                path,
+                ex.GetType().Name,
+                ex.Message);
         }
     }
 

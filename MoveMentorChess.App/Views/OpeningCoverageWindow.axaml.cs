@@ -8,7 +8,7 @@ namespace MoveMentorChess.App.Views;
 public partial class OpeningCoverageWindow : Window
 {
     public OpeningCoverageWindow()
-        : this(new OpeningCoverageWindowViewModel())
+        : this(CreateDefaultViewModel())
     {
     }
 
@@ -16,6 +16,14 @@ public partial class OpeningCoverageWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+    }
+
+    private static OpeningCoverageWindowViewModel CreateDefaultViewModel()
+    {
+        DefaultMainWindowDialogDataService dataService = new(() => null);
+        return dataService.TryCreateOpeningCoverageViewModel(out OpeningCoverageWindowViewModel? viewModel) && viewModel is not null
+            ? viewModel
+            : throw new InvalidOperationException("Local analysis store is unavailable.");
     }
 
     public OpeningLineCatalogItem? SelectedLine { get; private set; }

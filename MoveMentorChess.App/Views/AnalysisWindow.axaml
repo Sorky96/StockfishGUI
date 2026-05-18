@@ -12,13 +12,23 @@
         Background="{DynamicResource ChromeBrush}">
   <Grid Margin="18" RowDefinitions="Auto,Auto,*">
     <Grid ColumnDefinitions="220,180,*,170,150,100">
-      <ComboBox x:Name="SideComboBox" />
-      <ComboBox x:Name="QualityFilterComboBox" Grid.Column="1" Margin="12,0,0,0" />
+      <ComboBox x:Name="SideComboBox"
+                x:CompileBindings="False"
+                ItemsSource="{Binding SideOptions}"
+                SelectedItem="{Binding SelectedSideOption, Mode=TwoWay}" />
+      <ComboBox x:Name="QualityFilterComboBox"
+                x:CompileBindings="False"
+                Grid.Column="1"
+                Margin="12,0,0,0"
+                ItemsSource="{Binding FilterOptions}"
+                SelectedItem="{Binding SelectedFilterOption, Mode=TwoWay}" />
       <TextBlock x:Name="SummaryTextBlock"
+                 x:CompileBindings="False"
                  Grid.Column="2"
                  Margin="16,0,0,0"
                  VerticalAlignment="Center"
                  Foreground="White"
+                 Text="{Binding SummaryText}"
                  TextWrapping="Wrap" />
       <Button x:Name="AnalyzeButton"
               Grid.Column="3"
@@ -39,12 +49,15 @@
     <Grid Grid.Row="1" Margin="0,12,0,0" ColumnDefinitions="*,170">
       <StackPanel>
         <TextBlock x:Name="StatusTextBlock"
+                   x:CompileBindings="False"
                    Foreground="#D7E2EA"
-                   Text="Choose a side and run the analysis."
+                   Text="{Binding StatusText}"
                    TextWrapping="Wrap" />
         <TextBlock x:Name="AdviceStatusTextBlock"
+                   x:CompileBindings="False"
                    Margin="0,6,0,0"
                    Foreground="#9EB5C5"
+                   Text="{Binding AdviceStatusText}"
                    TextWrapping="Wrap" />
       </StackPanel>
 
@@ -83,6 +96,9 @@
 
         <Border Grid.Row="1" Margin="0,10,0,0" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelAccentBrush}" BorderThickness="1" CornerRadius="8">
           <ListBox x:Name="MistakesListBox"
+                   x:CompileBindings="False"
+                   ItemsSource="{Binding VisibleMistakes}"
+                   SelectedItem="{Binding SelectedMistake, Mode=TwoWay}"
                    SelectionChanged="MistakesListBox_OnSelectionChanged"
                    DoubleTapped="MistakesListBox_OnDoubleTapped"
                    Background="{DynamicResource ChromeBrush}"

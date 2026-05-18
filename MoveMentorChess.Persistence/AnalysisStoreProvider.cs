@@ -46,8 +46,12 @@ public static class AnalysisStoreProvider
             EnsureBundledOpeningSeedImported();
             return SqliteAnalysisStore.CreateDefault();
         }
-        catch
+        catch (Exception ex)
         {
+            PersistenceDiagnostics.Warning(
+                nameof(AnalysisStoreProvider),
+                "Failed to create the default analysis store. Persistent analysis data will be unavailable.",
+                ex);
             return null;
         }
     }

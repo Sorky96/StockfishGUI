@@ -184,6 +184,27 @@ public sealed class SqliteAnalysisStoreTests
     }
 
     [Fact]
+    public void SqliteAnalysisStore_SaveImportedGameUsesInjectedClock()
+    {
+        string databasePath = CreateTempDatabasePath();
+        DateTime nowUtc = new(2026, 5, 18, 18, 20, 0, DateTimeKind.Utc);
+
+        try
+        {
+            SqliteAnalysisStore store = new(databasePath, clock: new FixedClock(nowUtc));
+
+            store.SaveImportedGame(PgnGameParser.Parse(GameOnePgn));
+
+            SavedImportedGameSummary summary = Assert.Single(store.ListImportedGames());
+            Assert.Equal(nowUtc, summary.UpdatedUtc.ToUniversalTime());
+        }
+        finally
+        {
+            DeleteTempDatabase(databasePath);
+        }
+    }
+
+    [Fact]
     public void SqliteAnalysisStore_SavesAndLoadsAnalysisWindowState()
     {
         string databasePath = CreateTempDatabasePath();
@@ -1116,6 +1137,11 @@ public sealed class SqliteAnalysisStoreTests
     private static string CreateTempDatabasePath()
     {
         return Path.Combine(Path.GetTempPath(), $"MoveMentorChessServices-store-{Guid.NewGuid():N}.db");
+    }
+
+    private sealed class FixedClock(DateTime utcNow) : IClock
+    {
+        public DateTime UtcNow { get; } = utcNow;
     }
 
     private static MoveAnalysisResult CreateMoveAnalysis(

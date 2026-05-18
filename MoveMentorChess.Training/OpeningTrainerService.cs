@@ -19,23 +19,36 @@ public sealed class OpeningTrainerService
     private readonly TrainingAnalysisDataSource analysisDataSource;
     private readonly OpeningTheoryQueryService? openingTheory;
     private readonly IOpeningTrainingHistoryStore? historyStore;
+    private readonly IClock clock;
 
     public OpeningTrainerService(IAnalysisStore analysisStore)
+        : this(analysisStore, SystemClock.Instance)
+    {
+    }
+
+    public OpeningTrainerService(IAnalysisStore analysisStore, IClock clock)
         : this(
             analysisStore,
             new TrainingAnalysisDataSource(analysisStore, analysisStore),
             OpeningTheorySourceResolver.Create(analysisStore),
-            analysisStore as IOpeningTrainingHistoryStore)
+            analysisStore as IOpeningTrainingHistoryStore,
+            clock)
     {
     }
 
     public OpeningTrainerService(IImportedGameStore importedGameStore)
+        : this(importedGameStore, SystemClock.Instance)
+    {
+    }
+
+    public OpeningTrainerService(IImportedGameStore importedGameStore, IClock clock)
         : this(
             importedGameStore,
             RequireResultStore(importedGameStore),
             RequireMoveAnalysisStore(importedGameStore),
             importedGameStore as IOpeningTheoryStore,
-            importedGameStore as IOpeningTrainingHistoryStore)
+            importedGameStore as IOpeningTrainingHistoryStore,
+            clock)
     {
     }
 
@@ -45,11 +58,23 @@ public sealed class OpeningTrainerService
         IStoredMoveAnalysisStore moveAnalysisStore,
         IOpeningTheoryStore? openingTheoryStore = null,
         IOpeningTrainingHistoryStore? historyStore = null)
+        : this(importedGameStore, resultStore, moveAnalysisStore, openingTheoryStore, historyStore, SystemClock.Instance)
+    {
+    }
+
+    public OpeningTrainerService(
+        IImportedGameStore importedGameStore,
+        IAnalysisResultStore resultStore,
+        IStoredMoveAnalysisStore moveAnalysisStore,
+        IOpeningTheoryStore? openingTheoryStore,
+        IOpeningTrainingHistoryStore? historyStore,
+        IClock clock)
         : this(
             importedGameStore,
             new TrainingAnalysisDataSource(moveAnalysisStore, resultStore),
             openingTheoryStore is null ? null : new OpeningTheoryQueryService(openingTheoryStore),
-            historyStore)
+            historyStore,
+            clock)
     {
     }
 
@@ -58,11 +83,22 @@ public sealed class OpeningTrainerService
         TrainingAnalysisDataSource analysisDataSource,
         IOpeningTheoryStore? openingTheoryStore = null,
         IOpeningTrainingHistoryStore? historyStore = null)
+        : this(importedGameStore, analysisDataSource, openingTheoryStore, historyStore, SystemClock.Instance)
+    {
+    }
+
+    internal OpeningTrainerService(
+        IImportedGameStore importedGameStore,
+        TrainingAnalysisDataSource analysisDataSource,
+        IOpeningTheoryStore? openingTheoryStore,
+        IOpeningTrainingHistoryStore? historyStore,
+        IClock clock)
         : this(
             importedGameStore,
             analysisDataSource,
             openingTheoryStore is null ? null : new OpeningTheoryQueryService(openingTheoryStore),
-            historyStore)
+            historyStore,
+            clock)
     {
     }
 
@@ -71,11 +107,22 @@ public sealed class OpeningTrainerService
         TrainingAnalysisDataSource analysisDataSource,
         OpeningTheoryQueryService? openingTheory,
         IOpeningTrainingHistoryStore? historyStore = null)
+        : this(importedGameStore, analysisDataSource, openingTheory, historyStore, SystemClock.Instance)
+    {
+    }
+
+    internal OpeningTrainerService(
+        IImportedGameStore importedGameStore,
+        TrainingAnalysisDataSource analysisDataSource,
+        OpeningTheoryQueryService? openingTheory,
+        IOpeningTrainingHistoryStore? historyStore,
+        IClock clock)
     {
         this.importedGameStore = importedGameStore ?? throw new ArgumentNullException(nameof(importedGameStore));
         this.analysisDataSource = analysisDataSource ?? throw new ArgumentNullException(nameof(analysisDataSource));
         this.openingTheory = openingTheory;
         this.historyStore = historyStore;
+        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
     public bool TryBuildSession(string playerKeyOrName, out OpeningTrainingSession? session, OpeningTrainingSessionOptions? options = null)
@@ -163,11 +210,12 @@ public sealed class OpeningTrainerService
             .ToList();
         IReadOnlyList<OpeningTrainingSourceSummary> sourceSummaries = BuildSourceSummaries(positions, lines);
 
+        DateTime createdUtc = clock.UtcNow;
         session = new OpeningTrainingSession(
-            $"opening-trainer:{normalizedPlayerKey}:{DateTime.UtcNow:yyyyMMddHHmmss}",
+            $"opening-trainer:{normalizedPlayerKey}:{createdUtc:yyyyMMddHHmmss}",
             normalizedPlayerKey,
             displayName,
-            DateTime.UtcNow,
+            createdUtc,
             effectiveOptions.TrainingStyle,
             effectiveOptions.Strictness,
             effectiveOptions.SelectedSide,
@@ -422,7 +470,7 @@ public sealed class OpeningTrainerService
 
         Dictionary<string, OpeningTrainingPosition> positionsById = session.Positions
             .ToDictionary(position => position.PositionId, StringComparer.Ordinal);
-        DateTime finishedUtc = completedUtc?.ToUniversalTime() ?? DateTime.UtcNow;
+        DateTime finishedUtc = completedUtc?.ToUniversalTime() ?? clock.UtcNow;
         IReadOnlyList<OpeningTrainingRecordedAttempt> recordedAttempts = attempts
             .Select(attempt =>
             {

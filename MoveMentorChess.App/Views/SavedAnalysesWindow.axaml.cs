@@ -2,28 +2,32 @@ using System.Text;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using MoveMentorChess.App.ViewModels;
 using MoveMentorChess.Persistence;
 
 namespace MoveMentorChess.App.Views;
 
 public partial class SavedAnalysesWindow : Window
 {
-    private readonly IAnalysisStore analysisStore;
+    private readonly ISavedLibraryDataService dataService;
     private readonly bool canOpenAnalysis;
 
     public SavedAnalysesWindow()
+        : this(new DefaultSavedLibraryDataService(() => null), canOpenAnalysis: true)
     {
-        analysisStore = AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable.");
-        canOpenAnalysis = true;
-        InitializeComponent();
     }
 
-    public SavedAnalysesWindow(IAnalysisStore analysisStore, bool canOpenAnalysis)
+    internal SavedAnalysesWindow(ISavedLibraryDataService dataService, bool canOpenAnalysis)
     {
-        this.analysisStore = analysisStore;
+        this.dataService = dataService ?? throw new ArgumentNullException(nameof(dataService));
         this.canOpenAnalysis = canOpenAnalysis;
         InitializeComponent();
         RefreshList();
+    }
+
+    public SavedAnalysesWindow(IAnalysisStore analysisStore, bool canOpenAnalysis)
+        : this(new StoreBackedSavedLibraryDataService(analysisStore), canOpenAnalysis)
+    {
     }
 
     public GameAnalysisResult? SelectedResult { get; private set; }
@@ -63,12 +67,11 @@ public partial class SavedAnalysesWindow : Window
         }
 
         string gameFingerprint = GameFingerprint.Compute(item.Result.Game.PgnText);
-        if (!analysisStore.DeleteImportedGame(gameFingerprint))
+        if (!dataService.DeleteGameAndCachedAnalysis(gameFingerprint))
         {
             return;
         }
 
-        GameAnalysisCache.RemoveGame(gameFingerprint);
         RefreshList();
     }
 
@@ -85,7 +88,7 @@ public partial class SavedAnalysesWindow : Window
         OpenAnalysisButton.IsEnabled = false;
         DeleteSelectedButton.IsEnabled = false;
 
-        IReadOnlyList<GameAnalysisResult> items = analysisStore.ListResults(FilterTextBox.Text, limit: 1000);
+        IReadOnlyList<GameAnalysisResult> items = dataService.ListResults(FilterTextBox.Text, limit: 1000);
         string normalizedFilter = FilterTextBox.Text?.Trim() ?? string.Empty;
         IEnumerable<GameAnalysisResult> filtered = string.IsNullOrWhiteSpace(normalizedFilter)
             ? items

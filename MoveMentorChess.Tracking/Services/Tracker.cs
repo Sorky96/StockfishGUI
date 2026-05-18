@@ -10,12 +10,19 @@ public sealed class Tracker
     private readonly TrackingCoordinator coordinator;
 
     public Tracker(string tesseractDataPath)
+        : this(tesseractDataPath, SystemClock.Instance)
     {
+    }
+
+    public Tracker(string tesseractDataPath, IClock clock)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
         captureService = new ScreenCaptureService();
         coordinator = new TrackingCoordinator(
-            new MoveListOcrRecognizer(tesseractDataPath),
+            new MoveListOcrRecognizer(tesseractDataPath, clock),
             new BoardPositionRecognizer(Path.Combine(AppContext.BaseDirectory, "Images")),
-            captureService);
+            captureService,
+            clock);
     }
 
     public TrackingUpdate Poll(TrackingProfile profile)
