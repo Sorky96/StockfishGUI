@@ -23,7 +23,7 @@ internal sealed class DefaultMainWindowDialogDataService : IMainWindowDialogData
             return false;
         }
 
-        viewModel = new OpeningTrainerWindowViewModel(store);
+        viewModel = new OpeningTrainerWindowViewModel(new OpeningTrainerWorkspaceService(store));
         return true;
     }
 
@@ -36,7 +36,7 @@ internal sealed class DefaultMainWindowDialogDataService : IMainWindowDialogData
             return false;
         }
 
-        viewModel = new OpeningCoverageWindowViewModel(store);
+        viewModel = new OpeningCoverageWindowViewModel(new OpeningTrainerWorkspaceService(store));
         return true;
     }
 }

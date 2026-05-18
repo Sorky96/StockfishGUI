@@ -187,6 +187,100 @@ public sealed class GameAnalysisCacheTests
     }
 
     [Fact]
+    public void GameAnalysisCache_LogsPersistentResultSaveFailureAndKeepsMemoryCache()
+    {
+        CapturingPersistenceDiagnosticsLogger logger = new();
+
+        try
+        {
+            PersistenceDiagnostics.Logger = logger;
+            GameAnalysisCache.OverridePersistentStore(new ThrowingAnalysisStore());
+            GameAnalysisCache.Clear();
+
+            ImportedGame game = PgnGameParser.Parse(MiniPgn);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions());
+            GameAnalysisResult result = new(game, PlayerSide.White, [], [], []);
+
+            GameAnalysisCache.StoreResult(key, result);
+
+            Assert.True(GameAnalysisCache.TryGetResult(key, out GameAnalysisResult? cached));
+            Assert.Same(result, cached);
+            PersistenceWarning warning = Assert.Single(logger.Warnings);
+            Assert.Equal(nameof(GameAnalysisCache), warning.Source);
+            Assert.Contains("Failed to persist analysis result", warning.Message);
+            Assert.IsType<InvalidOperationException>(warning.Exception);
+        }
+        finally
+        {
+            GameAnalysisCache.ResetPersistentStoreOverride();
+            GameAnalysisCache.Clear();
+            PersistenceDiagnostics.ResetLogger();
+        }
+    }
+
+    [Fact]
+    public void GameAnalysisCache_LogsPersistentLoadFailureAndReturnsMiss()
+    {
+        CapturingPersistenceDiagnosticsLogger logger = new();
+
+        try
+        {
+            PersistenceDiagnostics.Logger = logger;
+            GameAnalysisCache.OverridePersistentStore(new ThrowingAnalysisStore());
+            GameAnalysisCache.Clear();
+
+            ImportedGame game = PgnGameParser.Parse(MiniPgn);
+            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(game, PlayerSide.White, new EngineAnalysisOptions());
+
+            bool found = GameAnalysisCache.TryGetResult(key, out GameAnalysisResult? cached);
+
+            Assert.False(found);
+            Assert.Null(cached);
+            PersistenceWarning warning = Assert.Single(logger.Warnings);
+            Assert.Equal(nameof(GameAnalysisCache), warning.Source);
+            Assert.Contains("Failed to load analysis result", warning.Message);
+            Assert.IsType<InvalidOperationException>(warning.Exception);
+        }
+        finally
+        {
+            GameAnalysisCache.ResetPersistentStoreOverride();
+            GameAnalysisCache.Clear();
+            PersistenceDiagnostics.ResetLogger();
+        }
+    }
+
+    [Fact]
+    public void GameAnalysisCache_LogsPersistentWindowStateFailureAndKeepsMemoryState()
+    {
+        CapturingPersistenceDiagnosticsLogger logger = new();
+
+        try
+        {
+            PersistenceDiagnostics.Logger = logger;
+            GameAnalysisCache.OverridePersistentStore(new ThrowingAnalysisStore());
+            GameAnalysisCache.Clear();
+
+            ImportedGame game = PgnGameParser.Parse(MiniPgn);
+            AnalysisWindowState state = new(PlayerSide.Black, 2, 1);
+
+            GameAnalysisCache.StoreWindowState(game, state);
+
+            Assert.True(GameAnalysisCache.TryGetWindowState(game, out AnalysisWindowState? cached));
+            Assert.Equal(state, cached);
+            PersistenceWarning warning = Assert.Single(logger.Warnings);
+            Assert.Equal(nameof(GameAnalysisCache), warning.Source);
+            Assert.Contains("Failed to persist analysis window state", warning.Message);
+            Assert.IsType<InvalidOperationException>(warning.Exception);
+        }
+        finally
+        {
+            GameAnalysisCache.ResetPersistentStoreOverride();
+            GameAnalysisCache.Clear();
+            PersistenceDiagnostics.ResetLogger();
+        }
+    }
+
+    [Fact]
     public void MoveExplanation_DeserializesOlderPayloadWithoutDetailedText()
     {
         MoveExplanation? explanation = JsonSerializer.Deserialize<MoveExplanation>(
@@ -208,6 +302,65 @@ public sealed class GameAnalysisCacheTests
         if (File.Exists(databasePath))
         {
             File.Delete(databasePath);
+        }
+    }
+
+    private sealed class CapturingPersistenceDiagnosticsLogger : IPersistenceDiagnosticsLogger
+    {
+        public List<PersistenceWarning> Warnings { get; } = [];
+
+        public void WriteWarning(string source, string message, Exception exception)
+        {
+            Warnings.Add(new PersistenceWarning(source, message, exception));
+        }
+    }
+
+    private sealed record PersistenceWarning(string Source, string Message, Exception Exception);
+
+    private sealed class ThrowingAnalysisStore : IAnalysisStore
+    {
+        public void SaveImportedGame(ImportedGame game)
+        {
+        }
+
+        public void SaveImportedGames(IReadOnlyList<ImportedGame> games)
+        {
+        }
+
+        public bool TryLoadImportedGame(string gameFingerprint, out ImportedGame? game)
+        {
+            game = null;
+            return false;
+        }
+
+        public bool DeleteImportedGame(string gameFingerprint) => false;
+
+        public IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText = null, int limit = 200) => [];
+
+        public IReadOnlyList<GameAnalysisResult> ListResults(string? filterText = null, int limit = 500) => [];
+
+        public bool TryLoadResult(GameAnalysisCacheKey key, out GameAnalysisResult? result)
+        {
+            result = null;
+            throw new InvalidOperationException("Result load failed.");
+        }
+
+        public void SaveResult(GameAnalysisCacheKey key, GameAnalysisResult result)
+        {
+            throw new InvalidOperationException("Result save failed.");
+        }
+
+        public IReadOnlyList<StoredMoveAnalysis> ListMoveAnalyses(string? filterText = null, int limit = 5000) => [];
+
+        public bool TryLoadWindowState(string gameFingerprint, out AnalysisWindowState? state)
+        {
+            state = null;
+            throw new InvalidOperationException("Window state load failed.");
+        }
+
+        public void SaveWindowState(string gameFingerprint, AnalysisWindowState state)
+        {
+            throw new InvalidOperationException("Window state save failed.");
         }
     }
 }

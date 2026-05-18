@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using Avalonia.Media;
 using MoveMentorChess.Analysis;
@@ -812,8 +813,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 LoadImportedGameCore(game);
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                Trace.TraceWarning(
+                    "MainWindowViewModel: skipped imported game '{0}' because replay loading failed ({1}: {2})",
+                    GameFingerprint.Compute(game.PgnText),
+                    ex.GetType().Name,
+                    ex.Message);
                 skippedGames++;
             }
         }

@@ -79,8 +79,13 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     private bool overviewOpenedFromTodayRecommendation;
 
     public OpeningTrainerWindowViewModel(IAnalysisStore analysisStore)
+        : this(new OpeningTrainerWorkspaceService(analysisStore))
     {
-        workspaceService = new OpeningTrainerWorkspaceService(analysisStore);
+    }
+
+    public OpeningTrainerWindowViewModel(OpeningTrainerWorkspaceService workspaceService)
+    {
+        this.workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         RefreshCommand = new RelayCommand(RefreshOpenings);
         GoToOverviewCommand = new RelayCommand(OpenOverviewPage, () => SelectedOpening is not null && overview is not null);
         GoToSelectionCommand = new RelayCommand(() => SetPage(SelectionPageIndex));
@@ -1304,7 +1309,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         }
 
         guidedSession = workspaceService.BuildGuidedStudySession(SelectedOpening, overview, PlayerKey, SelectedStrictness, specialMode, target);
-        studyStartedUtc = DateTime.UtcNow;
+        studyStartedUtc = workspaceService.UtcNow;
         firstMoveUtc = null;
         currentStartSource = startSource;
         currentRecommendationId = startSource is "today_recommendation" or "overview_priority"
@@ -1400,7 +1405,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
             return;
         }
 
-        firstMoveUtc ??= DateTime.UtcNow;
+        firstMoveUtc ??= workspaceService.UtcNow;
         string submittedAnswer = position.AnswerKind == OpeningTrainingAnswerKind.Move
             ? MoveInput
             : SelectedAnswerOption?.Id ?? string.Empty;
@@ -1928,7 +1933,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
         if (scheduledActionIdsBySource.TryGetValue(action.Id, out string? scheduledActionId)
             && action.Kind == TrainingNextActionKind.RepeatNow)
         {
-            workspaceService.MarkScheduledActionCompleted(PlayerKey, scheduledActionId, DateTime.UtcNow);
+            workspaceService.MarkScheduledActionCompleted(PlayerKey, scheduledActionId);
         }
 
         workspaceService.TrackTelemetry(
@@ -2043,7 +2048,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
 
         studyAbandonedTracked = true;
         sessionResultSaved = true;
-        DateTime abandonedUtc = DateTime.UtcNow;
+        DateTime abandonedUtc = workspaceService.UtcNow;
         workspaceService.SaveSessionResult(
             guidedSession,
             currentSessionAttempts,
@@ -2121,7 +2126,7 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
             return;
         }
 
-        firstMoveUtc ??= DateTime.UtcNow;
+        firstMoveUtc ??= workspaceService.UtcNow;
         OpeningTrainingAttemptResult result = BuildDontKnowAttempt(position);
         currentSessionAttempts.Add(result);
         wrongAttempts++;

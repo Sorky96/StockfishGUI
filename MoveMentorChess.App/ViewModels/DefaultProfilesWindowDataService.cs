@@ -22,7 +22,7 @@ internal sealed class DefaultProfilesWindowDataService(Func<IAnalysisStore?> ana
             return false;
         }
 
-        viewModel = new OpeningTrainerWindowViewModel(store);
+        viewModel = new OpeningTrainerWindowViewModel(new OpeningTrainerWorkspaceService(store));
         return true;
     }
 

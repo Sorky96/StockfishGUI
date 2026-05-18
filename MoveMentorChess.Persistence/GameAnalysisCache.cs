@@ -75,8 +75,12 @@ public static class GameAnalysisCache
         {
             store.SaveResult(key, result);
         }
-        catch
+        catch (Exception ex)
         {
+            PersistenceDiagnostics.Warning(
+                nameof(GameAnalysisCache),
+                $"Failed to persist analysis result for game fingerprint '{key.GameFingerprint}'. The in-memory cache remains available.",
+                ex);
             // Keep in-memory cache working even if persistence is unavailable.
         }
     }
@@ -130,8 +134,12 @@ public static class GameAnalysisCache
         {
             store.SaveWindowState(fingerprint, state);
         }
-        catch
+        catch (Exception ex)
         {
+            PersistenceDiagnostics.Warning(
+                nameof(GameAnalysisCache),
+                $"Failed to persist analysis window state for game fingerprint '{fingerprint}'. The in-memory state remains available.",
+                ex);
             // Keep in-memory cache working even if persistence is unavailable.
         }
     }
@@ -170,8 +178,12 @@ public static class GameAnalysisCache
         {
             return store.TryLoadResult(key, out result);
         }
-        catch
+        catch (Exception ex)
         {
+            PersistenceDiagnostics.Warning(
+                nameof(GameAnalysisCache),
+                $"Failed to load analysis result for game fingerprint '{key.GameFingerprint}' from persistent store.",
+                ex);
             result = null;
             return false;
         }
@@ -183,8 +195,12 @@ public static class GameAnalysisCache
         {
             return store.TryLoadWindowState(fingerprint, out state);
         }
-        catch
+        catch (Exception ex)
         {
+            PersistenceDiagnostics.Warning(
+                nameof(GameAnalysisCache),
+                $"Failed to load analysis window state for game fingerprint '{fingerprint}' from persistent store.",
+                ex);
             state = null;
             return false;
         }

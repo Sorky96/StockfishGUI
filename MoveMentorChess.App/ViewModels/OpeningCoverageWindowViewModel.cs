@@ -18,8 +18,13 @@ public sealed class OpeningCoverageWindowViewModel : ViewModelBase
     private double averageCoveragePercent;
 
     public OpeningCoverageWindowViewModel(IAnalysisStore analysisStore)
+        : this(new OpeningTrainerWorkspaceService(analysisStore))
     {
-        workspaceService = new OpeningTrainerWorkspaceService(analysisStore);
+    }
+
+    public OpeningCoverageWindowViewModel(OpeningTrainerWorkspaceService workspaceService)
+    {
+        this.workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         RefreshCommand = new RelayCommand(Refresh);
         AvailableSides = Enum.GetValues<RepertoireSide>();
         Refresh();
