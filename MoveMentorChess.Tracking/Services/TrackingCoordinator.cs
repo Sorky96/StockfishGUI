@@ -9,6 +9,7 @@ public sealed class TrackingCoordinator
     private readonly IMoveListRecognizer moveListRecognizer;
     private readonly BoardPositionRecognizer boardRecognizer;
     private readonly ScreenCaptureService captureService;
+    private readonly IClock clock;
 
     private string? lastObservedHash;
     private int stableFrameCount;
@@ -20,10 +21,20 @@ public sealed class TrackingCoordinator
         IMoveListRecognizer moveListRecognizer,
         BoardPositionRecognizer boardRecognizer,
         ScreenCaptureService captureService)
+        : this(moveListRecognizer, boardRecognizer, captureService, SystemClock.Instance)
     {
-        this.moveListRecognizer = moveListRecognizer;
-        this.boardRecognizer = boardRecognizer;
-        this.captureService = captureService;
+    }
+
+    public TrackingCoordinator(
+        IMoveListRecognizer moveListRecognizer,
+        BoardPositionRecognizer boardRecognizer,
+        ScreenCaptureService captureService,
+        IClock clock)
+    {
+        this.moveListRecognizer = moveListRecognizer ?? throw new ArgumentNullException(nameof(moveListRecognizer));
+        this.boardRecognizer = boardRecognizer ?? throw new ArgumentNullException(nameof(boardRecognizer));
+        this.captureService = captureService ?? throw new ArgumentNullException(nameof(captureService));
+        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
     public TrackingUpdate ProcessFrame(Bitmap boardImage, Bitmap moveListImage, TrackingProfile profile)
@@ -73,7 +84,7 @@ public sealed class TrackingCoordinator
                 incrementalFen,
                 incrementalPlacementFen,
                 boardConfidence,
-                DateTime.UtcNow,
+                clock.UtcNow,
                 lastAcceptedSnapshot.Moves);
 
             lastAcceptedHash = combinedHash;
@@ -148,7 +159,7 @@ public sealed class TrackingCoordinator
             position.GetFen(),
             placementFen,
             confidence,
-            DateTime.UtcNow,
+            clock.UtcNow,
             Array.Empty<string>());
         lastAcceptedSnapshot = snapshot;
         lastAcceptedHash = null;
@@ -168,14 +179,15 @@ public sealed class TrackingCoordinator
                 ? position.GetPlacementFen()
                 : placementFen,
             1.0,
-            DateTime.UtcNow,
+            clock.UtcNow,
             Array.Empty<string>());
 
         if (TryResolveNextFen(lastAcceptedSnapshot.Fen, placementFen, out string inferredFen))
         {
+            DateTime timestampUtc = clock.UtcNow;
             return new TrackingUpdate(
                 new TrackerStatus(TrackerStatusKind.Tracking, "Board-only tracking inferred the next legal move."),
-                new TrackedPositionSnapshot(inferredFen, placementFen, 1.0, DateTime.UtcNow, Array.Empty<string>()));
+                new TrackedPositionSnapshot(inferredFen, placementFen, 1.0, timestampUtc, Array.Empty<string>()));
         }
 
         if (!IsPlausibleSingleFrameLayoutUpdate(lastAcceptedSnapshot.PlacementFen, placementFen))
@@ -191,7 +203,7 @@ public sealed class TrackingCoordinator
                 ReplacePlacementPreservingState(lastAcceptedSnapshot.Fen, placementFen),
                 placementFen,
                 1.0,
-                DateTime.UtcNow,
+                clock.UtcNow,
                 Array.Empty<string>()));
     }
 
@@ -220,7 +232,7 @@ public sealed class TrackingCoordinator
             position.GetFen(),
             placementFen,
             confidence,
-            DateTime.UtcNow,
+            clock.UtcNow,
             Array.Empty<string>());
 
         lastAcceptedHash = combinedHash;
@@ -279,7 +291,7 @@ public sealed class TrackingCoordinator
             nextFen,
             placementFen,
             confidence,
-            DateTime.UtcNow,
+            clock.UtcNow,
             Array.Empty<string>());
 
         lastAcceptedHash = combinedHash;

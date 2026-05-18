@@ -20,10 +20,17 @@ public sealed class MoveListOcrRecognizer : IMoveListRecognizer
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private readonly string tesseractDataPath;
+    private readonly IClock clock;
 
     public MoveListOcrRecognizer(string tesseractDataPath)
+        : this(tesseractDataPath, SystemClock.Instance)
+    {
+    }
+
+    public MoveListOcrRecognizer(string tesseractDataPath, IClock clock)
     {
         this.tesseractDataPath = tesseractDataPath;
+        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
     public bool TryRecognize(Bitmap source, out MoveListRecognitionResult? result, out string? error)
@@ -57,7 +64,7 @@ public sealed class MoveListOcrRecognizer : IMoveListRecognizer
                 placementFen,
                 moves,
                 0.92,
-                DateTime.UtcNow);
+                clock.UtcNow);
             return true;
         }
         catch (Exception ex)
