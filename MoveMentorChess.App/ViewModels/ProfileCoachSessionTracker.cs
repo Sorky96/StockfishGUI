@@ -3,6 +3,7 @@ namespace MoveMentorChess.App.ViewModels;
 internal sealed class ProfileCoachSessionTracker
 {
     private readonly OpeningTrainingTelemetryService telemetryService;
+    private readonly IClock clock;
     private PlayerProfileReport? currentReport;
     private string? currentPlayerKey;
     private ProfileViewMode currentViewMode = ProfileViewMode.Coach;
@@ -12,8 +13,14 @@ internal sealed class ProfileCoachSessionTracker
     private double maxScrollDepth;
 
     public ProfileCoachSessionTracker(OpeningTrainingTelemetryService telemetryService)
+        : this(telemetryService, SystemClock.Instance)
+    {
+    }
+
+    public ProfileCoachSessionTracker(OpeningTrainingTelemetryService telemetryService, IClock clock)
     {
         this.telemetryService = telemetryService ?? throw new ArgumentNullException(nameof(telemetryService));
+        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
     public void StartProfile(PlayerProfileReport report, string? playerKey, ProfileViewMode viewMode)
@@ -23,7 +30,7 @@ internal sealed class ProfileCoachSessionTracker
         currentViewMode = viewMode;
         actionClicked = false;
         closedTracked = false;
-        openedUtc = DateTime.UtcNow;
+        openedUtc = clock.UtcNow;
         maxScrollDepth = 0;
     }
 
@@ -61,7 +68,7 @@ internal sealed class ProfileCoachSessionTracker
         result["view_mode"] = currentViewMode.ToString();
         result["seconds_since_open"] = openedUtc is null
             ? "0"
-            : ((int)Math.Max(0, (DateTime.UtcNow - openedUtc.Value).TotalSeconds))
+            : ((int)Math.Max(0, (clock.UtcNow - openedUtc.Value).TotalSeconds))
                 .ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         Track("profile_training_action_clicked", result);
@@ -75,7 +82,7 @@ internal sealed class ProfileCoachSessionTracker
         }
 
         closedTracked = true;
-        int secondsOpen = (int)Math.Max(0, (DateTime.UtcNow - openedUtc.Value).TotalSeconds);
+        int secondsOpen = (int)Math.Max(0, (clock.UtcNow - openedUtc.Value).TotalSeconds);
         Track("profile_coach_closed", new Dictionary<string, string>
         {
             ["reason"] = reason,

@@ -11,7 +11,12 @@ internal sealed class DefaultProfilesWindowDataService(Func<IAnalysisStore?> ana
         => profileService ??= new PlayerProfileService(GetRequiredStore());
 
     public ProfileCoachSessionTracker CreateSessionTracker()
-        => new(new OpeningTrainingTelemetryService(analysisStoreProvider() as IOpeningTrainingTelemetryStore));
+    {
+        IClock clock = SystemClock.Instance;
+        return new(
+            new OpeningTrainingTelemetryService(analysisStoreProvider() as IOpeningTrainingTelemetryStore, clock),
+            clock);
+    }
 
     public bool TryCreateOpeningTrainerViewModel(out OpeningTrainerWindowViewModel? viewModel)
     {

@@ -7,7 +7,10 @@ internal sealed class ProvidedProfilesWindowDataService(PlayerProfileService pro
     public PlayerProfileService ProfileService { get; } = profileService ?? throw new ArgumentNullException(nameof(profileService));
 
     public ProfileCoachSessionTracker CreateSessionTracker()
-        => new(new OpeningTrainingTelemetryService());
+    {
+        IClock clock = SystemClock.Instance;
+        return new(new OpeningTrainingTelemetryService(null, clock), clock);
+    }
 
     public bool TryCreateOpeningTrainerViewModel(out OpeningTrainerWindowViewModel? viewModel)
     {
