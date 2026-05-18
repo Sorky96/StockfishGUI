@@ -4,6 +4,8 @@ namespace MoveMentorChess.App.ViewModels;
 
 internal sealed class DefaultSavedLibraryDataService(Func<IAnalysisStore?> analysisStoreProvider) : ISavedLibraryDataService
 {
+    public bool IsAvailable => analysisStoreProvider() is not null;
+
     public IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText)
         => GetRequiredStore().ListImportedGames(filterText);
 

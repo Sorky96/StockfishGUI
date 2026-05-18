@@ -94,7 +94,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        SavedGamesWindow dialog = new(dialogDataService.SavedLibrary);
+        ISavedLibraryDataService savedLibrary = dialogDataService.SavedLibrary;
+        if (!savedLibrary.IsAvailable)
+        {
+            return;
+        }
+
+        SavedGamesWindow dialog = new(savedLibrary);
         bool? result = await dialog.ShowDialog<bool?>(this);
         if (result == true && dialog.SelectedGame is not null)
         {
@@ -226,7 +232,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        SavedAnalysesWindow dialog = new(dialogDataService.SavedLibrary, canOpenAnalysis: true);
+        ISavedLibraryDataService savedLibrary = dialogDataService.SavedLibrary;
+        if (!savedLibrary.IsAvailable)
+        {
+            return;
+        }
+
+        SavedAnalysesWindow dialog = new(savedLibrary, canOpenAnalysis: true);
         bool? result = await dialog.ShowDialog<bool?>(this);
         if (result != true || dialog.SelectedResult is null)
         {

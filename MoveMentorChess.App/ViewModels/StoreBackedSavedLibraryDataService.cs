@@ -6,6 +6,8 @@ internal sealed class StoreBackedSavedLibraryDataService(IAnalysisStore analysis
 {
     private readonly IAnalysisStore analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
 
+    public bool IsAvailable => true;
+
     public IReadOnlyList<SavedImportedGameSummary> ListImportedGames(string? filterText)
         => analysisStore.ListImportedGames(filterText);
 
