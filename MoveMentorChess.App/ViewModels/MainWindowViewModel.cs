@@ -15,7 +15,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private static readonly IReadOnlyList<PlayerSide> AnalysisSides = [PlayerSide.White, PlayerSide.Black];
 
     private readonly IStockfishPathResolver stockfishPathResolver;
-    private readonly Func<IAnalysisStore?> analysisStoreProvider;
+    private readonly IMainWindowAnalysisDataService analysisDataService;
     private readonly ChessGame chessGame = new();
     private readonly Stack<string> undoFenStack = new();
     private readonly HashSet<string> availableTargets = new(StringComparer.Ordinal);
@@ -48,16 +48,23 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public MainWindowViewModel()
         : this(
             new DefaultStockfishPathResolver(),
-            AnalysisStoreProvider.GetStore)
+            new DefaultMainWindowAnalysisDataService(() => null))
     {
     }
 
     public MainWindowViewModel(
         IStockfishPathResolver stockfishPathResolver,
         Func<IAnalysisStore?> analysisStoreProvider)
+        : this(stockfishPathResolver, new DefaultMainWindowAnalysisDataService(analysisStoreProvider))
+    {
+    }
+
+    internal MainWindowViewModel(
+        IStockfishPathResolver stockfishPathResolver,
+        IMainWindowAnalysisDataService analysisDataService)
     {
         this.stockfishPathResolver = stockfishPathResolver ?? throw new ArgumentNullException(nameof(stockfishPathResolver));
-        this.analysisStoreProvider = analysisStoreProvider ?? throw new ArgumentNullException(nameof(analysisStoreProvider));
+        this.analysisDataService = analysisDataService ?? throw new ArgumentNullException(nameof(analysisDataService));
         UndoCommand = new RelayCommand(UndoLastMove, () => undoFenStack.Count > 0 && !IsBusy);
         RotateBoardCommand = new RelayCommand(ToggleBoardRotation, () => !IsBusy);
         ApplyNextImportedMoveCommand = new RelayCommand(ApplyNextImportedMove, () => !IsBusy && importedCursor < importedReplay.Count);
@@ -483,7 +490,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 : $"The analysis engine is reviewing games for {primaryPlayer}. This may take a while.";
 
             EngineAnalysisOptions options = StockfishSettingsStore.Load().ToBulkAnalysisOptions();
-            GameAnalysisService analysisService = new(engine, openingTheory: CreateOpeningTheory());
+            GameAnalysisService analysisService = new(engine, openingTheory: analysisDataService.CreateOpeningTheory());
             GameAnalysisResult? lastResult = null;
 
             foreach (ImportedGame game in games)
@@ -500,8 +507,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 string bulkStatus = BuildBulkAnalysisStatus(game, side, analyzed + cached + failed + skipped + 1, games.Count, primaryPlayer);
                 StatusMessage = bulkStatus;
 
-                GameAnalysisCacheKey cacheKey = GameAnalysisCache.CreateKey(game, side, options);
-                if (GameAnalysisCache.TryGetResult(cacheKey, out GameAnalysisResult? cachedResult) && cachedResult is not null)
+                if (analysisDataService.TryGetCachedAnalysis(game, side, options, out GameAnalysisResult? cachedResult) && cachedResult is not null)
                 {
                     cached++;
                     lastResult = cachedResult;
@@ -518,7 +524,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                     GameAnalysisResult result = await Task.Run(
                         () => analysisService.AnalyzeGame(game, side, options, progress, cancellation.Token),
                         cancellation.Token);
-                    GameAnalysisCache.StoreResult(cacheKey, result);
+                    analysisDataService.StoreAnalysisResult(game, side, options, result);
                     analyzed++;
                     lastResult = result;
                 }
@@ -572,8 +578,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        IAnalysisStore? store = analysisStoreProvider();
-        if (store is null || !store.TryLoadImportedGame(example.GameFingerprint, out ImportedGame? game) || game is null)
+        if (!analysisDataService.TryLoadImportedGame(example.GameFingerprint, out ImportedGame? game) || game is null)
         {
             StatusMessage = "Could not find the selected game in local storage.";
             return;
@@ -834,13 +839,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             ApplyAnalysisToImportedMoves();
             IProgress<GameAnalysisProgress> progress = new Progress<GameAnalysisProgress>(ShowAnalysisProgressOnBoard);
 
-            GameAnalysisService analysisService = new(engine, openingTheory: CreateOpeningTheory());
+            GameAnalysisService analysisService = new(engine, openingTheory: analysisDataService.CreateOpeningTheory());
             cachedAnalysisResult = await Task.Run(() => analysisService.AnalyzeGame(
                 importedGame,
                 SelectedAnalysisSide,
                 new EngineAnalysisOptions(),
                 progress));
-            GameAnalysisCache.StoreResult(GameAnalysisCache.CreateKey(importedGame, SelectedAnalysisSide, new EngineAnalysisOptions()), cachedAnalysisResult);
+            analysisDataService.StoreAnalysisResult(importedGame, SelectedAnalysisSide, new EngineAnalysisOptions(), cachedAnalysisResult);
             cachedAnalysisResultsBySide[SelectedAnalysisSide] = cachedAnalysisResult;
             ApplyAnalysisToImportedMoves();
             ApplyAnalysisFilter();
@@ -963,8 +968,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 continue;
             }
 
-            GameAnalysisCacheKey key = GameAnalysisCache.CreateKey(importedGame, side, options);
-            if (GameAnalysisCache.TryGetResult(key, out GameAnalysisResult? cachedResult) && cachedResult is not null)
+            if (analysisDataService.TryGetCachedAnalysis(importedGame, side, options, out GameAnalysisResult? cachedResult) && cachedResult is not null)
             {
                 cachedAnalysisResultsBySide[side] = cachedResult;
             }
@@ -1022,8 +1026,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return false;
         }
 
-        IAnalysisStore? store = analysisStoreProvider();
-        if (store is null || !store.TryLoadImportedGame(gameFingerprint, out ImportedGame? game) || game is null)
+        if (!analysisDataService.TryLoadImportedGame(gameFingerprint, out ImportedGame? game) || game is null)
         {
             StatusMessage = "Could not find the selected game in local storage.";
             return false;
@@ -1470,38 +1473,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     private void SaveImportedGame(ImportedGame parsedGame)
     {
-        IAnalysisStore? store = analysisStoreProvider();
-        if (store is null)
-        {
-            return;
-        }
-
-        try
-        {
-            store.SaveImportedGame(parsedGame);
-        }
-        catch
-        {
-            // Import should still succeed even if local persistence is temporarily unavailable.
-        }
+        analysisDataService.SaveImportedGame(parsedGame);
     }
 
     private void SaveImportedGames(IReadOnlyList<ImportedGame> games)
     {
-        IAnalysisStore? store = analysisStoreProvider();
-        if (store is null || games.Count == 0)
-        {
-            return;
-        }
-
-        try
-        {
-            store.SaveImportedGames(games);
-        }
-        catch
-        {
-            // Import should still succeed even if local persistence is temporarily unavailable.
-        }
+        analysisDataService.SaveImportedGames(games);
     }
 
     public static string? DetectPrimaryPlayer(IReadOnlyList<ImportedGame> games)
@@ -1592,12 +1569,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         int sign = string.Equals(perspectiveSide, sideToMove, StringComparison.Ordinal) ? 1 : -1;
         return (cp ?? 0) * sign;
-    }
-
-    private OpeningTheoryQueryService? CreateOpeningTheory()
-    {
-        IAnalysisStore? store = analysisStoreProvider();
-        return store is null ? null : OpeningTheorySourceResolver.Create(store);
     }
 
     private sealed record PieceMovePresentation(string Label, string EvalText, string EvalBrush);

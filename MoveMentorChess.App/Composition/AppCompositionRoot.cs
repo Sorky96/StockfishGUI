@@ -8,15 +8,16 @@ internal static class AppCompositionRoot
 {
     public static MainWindow CreateMainWindow()
     {
-        IAnalysisWindowFactory analysisWindowFactory = new AnalysisWindowFactory();
+        IAnalysisWindowFactory analysisWindowFactory = new AnalysisWindowFactory(AnalysisStoreProvider.GetStore);
         IProfilesWindowFactory profilesWindowFactory = new ProfilesWindowFactory(AnalysisStoreProvider.GetStore);
         IStockfishPathResolver stockfishPathResolver = new DefaultStockfishPathResolver();
+        IMainWindowAnalysisDataService mainWindowAnalysisDataService = new DefaultMainWindowAnalysisDataService(AnalysisStoreProvider.GetStore);
 
-        return new MainWindow(analysisWindowFactory, profilesWindowFactory)
+        return new MainWindow(analysisWindowFactory, profilesWindowFactory, AnalysisStoreProvider.GetStore)
         {
             DataContext = new MainWindowViewModel(
                 stockfishPathResolver,
-                AnalysisStoreProvider.GetStore)
+                mainWindowAnalysisDataService)
         };
     }
 }

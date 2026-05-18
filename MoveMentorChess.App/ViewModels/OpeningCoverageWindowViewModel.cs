@@ -17,11 +17,6 @@ public sealed class OpeningCoverageWindowViewModel : ViewModelBase
     private int missingEcoLines;
     private double averageCoveragePercent;
 
-    public OpeningCoverageWindowViewModel()
-        : this(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable."))
-    {
-    }
-
     public OpeningCoverageWindowViewModel(IAnalysisStore analysisStore)
     {
         workspaceService = new OpeningTrainerWorkspaceService(analysisStore);

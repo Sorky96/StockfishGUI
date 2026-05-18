@@ -78,11 +78,6 @@ public sealed class OpeningTrainerWindowViewModel : ViewModelBase
     private bool isAdvancedOptionsExpanded;
     private bool overviewOpenedFromTodayRecommendation;
 
-    public OpeningTrainerWindowViewModel()
-        : this(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable."))
-    {
-    }
-
     public OpeningTrainerWindowViewModel(IAnalysisStore analysisStore)
     {
         workspaceService = new OpeningTrainerWorkspaceService(analysisStore);

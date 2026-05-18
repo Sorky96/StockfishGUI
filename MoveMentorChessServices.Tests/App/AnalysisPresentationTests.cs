@@ -157,6 +157,60 @@ public sealed class AnalysisPresentationTests
         Assert.Contains("Label: Opening discipline", details.DetailsText);
     }
 
+    [Fact]
+    public void BuildSnapshotArrows_returns_neutral_played_move_arrow()
+    {
+        MoveAnalysisResult lead = Analysis(
+            Ply(4, 2, PlayerSide.Black, "Nc6", GamePhase.Opening),
+            MoveQualityBucket.Mistake,
+            "opening_principles",
+            centipawnLoss: 90);
+
+        IReadOnlyList<AnalysisSnapshotArrow> arrows = AnalysisSnapshotPresentation.BuildSnapshotArrows(
+            lead,
+            AnalysisSnapshotMode.Played);
+
+        AnalysisSnapshotArrow arrow = Assert.Single(arrows);
+        Assert.Equal("e2", arrow.FromSquare);
+        Assert.Equal("e4", arrow.ToSquare);
+        Assert.Equal("#D9822B", arrow.ColorHex);
+    }
+
+    [Fact]
+    public void AnalysisSelectionState_filters_reviewed_items_and_reports_cache()
+    {
+        MoveAnalysisResult blunder = Analysis(
+            Ply(4, 2, PlayerSide.Black, "Nc6", GamePhase.Opening),
+            MoveQualityBucket.Blunder,
+            "hanging_piece",
+            centipawnLoss: 240);
+        MoveAnalysisResult mistake = Analysis(
+            Ply(6, 3, PlayerSide.Black, "Nf6", GamePhase.Middlegame),
+            MoveQualityBucket.Mistake,
+            "missed_tactic",
+            centipawnLoss: 110);
+        GameAnalysisResult result = Result([blunder, mistake], [Mistake(blunder), Mistake(mistake)]);
+        AnalysisSelectionState state = new();
+        state.SetCurrentResult(result, isCached: true);
+        state.MarkReviewed(blunder);
+
+        AnalysisFilterResult reviewedOnly = state.BuildFilterResult(new AnalysisFilterOption(
+            "Reviewed",
+            QualityFilter: null,
+            AnalysisReviewFilter.Reviewed));
+        AnalysisFilterResult mistakesOnly = state.BuildFilterResult(new AnalysisFilterOption(
+            "Mistakes",
+            MoveQualityBucket.Mistake));
+
+        SelectedMistakeViewItem reviewedItem = Assert.Single(reviewedOnly.Items);
+        Assert.Equal(blunder, reviewedItem.LeadMove);
+        Assert.Equal("Reviewed", reviewedItem.ReviewStatusText);
+        Assert.Contains("Loaded from cache", reviewedOnly.SummaryText);
+        SelectedMistakeViewItem mistakeItem = Assert.Single(mistakesOnly.Items);
+        Assert.Equal(mistake, mistakeItem.LeadMove);
+        Assert.Equal(string.Empty, mistakeItem.ReviewStatusText);
+    }
+
     private static GameAnalysisResult Result(
         IReadOnlyList<MoveAnalysisResult> analyses,
         IReadOnlyList<SelectedMistake> mistakes)

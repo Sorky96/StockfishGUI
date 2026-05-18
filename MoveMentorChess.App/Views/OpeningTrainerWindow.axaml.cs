@@ -8,15 +8,22 @@ namespace MoveMentorChess.App.Views;
 public partial class OpeningTrainerWindow : Window
 {
     public OpeningTrainerWindow()
+        : this(CreateDefaultViewModel())
     {
-        InitializeComponent();
-        DataContext ??= new OpeningTrainerWindowViewModel();
     }
 
     public OpeningTrainerWindow(OpeningTrainerWindowViewModel viewModel)
     {
         InitializeComponent();
         DataContext = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+    }
+
+    private static OpeningTrainerWindowViewModel CreateDefaultViewModel()
+    {
+        DefaultMainWindowDialogDataService dataService = new(() => null);
+        return dataService.TryCreateOpeningTrainerViewModel(out OpeningTrainerWindowViewModel? viewModel) && viewModel is not null
+            ? viewModel
+            : throw new InvalidOperationException("Local analysis store is unavailable.");
     }
 
     private void OnStudyBoardSquarePressed(object? sender, BoardSquarePressedEventArgs e)

@@ -5,11 +5,6 @@ namespace MoveMentorChess.App.ViewModels;
 
 internal sealed class DefaultAnalysisWindowDataService(Func<IAnalysisStore?> storeProvider) : IAnalysisWindowDataService
 {
-    public DefaultAnalysisWindowDataService()
-        : this(AnalysisStoreProvider.GetStore)
-    {
-    }
-
     public bool IsAnalysisForGame(GameAnalysisResult result, ImportedGame game)
         => AnalysisResultCacheLoader.IsAnalysisForGame(result, game);
 

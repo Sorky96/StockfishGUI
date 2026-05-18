@@ -8,7 +8,6 @@ using Avalonia.Threading;
 using MoveMentorChess.Analysis;
 using MoveMentorChess.App.Controls;
 using MoveMentorChess.App.ViewModels;
-using MoveMentorChess.Persistence;
 using MoveMentorChess.Profiles;
 using static MoveMentorChess.App.ViewModels.ProfileCoachPresentationText;
 using static MoveMentorChess.App.ViewModels.ProfileCoachSectionRenderer;
@@ -19,6 +18,7 @@ public partial class ProfilesWindow : Window
 {
     private const string TrainerPreparingSuggestionsText = "Your personal trainer is preparing suggestions...";
 
+    private readonly IProfilesWindowDataService dataService;
     private readonly PlayerProfileService profileService;
     private readonly IPlayerProfileFormatter profileFormatter;
     private readonly ITrainingPlanFormatter trainingPlanFormatter;
@@ -35,7 +35,7 @@ public partial class ProfilesWindow : Window
     private int profileRenderVersion;
 
     public ProfilesWindow()
-        : this(new PlayerProfileService(AnalysisStoreProvider.GetStore() ?? throw new InvalidOperationException("Local analysis store is unavailable.")))
+        : this(new DefaultProfilesWindowDataService(() => null))
     {
     }
 
@@ -46,12 +46,29 @@ public partial class ProfilesWindow : Window
         Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync = null,
         IPlayerProfileFormatter? profileFormatter = null,
         ITrainingPlanFormatter? trainingPlanFormatter = null)
+        : this(
+            new ProvidedProfilesWindowDataService(profileService),
+            navigateToProfileExampleAsync,
+            navigateToOpeningExampleAsync,
+            navigateToOpeningPositionAsync,
+            profileFormatter,
+            trainingPlanFormatter)
     {
-        this.profileService = profileService;
+    }
+
+    internal ProfilesWindow(
+        IProfilesWindowDataService dataService,
+        Func<ProfileMistakeExample, Task>? navigateToProfileExampleAsync = null,
+        Func<OpeningExampleGame, Task>? navigateToOpeningExampleAsync = null,
+        Func<OpeningMoveRecommendation, Task>? navigateToOpeningPositionAsync = null,
+        IPlayerProfileFormatter? profileFormatter = null,
+        ITrainingPlanFormatter? trainingPlanFormatter = null)
+    {
+        this.dataService = dataService ?? throw new ArgumentNullException(nameof(dataService));
+        profileService = dataService.ProfileService;
         this.profileFormatter = profileFormatter ?? PlayerProfileFormatterFactory.CreateDefault();
         this.trainingPlanFormatter = trainingPlanFormatter ?? TrainingPlanFormatterFactory.CreateDefault();
-        profileSessionTracker = new ProfileCoachSessionTracker(
-            new OpeningTrainingTelemetryService(AnalysisStoreProvider.GetStore() as IOpeningTrainingTelemetryStore));
+        profileSessionTracker = dataService.CreateSessionTracker();
         this.navigateToProfileExampleAsync = navigateToProfileExampleAsync;
         this.navigateToOpeningExampleAsync = navigateToOpeningExampleAsync;
         this.navigateToOpeningPositionAsync = navigateToOpeningPositionAsync;
@@ -725,8 +742,7 @@ public partial class ProfilesWindow : Window
 
     private async Task OpenOpeningTrainerAsync(string? openingFilter)
     {
-        IAnalysisStore? store = AnalysisStoreProvider.GetStore();
-        if (store is null)
+        if (!dataService.TryCreateOpeningTrainerViewModel(out OpeningTrainerWindowViewModel? viewModel) || viewModel is null)
         {
             OpenSectionWindow(
                 "Opening Trainer",
@@ -736,7 +752,6 @@ public partial class ProfilesWindow : Window
             return;
         }
 
-        OpeningTrainerWindowViewModel viewModel = new(store);
         if (!string.IsNullOrWhiteSpace(currentProfilePlayerKey))
         {
             viewModel.AdvancedPlayerKey = currentProfilePlayerKey;

@@ -1,18 +1,17 @@
-using Avalonia.Media;
-using MoveMentorChess.Analysis;
 using MoveMentorChess.Engine;
-using MoveMentorChess.Presentation.Models;
 
-namespace MoveMentorChess.App.ViewModels;
+namespace MoveMentorChess.Presentation.Models;
 
-internal enum SnapshotMode
+public enum AnalysisSnapshotMode
 {
     Played,
     Best,
     Threat
 }
 
-internal static class AnalysisSnapshotPresentation
+public sealed record AnalysisSnapshotArrow(string FromSquare, string ToSquare, string ColorHex);
+
+public static class AnalysisSnapshotPresentation
 {
     public static string BuildPositionContextText(MoveAnalysisResult lead, string label)
         => AnalysisSnapshotTextFormatter.BuildPositionContextText(lead, label);
@@ -20,14 +19,14 @@ internal static class AnalysisSnapshotPresentation
     public static string BuildThreatText(string label)
         => AnalysisSnapshotTextFormatter.BuildThreatText(label);
 
-    public static string BuildSnapshotThreatText(MoveAnalysisResult lead, string label, SnapshotMode mode)
+    public static string BuildSnapshotThreatText(MoveAnalysisResult lead, string label, AnalysisSnapshotMode mode)
     {
-        if (mode == SnapshotMode.Best)
+        if (mode == AnalysisSnapshotMode.Best)
         {
             return "Best-move view: compare the green arrow with the move you played.";
         }
 
-        if (mode == SnapshotMode.Threat)
+        if (mode == AnalysisSnapshotMode.Threat)
         {
             EngineLine? threatLine = lead.AfterAnalysis.Lines.FirstOrDefault();
             string threatMove = AnalysisDetailsTextFormatter.FormatMoveFromFen(lead.Replay.FenAfter, threatLine?.MoveUci);
@@ -52,24 +51,24 @@ internal static class AnalysisSnapshotPresentation
         return $"{material}\nKing: {kingSquare}\nMain risk: {BuildThreatText(label)}";
     }
 
-    public static IReadOnlyList<BoardArrowViewModel> BuildSnapshotArrows(MoveAnalysisResult lead, SnapshotMode mode)
+    public static IReadOnlyList<AnalysisSnapshotArrow> BuildSnapshotArrows(MoveAnalysisResult lead, AnalysisSnapshotMode mode)
     {
-        List<BoardArrowViewModel> arrows = [];
+        List<AnalysisSnapshotArrow> arrows = [];
 
-        if (mode == SnapshotMode.Played)
+        if (mode == AnalysisSnapshotMode.Played)
         {
-            arrows.Add(new BoardArrowViewModel(lead.Replay.FromSquare, lead.Replay.ToSquare, Color.Parse("#D9822B")));
+            arrows.Add(new AnalysisSnapshotArrow(lead.Replay.FromSquare, lead.Replay.ToSquare, "#D9822B"));
         }
 
-        if (mode is SnapshotMode.Played or SnapshotMode.Best
-            && TryBuildMoveArrow(lead.Replay.FenBefore, lead.BeforeAnalysis.BestMoveUci, Color.Parse("#56C271"), out BoardArrowViewModel bestArrow))
+        if (mode is AnalysisSnapshotMode.Played or AnalysisSnapshotMode.Best
+            && TryBuildMoveArrow(lead.Replay.FenBefore, lead.BeforeAnalysis.BestMoveUci, "#56C271", out AnalysisSnapshotArrow bestArrow))
         {
             arrows.Add(bestArrow);
         }
 
         EngineLine? threatLine = lead.AfterAnalysis.Lines.FirstOrDefault();
-        if (mode == SnapshotMode.Threat
-            && TryBuildMoveArrow(lead.Replay.FenAfter, threatLine?.MoveUci, Color.Parse("#D84A4A"), out BoardArrowViewModel threatArrow))
+        if (mode == AnalysisSnapshotMode.Threat
+            && TryBuildMoveArrow(lead.Replay.FenAfter, threatLine?.MoveUci, "#D84A4A", out AnalysisSnapshotArrow threatArrow))
         {
             arrows.Add(threatArrow);
         }
@@ -130,9 +129,9 @@ internal static class AnalysisSnapshotPresentation
     public static string BuildBeforeMoveChecklistText(string label)
         => AnalysisSnapshotTextFormatter.BuildBeforeMoveChecklistText(label);
 
-    private static bool TryBuildMoveArrow(string fenBefore, string? uciMove, Color color, out BoardArrowViewModel arrow)
+    private static bool TryBuildMoveArrow(string fenBefore, string? uciMove, string colorHex, out AnalysisSnapshotArrow arrow)
     {
-        arrow = new BoardArrowViewModel("a1", "a1", color);
+        arrow = new AnalysisSnapshotArrow("a1", "a1", colorHex);
         if (string.IsNullOrWhiteSpace(uciMove))
         {
             return false;
@@ -146,8 +145,7 @@ internal static class AnalysisSnapshotPresentation
             return false;
         }
 
-        arrow = new BoardArrowViewModel(appliedMove.FromSquare, appliedMove.ToSquare, color);
+        arrow = new AnalysisSnapshotArrow(appliedMove.FromSquare, appliedMove.ToSquare, colorHex);
         return true;
     }
-
 }
