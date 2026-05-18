@@ -34,14 +34,32 @@ public sealed class OpeningTrainerWorkspaceServiceTests
         Assert.Equal(action, savedAction);
     }
 
+    [Fact]
+    public void TrackTelemetry_UsesInjectedClock()
+    {
+        DateTime nowUtc = new(2026, 5, 18, 14, 45, 0, DateTimeKind.Utc);
+        CapturingHistoryStore store = new();
+        OpeningTrainerWorkspaceService workspace = new(store, new FixedClock(nowUtc));
+
+        workspace.TrackTelemetry(OpeningTrainingTelemetryEvents.OpeningTrainerOpened, "Player One");
+
+        OpeningTrainingTelemetryEvent telemetryEvent = Assert.Single(workspace.GetTelemetrySnapshot());
+        Assert.Equal(nowUtc, telemetryEvent.CreatedUtc);
+        Assert.Equal("player one", telemetryEvent.PlayerKey);
+        OpeningTrainingTelemetryEvent savedEvent = Assert.Single(store.SavedTelemetryEvents);
+        Assert.Equal(telemetryEvent, savedEvent);
+    }
+
     private sealed class FixedClock(DateTime utcNow) : IClock
     {
         public DateTime UtcNow { get; } = utcNow;
     }
 
-    private sealed class CapturingHistoryStore : IAnalysisStore, IOpeningTrainingHistoryStore
+    private sealed class CapturingHistoryStore : IAnalysisStore, IOpeningTrainingHistoryStore, IOpeningTrainingTelemetryStore
     {
         public List<OpeningTrainingScheduledAction> SavedActions { get; } = [];
+
+        public List<OpeningTrainingTelemetryEvent> SavedTelemetryEvents { get; } = [];
 
         public void SaveImportedGame(ImportedGame game) => throw new NotSupportedException();
 
@@ -99,5 +117,17 @@ public sealed class OpeningTrainerWorkspaceServiceTests
         public void MarkOpeningTrainingScheduledActionCompleted(string playerKey, string actionId, DateTime completedUtc)
         {
         }
+
+        public void SaveOpeningTrainingTelemetryEvent(OpeningTrainingTelemetryEvent telemetryEvent)
+        {
+            SavedTelemetryEvents.Add(telemetryEvent);
+        }
+
+        public IReadOnlyList<OpeningTrainingTelemetryEvent> ListOpeningTrainingTelemetryEvents(
+            string? playerKey = null,
+            DateTime? fromUtc = null,
+            DateTime? toUtc = null,
+            int limit = 500)
+            => SavedTelemetryEvents;
     }
 }

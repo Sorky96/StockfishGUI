@@ -2,6 +2,18 @@ namespace MoveMentorChess.Training;
 
 public sealed class OpeningTrainingRecommendationService
 {
+    private readonly IClock clock;
+
+    public OpeningTrainingRecommendationService()
+        : this(SystemClock.Instance)
+    {
+    }
+
+    public OpeningTrainingRecommendationService(IClock clock)
+    {
+        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    }
+
     public TrainingRecommendationCard? Recommend(
         string? playerKey,
         IReadOnlyList<OpeningLineCatalogItem> availableLines,
@@ -24,7 +36,7 @@ public sealed class OpeningTrainingRecommendationService
             return dueRecommendation;
         }
 
-        DateTime now = DateTime.UtcNow;
+        DateTime now = clock.UtcNow;
         Dictionary<OpeningLineKey, HashSet<string>> reviewedBranchesByLine = BuildReviewedBranchesByLine(reviewItems);
         HashSet<string> legacyReviewedBranchKeys = reviewItems
             .Where(item => !item.OpeningLineKey.HasValue)

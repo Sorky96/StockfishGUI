@@ -6,7 +6,7 @@ public sealed class OpeningTrainerWorkspaceService
     private readonly IClock clock;
     private readonly OpeningTheoryQueryService? openingTheory;
     private readonly OpeningTrainerService trainerService;
-    private readonly OpeningTrainingRecommendationService recommendationService = new();
+    private readonly OpeningTrainingRecommendationService recommendationService;
     private readonly OpeningTrainingPriorityService priorityService = new();
     private readonly OpeningTrainingCoachingService coachingService = new();
     private readonly OpeningTrainingNextActionService nextActionService = new();
@@ -27,9 +27,10 @@ public sealed class OpeningTrainerWorkspaceService
         this.analysisStore = analysisStore ?? throw new ArgumentNullException(nameof(analysisStore));
         this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
         openingTheory = OpeningTheorySourceResolver.Create(analysisStore);
-        trainerService = new OpeningTrainerService(analysisStore);
+        trainerService = new OpeningTrainerService(analysisStore, clock);
+        recommendationService = new OpeningTrainingRecommendationService(clock);
         historyStore = analysisStore as IOpeningTrainingHistoryStore;
-        telemetryService = new OpeningTrainingTelemetryService(analysisStore as IOpeningTrainingTelemetryStore);
+        telemetryService = new OpeningTrainingTelemetryService(analysisStore as IOpeningTrainingTelemetryStore, clock);
     }
 
     public DateTime UtcNow => clock.UtcNow;
